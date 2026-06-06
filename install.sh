@@ -119,14 +119,14 @@ ok "Source ready"
 header "Installing ${APP}"
 
 USE_VENV=true
-# Try venv first; fall back to global pip if it fails
 if [ -d "venv" ] && [ ! -f "venv/bin/activate" ]; then
     warn "Corrupted venv found — removing and recreating"
     rm -rf venv
 fi
 
-if [ ! -d "venv" ] && [ "$USE_VENV" = true ]; then
-    if $PYTHON -m venv venv 2>/dev/null; then
+if [ ! -d "venv" ]; then
+    ok "Creating virtual environment..."
+    if $PYTHON -m venv venv 2>&1; then
         source venv/bin/activate
         PYTHON="python"
         ok "Virtual environment created"
@@ -134,16 +134,31 @@ if [ ! -d "venv" ] && [ "$USE_VENV" = true ]; then
         warn "venv creation failed — installing globally"
         USE_VENV=false
     fi
-elif [ -d "venv" ]; then
+else
     source venv/bin/activate
     PYTHON="python"
     ok "Using existing virtual environment"
 fi
 
-$PYTHON -m pip install --upgrade pip 2>&1 | tail -2 || true
+if [ "$USE_VENV" = true ]; then
+    $PYTHON -m ensurepip --upgrade 2>&1 || true
+fi
 
-info "Installing dependencies (docker-py, click, rich... this may take a minute)..."
-$PYTHON -m pip install -e .
+# If pip still missing in venv, fallback
+if ! $PYTHON -m pip --version &>/dev/null; then
+    warn "pip not available — installing python3-pip system-wide"
+    case "$PKG_MGR" in
+        apt)    $SUDO apt-get install -y python3-pip 2>&1 ;;
+        dnf)    $SUDO dnf install -y python3-pip 2>&1 ;;
+        pacman) $SUDO pacman -S --noconfirm python-pip 2>&1 ;;
+        zypper) $SUDO zypper install -y python3-pip 2>&1 ;;
+    esac
+    USE_VENV=false
+fi
+
+info "Installing dependencies (docker-py, click, rich)..."
+info "This may take 1-2 minutes, please wait..."
+$PYTHON -m pip install --no-cache-dir -e .
 ok "${APP} installed"
 
 # ── Add to PATH ─────────────────────────────────────────────────
