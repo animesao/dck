@@ -14,6 +14,8 @@ from dck.image import list_images, pull_image, remove_image
 from dck.compose import compose_up, compose_down, compose_ps, compose_logs
 from dck.stats import stats
 from dck.doctor import doctor
+from dck.create import create_interactive, show_templates as show_tmpl
+from dck.uninstall import uninstall
 
 console = Console()
 
@@ -151,6 +153,32 @@ def stats_cmd():
 def doctor_cmd():
     """Check Docker installation and show install instructions"""
     doctor()
+
+
+@cli.command("create")
+@click.argument("template_name", required=False)
+@click.option("--name", "-n", help="Container name")
+@click.option("--ram", help="Memory limit (e.g. 512m, 2g)")
+@click.option("--cpu", help="CPU limit (e.g. 0.5, 2)")
+@click.option("--port", "-p", multiple=True, help="Port mapping (host:container/proto)")
+@click.option("--env", "-e", multiple=True, help="Environment variable (KEY=value)")
+@click.option("--volume", "-v", multiple=True, help="Volume mount (host:container)")
+@click.option("--list", "-l", "list_only", is_flag=True, help="List templates")
+def create_cmd(template_name, name, ram, cpu, port, env, volume, list_only):
+    """Create a container from a template (nginx, minecraft, etc.)"""
+    create_interactive(template_name, name, ram, cpu, port, env, volume, list_only)
+
+
+@cli.command("templates")
+def templates_cmd():
+    """List available container templates"""
+    show_tmpl()
+
+
+@cli.command("uninstall")
+def uninstall_cmd():
+    """Remove dck completely from your system"""
+    uninstall()
 
 
 if __name__ == "__main__":
