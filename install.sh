@@ -36,6 +36,15 @@ OS="$(uname -s)"
 ARCH="$(uname -m)"
 info "OS: ${OS} | Arch: ${ARCH}"
 
+# ── Language ────────────────────────────────────────────────────
+LANG_CHOICE="en"
+if [ -t 0 ]; then
+    printf "\n%s" "Select language / Выберите язык [en/ru] (en): "
+    read -r lang_choice
+    [ "$lang_choice" = "ru" ] && LANG_CHOICE="ru"
+fi
+[ "$LANG_CHOICE" = "ru" ] && info "Язык: Русский" || info "Language: English"
+
 # ── Detect package manager ────────────────────────────────────
 PKG_MGR=""
 case "$OS" in
@@ -181,12 +190,13 @@ if [[ ":$PATH:" != *":${INSTALL_DIR}:"* ]]; then
     echo "  source ~/.bashrc"
 fi
 
+# ── Set language ────────────────────────────────────────────────
+if [ "$LANG_CHOICE" = "ru" ]; then
+    "${INSTALL_DIR}/${APP}" lang ru 2>/dev/null || true
+fi
+
 # ── Done ────────────────────────────────────────────────────────
 header "Done"
 ok "${APP} installed successfully!"
-info "Run this (or open new terminal):"
-info "  export PATH=\"\$PATH:${INSTALL_DIR}\""
-info ""
-info "Then use:"
-info "  ${APP} doctor"
-info "  ${APP} --help"
+[ "$LANG_CHOICE" = "ru" ] && info "Запусти: ${APP} doctor" || info "Run: ${APP} doctor"
+info "${APP} --help"

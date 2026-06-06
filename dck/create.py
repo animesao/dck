@@ -11,6 +11,7 @@ from docker.errors import APIError
 
 from dck.client import get_client
 from dck.templates import list_templates, get_template
+from dck.i18n import t
 
 console = Console()
 DCK_DIR = Path.home() / ".dck"
@@ -32,7 +33,7 @@ def save_user_template(key, data):
     templates = load_user_templates()
     templates[key] = data
     TEMPLATES_FILE.write_text(json.dumps(templates, indent=2))
-    console.print(f"[green]✓[/green] Template '[bold]{key}[/bold]' saved")
+    console.print(t("template.saved", name=key))
 
 
 def get_all_templates(include_custom=True):
@@ -40,10 +41,10 @@ def get_all_templates(include_custom=True):
     user = load_user_templates()
     all_templates = {}
 
-    for k, t in builtin.items():
-        all_templates[f"builtin:{k}"] = {**t, "_type": "builtin", "_key": k}
-    for k, t in user.items():
-        all_templates[f"user:{k}"] = {**t, "_type": "user", "_key": k}
+    for k, tpl in builtin.items():
+        all_templates[f"builtin:{k}"] = {**tpl, "_type": "builtin", "_key": k}
+    for k, tpl in user.items():
+        all_templates[f"user:{k}"] = {**tpl, "_type": "user", "_key": k}
 
     keys = list(all_templates.keys())
     if include_custom:
@@ -55,7 +56,7 @@ def get_all_templates(include_custom=True):
 def show_templates(include_custom=True):
     all_templates, keys = get_all_templates(include_custom)
 
-    table = Table(title="Available Templates", border_style="cyan")
+    table = Table(title="Templates", border_style="cyan")
     table.add_column("#", style="bold")
     table.add_column("Name", style="bold")
     table.add_column("Description")
@@ -66,36 +67,35 @@ def show_templates(include_custom=True):
     for i, key in enumerate(keys, 1):
         if key == "__custom__":
             break
-        t = all_templates[key]
-        ports = ", ".join(f"{p['host']}:{p['container']}/{p['proto']}" for p in t.get("ports", []))
-        label = f"{'📦 ' if t['_type'] == 'user' else ''}{t['name']}"
-        table.add_row(str(i), label, t.get("desc", ""), t.get("image", ""), t.get("ram", ""), ports)
+        tpl = all_templates[key]
+        ports = ", ".join(f"{p['host']}:{p['container']}/{p['proto']}" for p in tpl.get("ports", []))
+        label = f"{'📦 ' if tpl['_type'] == 'user' else ''}{tpl['name']}"
+        table.add_row(str(i), label, tpl.get("desc", ""), tpl.get("image", ""), tpl.get("ram", ""), ports)
 
     console.print(table)
 
     if include_custom:
-        console.print(f"\n  [bold]{len(keys)}[/bold]. Custom image (any Docker image)")
+        console.print(f"\n  [bold]{len(keys)}[/bold]. {t('custom.image')}")
 
     return all_templates, keys
 
 
 def _resolve_template_name(name, all_templates):
-    """Resolve short name (minecraft) to full key (builtin:minecraft)"""
     if name.startswith("builtin:") or name.startswith("user:") or name == "__custom__":
         return name
     for key in all_templates:
         if key.endswith(f":{name}"):
             return key
-        t = all_templates[key]
-        if t.get("name", "").lower() == name.lower():
+        tpl = all_templates[key]
+        if tpl.get("name", "").lower() == name.lower():
             return key
-    console.print(f"[red]Template '{name}' not found. Use 'dck templates' to list available.[/red]")
+    console.print(f"[red]{t('error')}:[/red] {t('template.notfound', name=name)}")
     return None
 
 
 def select_template(entries, keys):
     while True:
-        choice = Prompt.ask("Select number or name", default="1")
+        choice = Prompt.ask(t("select.template"), default="1")
         if choice == "__custom__":
             return choice
         if choice in entries:
@@ -106,29 +106,43 @@ def select_template(entries, keys):
                 return keys[idx]
         except ValueError:
             pass
-        console.print("[red]Invalid choice. Try again.[/red]")
+        console.print(f"[red]{t('invalid.choice')}[/red]")
 
 
-def show_template_details(key, t):
+def show_template_details(key, tpl):
     panel = Panel.fit(
-        f"[bold cyan]{escape(t['name'])}[/bold cyan]\n"
-        f"[white]{escape(t.get('desc', ''))}[/white]\n\n"
-        f"[bold]Image:[/bold] {escape(t.get('image', ''))}\n"
-        f"[bold]Default RAM:[/bold] {escape(t.get('ram', ''))}\n"
-        f"[bold]Default CPU:[/bold] {escape(t.get('cpu', ''))}\n"
-        f"[bold]Disk space:[/bold] {escape(t.get('disk', ''))}\n\n"
+        f"[bold cyan]{escape(tpl['name'])}[/bold cyan]\n"
+        f"[white]{escape(tpl.get('desc', ''))}[/white]\n\n"
+        f"[bold]Image:[/bold] {escape(tpl.get('image', ''))}\n"
+        f"[bold]RAM:[/bold] {escape(tpl.get('ram', ''))}\n"
+        f"[bold]CPU:[/bold] {escape(tpl.get('cpu', ''))}\n"
+        f"[bold]Disk:[/bold] {escape(tpl.get('disk', ''))}\n\n"
         f"[bold]Ports:[/bold]\n"
-        + "\n".join(f"  {p['host']}:{p['container']}/{p['proto']}" for p in t.get("ports", []))
-        + (f"\n\n[bold]Note:[/bold] {escape(t['note'])}" if t.get("note") else ""),
+        + "\n".join(f"  {p['host']}:{p['container']}/{p['proto']}" for p in tpl.get("ports", []))
+        + (f"\n\n[bold]{t('tip')}:[/bold] {escape(tpl['note'])}" if tpl.get("note") else ""),
         title=f"Template: {key}",
         border_style="cyan",
     )
     console.print(panel)
 
 
+def _validate_memory(mem_str):
+    if not mem_str:
+        return None
+    mem_str = str(mem_str).strip().lower()
+    if mem_str[-1] in "bkmgt":
+        return mem_str
+    try:
+        int(mem_str)
+        return mem_str + "m"
+    except ValueError:
+        console.print(f"[red]{t('error')}: {t('memory.invalid')}[/red]")
+        return None
+
+
 def ask_ports(template):
     ports = {}
-    console.print("\n[bold]Port mappings (host:container/proto)[/bold]")
+    console.print(f"\n[bold]{t('port.mappings')}[/bold]")
     port_list = template.get("ports", [{"host": "", "container": "", "proto": "tcp"}])
 
     for p in port_list:
@@ -150,9 +164,8 @@ def ask_ports(template):
                 if "container" in p:
                     ports[f"{p['container']}/{p.get('proto', 'tcp')}"] = p["host"]
 
-    # Ask for additional ports
     while True:
-        extra = Prompt.ask("  Add extra port (host:container/proto) or leave empty", default="")
+        extra = Prompt.ask(f"  {t('port.extra')}", default="")
         if not extra:
             break
         try:
@@ -163,7 +176,7 @@ def ask_ports(template):
             proto = rest[1] if len(rest) > 1 else "tcp"
             ports[f"{c}/{proto}"] = h
         except (IndexError, ValueError):
-            console.print("[red]Invalid format. Use host:container/proto (e.g. 8080:80/tcp)[/red]")
+            console.print(f"[red]{t('port.invalid')}[/red]")
 
     return ports
 
@@ -173,21 +186,20 @@ def ask_env(template):
     env_list = template.get("env", [])
 
     if env_list:
-        console.print("\n[bold]Environment variables[/bold]")
+        console.print(f"\n[bold]{t('env.vars')}[/bold]")
         for var in env_list:
             answer = Prompt.ask(f"  {var['key']} ({var.get('desc', '')})", default=var.get("default", ""))
             env_vars[var["key"]] = answer
 
-    # Ask for extra env vars
     while True:
-        extra = Prompt.ask("  Add extra env var (KEY=value) or leave empty", default="")
+        extra = Prompt.ask(f"  {t('env.extra')}", default="")
         if not extra:
             break
         if "=" in extra:
             k, v = extra.split("=", 1)
             env_vars[k.strip()] = v.strip()
         else:
-            console.print("[red]Invalid format. Use KEY=value[/red]")
+            console.print(f"[red]{t('env.invalid')}[/red]")
 
     return env_vars
 
@@ -197,57 +209,72 @@ def ask_volumes(template):
     vol_list = template.get("volumes", [])
 
     if vol_list:
-        console.print("\n[bold]Volume mounts (host path : container path)[/bold]")
+        console.print(f"\n[bold]{t('volume.mounts')}[/bold]")
         for vol in vol_list:
-            answer = Prompt.ask(
-                f"  {vol['label']}",
-                default=vol["default"],
-            )
+            answer = Prompt.ask(f"  {vol['label']}", default=vol["default"])
             if answer:
                 abs_path = os.path.abspath(answer)
+                if not os.path.exists(abs_path):
+                    console.print(f"[yellow]{t('volume.notfound', path=abs_path)}[/yellow]")
                 volumes[abs_path] = {"bind": vol["path"], "mode": "rw"}
 
-    # Ask for extra volumes
     while True:
-        extra = Prompt.ask("  Add extra volume (host:container) or leave empty", default="")
+        extra = Prompt.ask(f"  {t('volume.extra')}", default="")
         if not extra:
             break
         if ":" in extra:
             h, c = extra.split(":", 1)
-            volumes[os.path.abspath(h)] = {"bind": c, "mode": "rw"}
+            abs_h = os.path.abspath(h)
+            if not os.path.exists(abs_h):
+                console.print(f"[yellow]{t('volume.notfound', path=abs_h)}[/yellow]")
+            volumes[abs_h] = {"bind": c, "mode": "rw"}
         else:
-            console.print("[red]Invalid format. Use host:container (e.g. ./data:/app/data)[/red]")
+            console.print(f"[red]{t('volume.invalid')}[/red]")
 
     return volumes
 
 
 def ask_resources(template):
-    ram = Prompt.ask("RAM limit", default=template.get("ram", "512m"))
-    cpu = Prompt.ask("CPU limit (cores)", default=template.get("cpu", "1"))
+    while True:
+        ram = Prompt.ask(t("ram.limit"), default=template.get("ram", "512m"))
+        if _validate_memory(ram):
+            ram = _validate_memory(ram)
+            break
+    cpu = Prompt.ask(t("cpu.limit"), default=template.get("cpu", "1"))
     return ram, cpu
+
+
+def _parse_cpu(cpu_str):
+    try:
+        cpus = float(cpu_str)
+        return int(cpus * 1_000_000_000)  # nano_cpus
+    except (ValueError, TypeError):
+        return 1_000_000_000
 
 
 def build_and_start(template_key, template, name, ports, env_vars, volumes, ram, cpu, start_now=True):
     client = get_client()
 
-    resource_kwargs = {}
+    host_cfg = {}
     if ram:
-        resource_kwargs["mem_limit"] = ram
+        validated = _validate_memory(ram)
+        if validated:
+            host_cfg["mem_limit"] = validated
     if cpu:
-        resource_kwargs["cpu_limit"] = float(cpu)
+        host_cfg["nano_cpus"] = _parse_cpu(cpu)
 
     image = template["image"]
 
-    with console.status(f"Pulling image [cyan]{escape(image)}[/cyan]..."):
+    with console.status(f"{t('pulling')} [cyan]{escape(image)}[/cyan]..."):
         try:
             client.images.pull(image)
         except APIError as e:
-            console.print(f"[red]Error pulling image:[/red] {e}")
+            console.print(f"[red]{t('error')}:[/red] {e}")
             return None
 
     container_name = name or f"{template_key}-{os.urandom(4).hex()}"
 
-    with console.status("Creating container..."):
+    with console.status(t("creating")):
         try:
             container = client.containers.create(
                 image=image,
@@ -256,31 +283,31 @@ def build_and_start(template_key, template, name, ports, env_vars, volumes, ram,
                 environment=env_vars or None,
                 volumes=volumes or None,
                 detach=True,
-                **resource_kwargs,
+                **host_cfg,
             )
         except APIError as e:
-            console.print(f"[red]Error creating container:[/red] {e}")
+            console.print(f"[red]{t('error')}:[/red] {e}")
             return None
 
-    console.print(f"\n[green]Container created![/green]")
+    console.print(f"\n[green]{t('created')}![/green]")
     console.print(f"  Name: [bold]{container_name}[/bold]")
     console.print(f"  Image: {escape(image)}")
 
-    if start_now and Confirm.ask("  Start container now?", default=True):
+    if start_now and Confirm.ask(f"  {t('start.now')}", default=True):
         with console.status("Starting..."):
             try:
                 container.start()
-                console.print(f"  Status: [green]Running[/green]")
+                console.print(f"  {t('status.running')}: [green]{t('container.running')}[/green]")
                 for c_port, h_port in (ports or {}).items():
                     c_num = c_port.split("/")[0]
                     proto = c_port.split("/")[1] if "/" in c_port else "tcp"
-                    console.print(f"  Port: [bold]{h_port}:{c_num}/{proto}[/bold]")
+                    console.print(f"  {t('port.info')}: [bold]{h_port}:{c_num}/{proto}[/bold]")
             except APIError as e:
-                console.print(f"[red]Error starting:[/red] {e}")
+                console.print(f"[red]{t('error')}:[/red] {e}")
 
-    console.print(f"\n[dim]Manage: dck ps | dck logs {container_name} | dck stop {container_name}[/dim]")
+    console.print(f"\n[dim]{t('manage.hint')}: dck ps | dck logs {container_name} | dck stop {container_name}[/dim]")
     if template.get("note"):
-        console.print(f"\n[cyan]Tip:[/cyan] {escape(template['note'])}")
+        console.print(f"\n[cyan]{t('tip')}:[/cyan] {escape(template['note'])}")
 
     return container_name
 
@@ -301,8 +328,8 @@ def create_interactive(template_name, name, ram, cpu, port, env, volume, list_on
 
     if template_name == "__custom__":
         template_key = "custom"
-        image = Prompt.ask("Docker image", default="nginx:alpine")
-        template = {
+        image = Prompt.ask(t("custom.image.prompt"), default="nginx:alpine")
+        tpl = {
             "name": image,
             "desc": f"Custom container from {image}",
             "image": image,
@@ -314,77 +341,73 @@ def create_interactive(template_name, name, ram, cpu, port, env, volume, list_on
             "env": [],
             "note": "",
         }
-        ports = ask_ports(template)
-        env_vars = ask_env(template)
-        volumes = ask_volumes(template)
-        ram, cpu = ask_resources(template)
+        ports = ask_ports(tpl)
+        env_vars = ask_env(tpl)
+        volumes = ask_volumes(tpl)
+        ram_cfg, cpu_cfg = ask_resources(tpl) if not (ram and cpu) else (ram or "512m", cpu or "1")
 
-        save_choice = Confirm.ask("  Save as template for later use?", default=False)
-        if save_choice:
-            save_key = Prompt.ask("  Template name", default=image.split("/")[-1].split(":")[0])
-            save_template = {
-                "name": template["name"],
-                "desc": Prompt.ask("  Description", default=f"Custom {image} container"),
+        if Confirm.ask(f"  {t('save.template')}", default=False):
+            save_key = Prompt.ask(f"  {t('template.name')}", default=image.split("/")[-1].split(":")[0])
+            save_tpl = {
+                "name": tpl["name"],
+                "desc": Prompt.ask(f"  {t('template.desc')}", default=f"Custom {image} container"),
                 "image": image,
                 "ports": ports,
-                "ram": ram,
-                "cpu": cpu,
+                "ram": ram_cfg,
+                "cpu": cpu_cfg,
                 "volumes": [],
                 "env": env_vars,
                 "note": "",
             }
-            save_user_template(save_key, save_template)
+            save_user_template(save_key, save_tpl)
 
-        build_and_start(template_key, template, name, ports, env_vars, volumes, ram, cpu)
+        build_and_start(template_key, tpl, name, ports, env_vars, volumes, ram_cfg, cpu_cfg)
         return
 
-    # Extract the actual template info
     if template_name.startswith("builtin:"):
         template_key = template_name.replace("builtin:", "")
-        t = get_template(template_key)
+        tpl = get_template(template_key)
     elif template_name.startswith("user:"):
         template_key = template_name.replace("user:", "")
         user_templates = load_user_templates()
-        t = user_templates.get(template_key, {})
+        tpl = user_templates.get(template_key, {})
     else:
-        console.print(f"[red]Template '{template_name}' not found.[/red]")
+        console.print(f"[red]{t('error')}:[/red] {t('template.notfound', name=template_name)}")
         return
 
-    if not t:
-        console.print(f"[red]Template '{template_name}' not found.[/red]")
+    if not tpl:
+        console.print(f"[red]{t('error')}:[/red] {t('template.notfound', name=template_name)}")
         return
 
-    show_template_details(template_key, t)
+    show_template_details(template_key, tpl)
 
-    if not Confirm.ask("\nCreate this container?", default=True):
-        console.print("[yellow]Cancelled.[/yellow]")
+    if not Confirm.ask(f"\n{t('create.this')}", default=True):
+        console.print(f"[yellow]{t('cancelled')}[/yellow]")
         return
 
-    ports = ask_ports(t)
-    env_vars = ask_env(t)
-    volumes = ask_volumes(t)
-    ram, cpu = ask_resources(t)
+    ports = ask_ports(tpl)
+    env_vars = ask_env(tpl)
+    volumes = ask_volumes(tpl)
+    ram_cfg, cpu_cfg = ask_resources(tpl)
 
-    # Save modified template if user wants
     is_user_template = template_name.startswith("user:")
-    if is_user_template and Confirm.ask("  Update saved template with these settings?", default=False):
+    if is_user_template and Confirm.ask(f"  {t('update.template')}", default=False):
         user_templates = load_user_templates()
         if template_key in user_templates:
             user_templates[template_key].update({
                 "ports": ports,
-                "ram": ram,
-                "cpu": cpu,
+                "ram": ram_cfg,
+                "cpu": cpu_cfg,
                 "env": env_vars,
             })
             TEMPLATES_FILE.write_text(json.dumps(user_templates, indent=2))
-            console.print(f"[green]✓[/green] Template '[bold]{template_key}[/bold]' updated")
+            console.print(t("template.updated", name=template_key))
 
-    build_and_start(template_key, t, name, ports, env_vars, volumes, ram, cpu)
+    build_and_start(template_key, tpl, name, ports, env_vars, volumes, ram_cfg, cpu_cfg)
 
 
 def run_custom(image, name, ram, cpu):
-    """Run a container from any Docker image interactively"""
-    template = {
+    tpl = {
         "name": image,
         "desc": f"Custom container from {image}",
         "image": image,
@@ -398,15 +421,17 @@ def run_custom(image, name, ram, cpu):
     }
 
     console.print(Panel.fit(
-        f"[bold cyan]Custom container[/bold cyan]\n"
+        f"[bold cyan]{t('custom.container')}[/bold cyan]\n"
         f"[white]Image: {escape(image)}[/white]",
         border_style="cyan",
     ))
 
-    ports = ask_ports(template)
-    env_vars = ask_env(template)
-    volumes = ask_volumes(template)
-    ram, cpu = ask_resources(template) if not (ram and cpu) else (ram, cpu)
+    ports = ask_ports(tpl)
+    env_vars = ask_env(tpl)
+    volumes = ask_volumes(tpl)
+    ram_cfg, cpu_cfg = (ram or "512m", cpu or "1")
+    if not (ram and cpu):
+        ram_cfg, cpu_cfg = ask_resources(tpl)
 
     key = image.split("/")[-1].split(":")[0]
-    build_and_start(key, template, name, ports, env_vars, volumes, ram, cpu)
+    build_and_start(key, tpl, name, ports, env_vars, volumes, ram_cfg, cpu_cfg)

@@ -16,6 +16,7 @@ from dck.stats import stats
 from dck.doctor import doctor
 from dck.create import create_interactive, show_templates as show_tmpl, run_custom
 from dck.uninstall import uninstall
+from dck.lang import lang_cmd
 
 console = Console()
 
@@ -189,6 +190,9 @@ def uninstall_cmd():
 def run_cmd(image, name, ram, cpu):
     """Run a container from any Docker image (interactive setup)"""
     run_custom(image, name, ram, cpu)
+
+
+cli.add_command(lang_cmd)
 
 
 if __name__ == "__main__":
