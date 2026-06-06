@@ -1,6 +1,7 @@
 import os
 import json
 import subprocess
+import time
 from pathlib import Path
 
 from rich.console import Console
@@ -292,8 +293,9 @@ def ask_volumes(template):
 def ask_resources(template):
     while True:
         ram = Prompt.ask(t("ram.limit"), default=template.get("ram", "512m"))
-        if _validate_memory(ram):
-            ram = _validate_memory(ram)
+        validated = _validate_memory(ram)
+        if validated:
+            ram = validated
             break
     cpu = Prompt.ask(t("cpu.limit"), default=template.get("cpu", "1"))
     return ram, cpu
@@ -419,11 +421,22 @@ def build_and_start(template_key, template, name, ports, env_vars, volumes, ram,
         with console.status("Starting..."):
             try:
                 container.start()
-                console.print(f"  {t('status.running')}: [green]{t('container.running')}[/green]")
-                for c_port, h_port in (ports or {}).items():
-                    c_num = c_port.split("/")[0]
-                    proto = c_port.split("/")[1] if "/" in c_port else "tcp"
-                    console.print(f"  {t('port.info')}: [bold]{h_port}:{c_num}/{proto}[/bold]")
+                time.sleep(1)
+                container.reload()
+                real_status = container.status
+                if real_status == "running":
+                    console.print(f"  {t('status.running')}: [green]{t('container.running')}[/green]")
+                    for c_port, h_port in (ports or {}).items():
+                        c_num = c_port.split("/")[0]
+                        proto = c_port.split("/")[1] if "/" in c_port else "tcp"
+                        console.print(f"  {t('port.info')}: [bold]{h_port}:{c_num}/{proto}[/bold]")
+                else:
+                    logs = container.logs(tail=30).decode("utf-8", errors="replace").strip()
+                    console.print(f"  [red]{t('container.exited')}[/red] (status: {real_status})")
+                    if logs:
+                        console.print(f"  [dim]{logs.split(chr(10))[-1]}[/dim]")
+                    if not Confirm.ask(f"  {t('start.anyway')}", default=False):
+                        return container_name
             except APIError as e:
                 console.print(f"[red]{t('error')}:[/red] {e}")
 

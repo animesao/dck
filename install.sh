@@ -286,16 +286,22 @@ if ! $PYTHON -m pip --version &>/dev/null; then
 fi
 
 # Upgrade pip to avoid PEP 660 issues with old pip
+info "Upgrading pip..."
 $PYTHON -m pip install --upgrade pip --quiet 2>/dev/null || true
 
 # Install dck (try editable, then non-editable, then with --no-build-isolation)
-$PYTHON -m pip install --quiet --no-cache-dir -e . 2>/dev/null \
-  || $PYTHON -m pip install --quiet --no-cache-dir . 2>/dev/null \
-  || {
-    $PYTHON -m pip install --quiet --no-cache-dir --no-build-isolation -e . 2>/dev/null \
-    || $PYTHON -m pip install --quiet --no-cache-dir --no-build-isolation . 2>/dev/null \
-    || err "pip install failed — run manually: cd $(pwd) && pip install ."
-}
+info "Installing dck package..."
+if $PYTHON -m pip install --no-cache-dir -e . 2>&1 | tail -3; then
+    :  # success
+elif $PYTHON -m pip install --no-cache-dir . 2>&1 | tail -3; then
+    :  # success
+elif $PYTHON -m pip install --no-cache-dir --no-build-isolation -e . 2>&1 | tail -3; then
+    :  # success
+elif $PYTHON -m pip install --no-cache-dir --no-build-isolation . 2>&1 | tail -3; then
+    :  # success
+else
+    err "pip install failed — run manually: cd $(pwd) && pip install ."
+fi
 ok "${APP} installed"
 
 # ── Add to PATH ─────────────────────────────────────────────────

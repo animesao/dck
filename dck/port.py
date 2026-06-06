@@ -137,7 +137,7 @@ def _list_ports_ss():
                 addr = parts[3]
                 if ":" in addr:
                     port = addr.rsplit(":", 1)[-1]
-                    ports.append({"port": port, "proto": proto.replace("tcp", "tcp").replace("udp", "udp"), "addr": addr})
+                    ports.append({"port": port, "proto": proto, "addr": addr})
         return ports
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return []
