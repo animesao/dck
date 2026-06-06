@@ -46,7 +46,7 @@ def _ensure_ufw():
         if Confirm.ask("  UFW is not installed. Install it now?", default=True):
             if not _install_ufw():
                 return False
-            # Enable after install
+            _ufw_allow_ssh()
             try:
                 subprocess.run(
                     ["ufw", "--force", "enable"],
@@ -59,6 +59,7 @@ def _ensure_ufw():
 
     if not _check_ufw():
         if Confirm.ask("  UFW is inactive. Enable it now?", default=True):
+            _ufw_allow_ssh()
             try:
                 r = subprocess.run(
                     ["ufw", "--force", "enable"],
@@ -71,6 +72,14 @@ def _ensure_ufw():
                 console.print(f"[red]Error:[/red] {e}")
                 return False
     return True
+
+
+def _ufw_allow_ssh():
+    """Ensure SSH port 22 is allowed before enabling UFW (prevents lockout)"""
+    rules = _list_ufw_rules()
+    if not any(r["port"] == "22" and r["proto"] == "tcp" for r in rules) and not any(r["port"] == "22" and r["proto"] == "any" for r in rules):
+        console.print("  [yellow]SSH port 22 will be opened automatically to prevent lockout[/yellow]")
+        subprocess.run(["ufw", "allow", "22/tcp"], capture_output=True, text=True, timeout=10)
 
 
 def _check_ufw():
