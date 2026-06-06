@@ -41,13 +41,14 @@ pip install .
 | `dck compose ps` | List compose services |
 | `dck compose logs [-f]` | View compose logs |
 
-### Templates (game & web servers)
+### Templates & Container Creation
 | Command | Description |
 |---------|-------------|
 | `dck templates` | List available templates |
 | `dck create [template]` | Interactive container creation from template |
+| `dck run <image>` | Run any Docker image with interactive setup |
 
-**Templates include:**
+**Built-in templates:**
 - **Nginx** — web server / reverse proxy (port 80, 128MB RAM)
 - **Minecraft** — Java Edition server (port 25565, 2GB RAM)
 - **Terraria** — dedicated server (port 7777, 1GB RAM)
@@ -55,7 +56,8 @@ pip install .
 - **CS2** — Counter-Strike 2 server (port 27015, 4GB RAM)
 - **Satisfactory** — dedicated server (port 7777, 4GB RAM)
 
-Each template configures ports, RAM, CPU, volumes, and env variables interactively.
+Each template interactively configures ports, RAM, CPU, volumes, and env vars.
+Custom templates are saved to `~/.dck/templates.json` for reuse.
 
 ### Other
 | Command | Description |
@@ -63,4 +65,3 @@ Each template configures ports, RAM, CPU, volumes, and env variables interactive
 | `dck stats` | Live CPU / memory / network monitoring |
 | `dck doctor` | Docker diagnostics + install instructions |
 | `dck uninstall` | Remove dck completely from your system |
-| `dck --version` | Show version |
