@@ -14,7 +14,7 @@ from dck.image import list_images, pull_image, remove_image
 from dck.compose import compose_up, compose_down, compose_ps, compose_logs
 from dck.stats import stats
 from dck.doctor import doctor
-from dck.create import create_interactive, show_templates as show_tmpl
+from dck.create import create_interactive, show_templates as show_tmpl, run_custom
 from dck.uninstall import uninstall
 
 console = Console()
@@ -179,6 +179,16 @@ def templates_cmd():
 def uninstall_cmd():
     """Remove dck completely from your system"""
     uninstall()
+
+
+@cli.command("run")
+@click.argument("image")
+@click.option("--name", "-n", help="Container name")
+@click.option("--ram", help="Memory limit (e.g. 512m, 2g)")
+@click.option("--cpu", help="CPU limit (e.g. 0.5, 2)")
+def run_cmd(image, name, ram, cpu):
+    """Run a container from any Docker image (interactive setup)"""
+    run_custom(image, name, ram, cpu)
 
 
 if __name__ == "__main__":
