@@ -126,7 +126,7 @@ fi
 
 if [ ! -d "venv" ]; then
     ok "Creating virtual environment..."
-    if $PYTHON -m venv venv 2>&1; then
+    if $PYTHON -m venv venv 2>/dev/null; then
         source venv/bin/activate
         PYTHON="python"
         ok "Virtual environment created"
@@ -141,24 +141,22 @@ else
 fi
 
 if [ "$USE_VENV" = true ]; then
-    $PYTHON -m ensurepip --upgrade 2>&1 || true
+    $PYTHON -m ensurepip --upgrade >/dev/null 2>&1 || true
 fi
 
 # If pip still missing in venv, fallback
 if ! $PYTHON -m pip --version &>/dev/null; then
     warn "pip not available — installing python3-pip system-wide"
     case "$PKG_MGR" in
-        apt)    $SUDO apt-get install -y python3-pip 2>&1 ;;
-        dnf)    $SUDO dnf install -y python3-pip 2>&1 ;;
-        pacman) $SUDO pacman -S --noconfirm python-pip 2>&1 ;;
-        zypper) $SUDO zypper install -y python3-pip 2>&1 ;;
+        apt)    $SUDO apt-get install -y python3-pip >/dev/null 2>&1 ;;
+        dnf)    $SUDO dnf install -y python3-pip >/dev/null 2>&1 ;;
+        pacman) $SUDO pacman -S --noconfirm python-pip >/dev/null 2>&1 ;;
+        zypper) $SUDO zypper install -y python3-pip >/dev/null 2>&1 ;;
     esac
     USE_VENV=false
 fi
 
-info "Installing dependencies (docker-py, click, rich)..."
-info "This may take 1-2 minutes, please wait..."
-$PYTHON -m pip install --no-cache-dir -e .
+$PYTHON -m pip install --quiet --no-cache-dir -e .
 ok "${APP} installed"
 
 # ── Add to PATH ─────────────────────────────────────────────────
