@@ -43,7 +43,16 @@ trap cleanup EXIT
 
 OS="$(uname -s)"
 ARCH="$(uname -m)"
-info "OS: ${OS} | Arch: ${ARCH}"
+DISTRO=""
+if [ "$OS" = "Linux" ]; then
+    if [ -f /etc/os-release ]; then
+        DISTRO="$(grep -oP 'PRETTY_NAME="\K[^"]+' /etc/os-release)"
+    elif command -v lsb_release &>/dev/null; then
+        DISTRO="$(lsb_release -d 2>/dev/null | cut -f2)"
+    fi
+fi
+[ -z "$DISTRO" ] && DISTRO="$OS"
+info "System: ${DISTRO} | Arch: ${ARCH}"
 
 # ── Language ────────────────────────────────────────────────────
 LANG_CHOICE="en"
@@ -72,11 +81,25 @@ if [ "$(id -u)" -ne 0 ] && command -v sudo &>/dev/null; then
     SUDO="sudo"
 fi
 
-# ── Update package index (apt only) ─────────────────────────────
-if [ "$PKG_MGR" = "apt" ]; then
-    header "Updating package index"
-    $SUDO apt-get update -qq 2>/dev/null || warn "apt update failed (might be offline)"
-fi
+# ── Update system packages ─────────────────────────────────────
+header "System update"
+case "$PKG_MGR" in
+    apt)    $SUDO apt-get update -qq && $SUDO apt-get upgrade -y --no-install-recommends 2>/dev/null || warn "apt update/upgrade failed" ;;
+    dnf)    $SUDO dnf upgrade -y 2>/dev/null || warn "dnf upgrade failed" ;;
+    pacman) $SUDO pacman -Syu --noconfirm 2>/dev/null || warn "pacman update failed" ;;
+    zypper) $SUDO zypper update -y 2>/dev/null || warn "zypper update failed" ;;
+    brew)   brew update 2>/dev/null || warn "brew update failed" ;;
+esac
+ok "System packages updated"
+
+# ── Base dependencies (ca-certificates for HTTPS) ──────────────
+header "Base dependencies"
+case "$PKG_MGR" in
+    apt|dnf|zypper) pkg ca-certificates 2>/dev/null || true ;;
+    pacman) pkg ca-certificates ca-certificates-utils 2>/dev/null || true ;;
+    brew) true ;;
+esac
+ok "SSL certificates ready"
 
 # ── Python ──────────────────────────────────────────────────────
 header "Python"
@@ -160,18 +183,21 @@ if command -v docker &>/dev/null; then
     ok "$(docker --version 2>&1 | head -1)"
 
     # Start and enable Docker daemon (Linux)
-    if [ "$OS" = "Linux" ]; then
-        if ! docker info &>/dev/null; then
-            info "Starting Docker daemon..."
-            $SUDO systemctl enable --now docker 2>/dev/null || $SUDO service docker start 2>/dev/null || true
-            sleep 2
+    if [ "$OS" = "Linux" ] && ! docker info &>/dev/null; then
+        info "Starting Docker daemon..."
+        if command -v systemctl &>/dev/null; then
+            $SUDO systemctl enable --now docker 2>/dev/null || true
+        elif command -v service &>/dev/null; then
+            $SUDO service docker start 2>/dev/null || true
         fi
-        # Add user to docker group if not root
-        if [ "$(id -u)" -ne 0 ]; then
-            if ! groups | grep -q docker; then
-                warn "Adding user to 'docker' group (you may need to re-login)"
-                $SUDO usermod -aG docker "$USER" 2>/dev/null || true
-            fi
+        sleep 2
+    fi
+
+    # Add user to docker group if not root
+    if [ "$(id -u)" -ne 0 ] && command -v groups &>/dev/null; then
+        if ! groups "$USER" 2>/dev/null | grep -q docker; then
+            warn "Adding user to 'docker' group (you may need to re-login)"
+            $SUDO usermod -aG docker "$USER" 2>/dev/null || true
         fi
     fi
 
