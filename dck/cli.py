@@ -18,6 +18,7 @@ from dck.create import create_interactive, show_templates as show_tmpl, run_cust
 from dck.uninstall import uninstall
 from dck.lang import lang_cmd
 from dck.port import ports_cmd
+from dck.exec import exec_container, inspect_container
 
 console = Console()
 
@@ -191,6 +192,21 @@ def uninstall_cmd():
 def run_cmd(image, name, ram, cpu):
     """Run a container from any Docker image (interactive setup)"""
     run_custom(image, name, ram, cpu)
+
+
+@cli.command("exec")
+@click.argument("container")
+@click.argument("cmd", nargs=-1, default=["sh"])
+def exec_cmd(container, cmd):
+    """Run a command in a running container (default: interactive shell)"""
+    exec_container(container, list(cmd))
+
+
+@cli.command("inspect")
+@click.argument("container")
+def inspect_cmd(container):
+    """Show detailed container information"""
+    inspect_container(container)
 
 
 cli.add_command(lang_cmd)
