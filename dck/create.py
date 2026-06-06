@@ -418,27 +418,30 @@ def build_and_start(template_key, template, name, ports, env_vars, volumes, ram,
     console.print(f"  Image: {escape(image)}")
 
     if start_now and Confirm.ask(f"  {t('start.now')}", default=True):
+        real_status = None
         with console.status("Starting..."):
             try:
                 container.start()
                 time.sleep(1)
                 container.reload()
                 real_status = container.status
-                if real_status == "running":
-                    console.print(f"  {t('status.running')}: [green]{t('container.running')}[/green]")
-                    for c_port, h_port in (ports or {}).items():
-                        c_num = c_port.split("/")[0]
-                        proto = c_port.split("/")[1] if "/" in c_port else "tcp"
-                        console.print(f"  {t('port.info')}: [bold]{h_port}:{c_num}/{proto}[/bold]")
-                else:
-                    logs = container.logs(tail=30).decode("utf-8", errors="replace").strip()
-                    console.print(f"  [red]{t('container.exited')}[/red] (status: {real_status})")
-                    if logs:
-                        console.print(f"  [dim]{logs.split(chr(10))[-1]}[/dim]")
-                    if not Confirm.ask(f"  {t('start.anyway')}", default=False):
-                        return container_name
             except APIError as e:
                 console.print(f"[red]{t('error')}:[/red] {e}")
+                return container_name
+
+        if real_status == "running":
+            console.print(f"  {t('status.running')}: [green]{t('container.running')}[/green]")
+            for c_port, h_port in (ports or {}).items():
+                c_num = c_port.split("/")[0]
+                proto = c_port.split("/")[1] if "/" in c_port else "tcp"
+                console.print(f"  {t('port.info')}: [bold]{h_port}:{c_num}/{proto}[/bold]")
+        else:
+            logs = container.logs(tail=30).decode("utf-8", errors="replace").strip()
+            console.print(f"  [red]{t('container.exited')}[/red] (status: {real_status})")
+            if logs:
+                console.print(f"  [dim]{logs.split(chr(10))[-1]}[/dim]")
+            if not Confirm.ask(f"  {t('start.anyway')}", default=False):
+                return container_name
 
     # Ask to open ports in firewall
     open_container_ports(container_name, ports)
