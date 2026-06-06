@@ -1,77 +1,63 @@
 from rich.console import Console
 from rich.table import Table
 from rich.progress import Progress, SpinnerColumn, TextColumn
-from docker.errors import NotFound, APIError, ImageNotFound
+import os
+from docker.errors import ImageNotFound
+
 
 from dck.client import get_client
 
 console = Console()
 
 
-def list_images():
-    client = get_client()
-    images = client.images.list()
+def export_image(image_name, output_path=None):
+    """Export a Docker image to a tar archive.
 
-    if not images:
-        console.print("[yellow]No images found.[/yellow]")
-        return
-
-    table = Table(title="Images", border_style="cyan")
-    table.add_column("Repository", style="bold")
-    table.add_column("Tag", style="blue")
-    table.add_column("Image ID", style="dim")
-    table.add_column("Size")
-    table.add_column("Created")
-
-    for img in images:
-        repo = ", ".join(img.tags) if img.tags else "<none>:<none>"
-        for tag in (img.tags or ["<none>:<none>"]):
-            if ":" in tag:
-                repo_name, tag_name = tag.rsplit(":", 1)
-            else:
-                repo_name, tag_name = tag, "latest"
-            short_id = img.short_id[7:] if img.short_id.startswith("sha256:") else img.short_id[:12]
-            size = _format_size(img.attrs.get("Size", 0))
-            created = img.attrs.get("Created", "")[:10] if img.attrs.get("Created") else "-"
-            table.add_row(repo_name, tag_name, short_id, size, created)
-
-    console.print(table)
-
-
-def _format_size(bytes_size):
-    if bytes_size < 1024:
-        return f"{bytes_size}B"
-    elif bytes_size < 1024 ** 2:
-        return f"{bytes_size / 1024:.1f}KB"
-    elif bytes_size < 1024 ** 3:
-        return f"{bytes_size / 1024 ** 2:.1f}MB"
-    else:
-        return f"{bytes_size / 1024 ** 3:.2f}GB"
-
-
-def pull_image(image_name):
-    client = get_client()
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        console=console,
-    ) as progress:
-        progress.add_task(description=f"Pulling [cyan]{image_name}[/cyan]...", total=None)
-        try:
-            client.images.pull(image_name)
-            console.print(f"[green]Pulled[/green] image '{image_name}'")
-        except APIError as e:
-            console.print(f"[red]Error:[/red] {e.explanation or e}")
-        except Exception as e:
-            console.print(f"[red]Error:[/red] {e}")
-
-
-def remove_image(image_name, force=False):
+    If ``output_path`` is omitted, the image name (with ':' replaced by '_')
+    and a ``.tar`` suffix are used in the current working directory.
+    """
     client = get_client()
     try:
-        client.images.remove(image_name, force=force)
-        console.print(f"[red]Removed[/red] image '{image_name}'")
+        image = client.images.get(image_name)
     except ImageNotFound:
         console.print(f"[red]Error:[/red] Image '{image_name}' not found.")
-    except APIError as e:
-        console.print(f"[red]Error:[/red] {e.explanation or e}")
+        return
+    if not output_path:
+        safe_name = image_name.replace(':', '_')
+        output_path = f"{safe_name}.tar"
+    # Ensure directory exists
+    dir_name = os.path.dirname(os.path.abspath(output_path))
+    if dir_name and not os.path.isdir(dir_name):
+        os.makedirs(dir_name, exist_ok=True)
+    try:
+        with open(output_path, "wb") as f:
+            for chunk in image.save(named=True):
+                f.write(chunk)
+        console.print(f"[green]Exported[/green] image '{image_name}' to '{output_path}'")
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+
+
+def import_image(tar_path):
+    """Import a Docker image from a tar archive created by ``export_image``.
+    """
+    client = get_client()
+    if not os.path.isfile(tar_path):
+        console.print(f"[red]Error:[/red] File '{tar_path}' does not exist.")
+        return
+    try:
+        with open(tar_path, "rb") as f:
+            data = f.read()
+        result = client.images.load(data)
+        # ``load`` returns a list of dicts with a ``stream`` key containing messages
+        if isinstance(result, list):
+            msgs = []
+            for entry in result:
+                stream = entry.get('stream')
+                if stream:
+                    msgs.append(stream.strip())
+            console.print(f"[green]Imported[/green] image(s): {', '.join(msgs)}")
+        else:
+            console.print(f"[green]Imported[/green] image from '{tar_path}'")
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")

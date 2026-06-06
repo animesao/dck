@@ -105,7 +105,7 @@ def inspect_container(container_name):
     console.print(table)
 
 
-def console_container(container_name):
+def console_container(container_name, follow=False, tail=30, attach=False):
     """Open a debug console for a container: show logs, then enter shell"""
     client = get_client()
     try:
@@ -121,7 +121,7 @@ def console_container(container_name):
 
     # Show recent logs
     try:
-        logs = container.logs(tail=30).decode("utf-8", errors="replace").strip()
+        logs = container.logs(tail=tail).decode("utf-8", errors="replace").strip()
         if logs:
             console.print("[bold]Recent logs:[/bold]")
             for line in logs.split("\n")[-10:]:
@@ -131,6 +131,30 @@ def console_container(container_name):
     except Exception:
         pass
     console.print()
+
+    # If attach flag is set, attach to container's main process
+    if attach:
+        if container.status != "running":
+            console.print("[yellow]Container not running, cannot attach.[/yellow]")
+            return
+        if Confirm.ask(f"Attach to container {container_name} (interactive)?", default=True):
+            subprocess.run(["docker", "attach", container_name])
+        return
+
+    # If follow flag is set, stream logs in real‑time until user aborts (Ctrl‑C)
+    if follow:
+        console.print("[yellow]Streaming live logs (Ctrl‑C to stop)…[/yellow]")
+        try:
+            for line in container.logs(stream=True, tail=tail):
+                console.print(line.decode("utf-8", errors="replace").rstrip())
+        except KeyboardInterrupt:
+            console.print("[yellow]Log streaming stopped by user.[/yellow]")
+        # After streaming we still offer the interactive shell
+        if container.status == "running":
+            shell = _pick_shell(container_name)
+            if Confirm.ask(f"Enter interactive shell ([bold]{shell}[/bold])?", default=True):
+                subprocess.run(["docker", "exec", "-it", container_name, shell])
+        return
 
     if container.status == "running":
         shell = _pick_shell(container_name)

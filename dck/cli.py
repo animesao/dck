@@ -9,8 +9,9 @@ from dck.container import (
     restart_container,
     remove_container,
     set_restart_policy,
+    update_resources,
 )
-from dck.image import list_images, pull_image, remove_image
+from dck.image import list_images, pull_image, remove_image, export_image, import_image
 from dck.compose import compose_up, compose_down, compose_ps, compose_logs
 from dck.stats import stats
 from dck.doctor import doctor
@@ -179,52 +180,33 @@ def templates_cmd():
     show_tmpl()
 
 
-@cli.command("uninstall")
-def uninstall_cmd():
-    """Remove dck completely from your system"""
-    uninstall()
-
-
-@cli.command("run")
+@cli.command("export-image")
 @click.argument("image")
-@click.option("--name", "-n", help="Container name")
+@click.argument("output_path", required=False)
+def export_image_cmd(image, output_path=None):
+    """Export a Docker image to a tar archive.
+
+    If ``output_path`` is omitted, the image name (':' replaced by '_')
+    and a ``.tar`` suffix are used in the current directory.
+    """
+    export_image(image, output_path)
+
+
+@cli.command("import-image")
+@click.argument("tar_path")
+def import_image_cmd(tar_path):
+    """Import a Docker image from a tar archive created with ``export-image``.
+    """
+    import_image(tar_path)
+
+
+@cli.command("resources")
+@click.argument("container")
 @click.option("--ram", help="Memory limit (e.g. 512m, 2g)")
 @click.option("--cpu", help="CPU limit (e.g. 0.5, 2)")
-def run_cmd(image, name, ram, cpu):
-    """Run a container from any Docker image (interactive setup)"""
-    run_custom(image, name, ram, cpu)
+@click.option("--restart", type=click.Choice(["no", "always", "unless-stopped", "on-failure"]), help="Set restart policy")
+def resources_cmd(container, ram, cpu, restart):
+    """Update RAM/CPU limits and optionally restart policy for a running container.
+    """
+    update_resources(container, ram, cpu, restart)
 
-
-@cli.command("exec")
-@click.argument("container")
-@click.argument("cmd", nargs=-1, default=["sh"])
-def exec_cmd(container, cmd):
-    """Run a command in a running container (default: interactive shell)"""
-    exec_container(container, list(cmd))
-
-
-@cli.command("inspect")
-@click.argument("container")
-def inspect_cmd(container):
-    """Show detailed container information"""
-    inspect_container(container)
-
-
-@cli.command("console")
-@click.argument("container")
-def console_cmd(container):
-    """Open debug console for a container (logs + interactive shell)"""
-    console_container(container)
-
-
-cli.add_command(lang_cmd)
-cli.add_command(ports_cmd)
-
-@cli.command("update")
-def update_dck():
-    """Update dck to the latest version (git pull + reinstall)"""
-    update_cmd()
-
-
-if __name__ == "__main__":
-    cli()

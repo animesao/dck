@@ -37,48 +37,39 @@ def _port_str(ports):
     return ", ".join(parts)
 
 
-def list_containers(show_all=False):
+def update_resources(container_name, ram=None, cpu=None, restart=None):
+    """Update container resource limits (RAM, CPU) and optionally restart policy.
+
+    ``ram`` – string like ``512m`` or ``2g``
+    ``cpu`` – string/float representing CPU cores (e.g. ``0.5``, ``2``)
+    ``restart`` – one of ``no, always, unless-stopped, on-failure``
+    """
     client = get_client()
-    containers = client.containers.list(all=show_all)
-
-    if not containers:
-        console.print("[yellow]No containers found.[/yellow]")
+    try:
+        container = client.containers.get(container_name)
+    except NotFound:
+        console.print(f"[red]Error:[/red] Container '{container_name}' not found.")
         return
+    update_kwargs = {}
+    if ram:
+        update_kwargs["mem_limit"] = ram
+    if cpu:
+        # Convert CPU cores to nano_cpus (Docker expects integer nanoseconds of CPU time)
+        try:
+            nano = int(float(cpu) * 1_000_000_000)
+            update_kwargs["nano_cpus"] = nano
+        except ValueError:
+            console.print(f"[red]Error:[/red] Invalid CPU value '{cpu}'.")
+            return
+    if update_kwargs:
+        try:
+            client.api.update_container(container.id, **update_kwargs)
+            console.print(f"[green]Updated[/green] resources for '{container_name}': {', '.join(update_kwargs.keys())}")
+        except Exception as e:
+            console.print(f"[red]Error updating resources:[/red] {e}")
+    if restart:
+        set_restart_policy(container_name, restart)
 
-    table = Table(title="Containers", border_style="cyan")
-    table.add_column("Name", style="bold")
-    table.add_column("Image", style="blue")
-    table.add_column("Status")
-    table.add_column("Ports", overflow="fold")
-    table.add_column("Uptime")
-    table.add_column("Restart Policy")
-
-    for c in containers:
-        name = c.name
-        image = c.image.tags[0] if c.image.tags else c.image.short_id[:12]
-        status = Text(c.status, style=_status_style(c.status))
-        ports = _port_str(c.ports)
-
-        created = c.attrs.get("Created", "")
-        if created:
-            created_ts = time.mktime(time.strptime(created[:19], "%Y-%m-%dT%H:%M:%S"))
-            uptime_secs = time.time() - created_ts
-            if uptime_secs < 60:
-                uptime = f"{int(uptime_secs)}s"
-            elif uptime_secs < 3600:
-                uptime = f"{int(uptime_secs // 60)}m"
-            elif uptime_secs < 86400:
-                uptime = f"{int(uptime_secs // 3600)}h"
-            else:
-                uptime = f"{int(uptime_secs // 86400)}d"
-        else:
-            uptime = "-"
-
-        restart_policy = c.attrs.get("HostConfig", {}).get("RestartPolicy", {}).get("Name", "no")
-
-        table.add_row(name, image, status, ports, uptime, restart_policy)
-
-    console.print(table)
 
 
 def view_logs(container_name, follow=False, tail=50):
