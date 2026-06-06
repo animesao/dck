@@ -2,23 +2,65 @@
 
 A lightweight CLI wrapper to simplify daily Docker operations.
 
-## Install
+## Quick Install
 
+```bash
+curl -sSL https://gitlab.com/animesao/dck/-/raw/main/install.sh | bash
+```
+
+Or via pip:
 ```bash
 pip install .
 ```
 
 ## Usage
 
-```
-dck ps [-a]                     List containers
-dck logs <container> [-f]       View logs
-dck start/stop/restart/rm       Manage containers
-dck restart-policy <c> <p>      Set auto-restart policy
-dck images                      List images
-dck pull <image>                Pull an image
-dck rmi <image>                 Remove an image
-dck compose up/down/ps/logs     Docker Compose
-dck stats                       Live resource monitor
-dck doctor                      Docker diagnostics
-```
+### Container management
+| Command | Description |
+|---------|-------------|
+| `dck ps [-a]` | List containers (colored status, ports, uptime, restart policy) |
+| `dck logs <container> [-f]` | View container logs (tail / follow) |
+| `dck start <container> [--restart always]` | Start a container (optional restart policy) |
+| `dck stop <container>` | Stop a container |
+| `dck restart <container>` | Restart a container |
+| `dck rm <container> [-f]` | Remove a container |
+| `dck restart-policy <c> <policy>` | Set auto-start policy (always/unless-stopped/on-failure/no) |
+
+### Image management
+| Command | Description |
+|---------|-------------|
+| `dck images` | List Docker images |
+| `dck pull <image>` | Pull an image from registry |
+| `dck rmi <image> [-f]` | Remove an image |
+
+### Docker Compose
+| Command | Description |
+|---------|-------------|
+| `dck compose up [-d] [--build]` | Create and start containers |
+| `dck compose down [-v]` | Stop and remove containers |
+| `dck compose ps` | List compose services |
+| `dck compose logs [-f]` | View compose logs |
+
+### Templates (game & web servers)
+| Command | Description |
+|---------|-------------|
+| `dck templates` | List available templates |
+| `dck create [template]` | Interactive container creation from template |
+
+**Templates include:**
+- **Nginx** — web server / reverse proxy (port 80, 128MB RAM)
+- **Minecraft** — Java Edition server (port 25565, 2GB RAM)
+- **Terraria** — dedicated server (port 7777, 1GB RAM)
+- **Valheim** — dedicated server (ports 2456-2457/udp, 2GB RAM)
+- **CS2** — Counter-Strike 2 server (port 27015, 4GB RAM)
+- **Satisfactory** — dedicated server (port 7777, 4GB RAM)
+
+Each template configures ports, RAM, CPU, volumes, and env variables interactively.
+
+### Other
+| Command | Description |
+|---------|-------------|
+| `dck stats` | Live CPU / memory / network monitoring |
+| `dck doctor` | Docker diagnostics + install instructions |
+| `dck uninstall` | Remove dck completely from your system |
+| `dck --version` | Show version |
