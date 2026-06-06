@@ -20,7 +20,7 @@ from dck.uninstall import uninstall
 from dck.lang import lang_cmd
 from dck.port import ports_cmd
 from dck.exec import exec_container, inspect_container, console_container
-from dck.update import update as update_cmd
+from dck.update import update as update_dck
 
 console = Console()
 
@@ -209,4 +209,58 @@ def resources_cmd(container, ram, cpu, restart):
     """Update RAM/CPU limits and optionally restart policy for a running container.
     """
     update_resources(container, ram, cpu, restart)
+
+
+@cli.command("exec")
+@click.argument("container")
+@click.argument("cmd", nargs=-1)
+def exec_cmd(container, cmd):
+    """Execute a command in a running container (interactive shell if no command given)"""
+    exec_container(container, list(cmd) if cmd else None)
+
+
+@cli.command("inspect")
+@click.argument("container")
+def inspect_cmd(container):
+    """Show detailed container information"""
+    inspect_container(container)
+
+
+@cli.command("console")
+@click.argument("container")
+@click.option("--follow", "-f", is_flag=True, help="Follow logs in real-time")
+@click.option("--tail", "-t", type=int, default=30, help="Number of log lines to show")
+@click.option("--attach", "-a", is_flag=True, help="Attach to container's main process")
+def console_cmd(container, follow, tail, attach):
+    """Open interactive console for a container (logs + shell)"""
+    console_container(container, follow, tail, attach)
+
+
+@cli.command("run")
+@click.argument("image")
+@click.option("--name", "-n", help="Container name")
+@click.option("--ram", help="Memory limit (e.g. 512m, 2g)")
+@click.option("--cpu", help="CPU limit (e.g. 0.5, 2)")
+def run_cmd(image, name, ram, cpu):
+    """Run any Docker image with interactive setup"""
+    run_custom(image, name, ram, cpu)
+
+
+@cli.command("update")
+def update_cmd():
+    """Update dck to the latest version"""
+    update_dck()
+
+
+@cli.command("uninstall")
+def uninstall_cmd():
+    """Remove dck completely from your system"""
+    uninstall()
+
+
+# Add the ports command (already a click command)
+cli.add_command(ports_cmd)
+
+# Add the lang command (already a click command)
+cli.add_command(lang_cmd)
 
