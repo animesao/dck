@@ -140,10 +140,10 @@ elif [ -d "venv" ]; then
     ok "Using existing virtual environment"
 fi
 
-$PYTHON -m pip install --quiet --upgrade pip 2>/dev/null || true
+$PYTHON -m pip install --upgrade pip 2>&1 | tail -2 || true
 
-ok "Installing dependencies and ${APP}..."
-$PYTHON -m pip install --quiet -e .
+info "Installing dependencies (docker-py, click, rich... this may take a minute)..."
+$PYTHON -m pip install -e .
 ok "${APP} installed"
 
 # ── Add to PATH ─────────────────────────────────────────────────
