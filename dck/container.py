@@ -11,6 +11,54 @@ from dck.client import get_client
 console = Console()
 
 
+def list_containers(show_all=False):
+    """List Docker containers."""
+    client = get_client()
+    containers = client.containers.list(all=show_all)
+
+    if not containers:
+        console.print("[yellow]No containers found.[/yellow]")
+        return
+
+    table = Table(title="Containers")
+    table.add_column("ID", style="dim")
+    table.add_column("Name", style="bold")
+    table.add_column("Image")
+    table.add_column("Status", justify="center")
+    table.add_column("Ports")
+    table.add_column("Created")
+
+    for c in containers:
+        status = c.status
+        if hasattr(c, 'attrs') and c.attrs.get('State'):
+            state = c.attrs['State']
+            if state.get('Running'):
+                status = "running"
+            elif state.get('Paused'):
+                status = "paused"
+            elif state.get('Restarting'):
+                status = "restarting"
+            elif state.get('Dead'):
+                status = "dead"
+            elif state.get('ExitCode') is not None:
+                status = f"exited ({state['ExitCode']})"
+
+        status_style = _status_style(status)
+        ports = _port_str(c.ports)
+        created = c.attrs.get('Created', '')[:19].replace('T', ' ')
+
+        table.add_row(
+            c.short_id,
+            c.name,
+            c.image.tags[0] if c.image.tags else c.image.short_id,
+            Text(status, style=status_style),
+            ports,
+            created,
+        )
+
+    console.print(table)
+
+
 def _status_style(status):
     if "running" in status.lower() or "up" in status.lower():
         return "green"
