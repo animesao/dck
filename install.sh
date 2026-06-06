@@ -233,27 +233,27 @@ fi
 
 if [ ! -d "venv" ]; then
     ok "Creating virtual environment..."
-    if [ "$VENV_MODULE_AVAIL" = true ]; then
-        if $PYTHON -m venv venv 2>/dev/null; then
-            source venv/bin/activate
-            PYTHON="python"
-            ok "Virtual environment created"
-        else
-            warn "venv creation failed — installing globally"
-            USE_VENV=false
-        fi
-    else
-        # venv module missing — try to install it
+    if [ "$VENV_MODULE_AVAIL" = false ]; then
         warn "venv module not available — trying to install python3-venv"
         pkg python3-venv 2>/dev/null || true
-        if $PYTHON -m venv venv 2>/dev/null; then
-            source venv/bin/activate
-            PYTHON="python"
-            ok "Virtual environment created"
-        else
-            warn "venv still unavailable — installing globally"
-            USE_VENV=false
+    fi
+
+    # Try normal venv, fallback to --without-pip, then global
+    if $PYTHON -m venv venv 2>/dev/null || $PYTHON -m venv --without-pip venv 2>/dev/null; then
+        source venv/bin/activate
+        PYTHON="python"
+        # If created without pip, install pip manually
+        if ! $PYTHON -m pip --version &>/dev/null; then
+            $PYTHON -m ensurepip --upgrade 2>/dev/null || python3 -m ensurepip --upgrade 2>/dev/null || true
+            if ! $PYTHON -m pip --version &>/dev/null; then
+                warn "ensurepip failed — installing pip manually"
+                curl -sSL https://bootstrap.pypa.io/get-pip.py | $PYTHON 2>/dev/null || true
+            fi
         fi
+        ok "Virtual environment created"
+    else
+        warn 'venv creation failed — installing globally'
+        USE_VENV=false
     fi
 else
     source venv/bin/activate
@@ -261,11 +261,9 @@ else
     ok "Using existing virtual environment"
 fi
 
-if [ "$USE_VENV" = true ]; then
-    $PYTHON -m ensurepip --upgrade >/dev/null 2>&1 || true
-fi
+# Ensure pip is available (upgrade it first to avoid PEP 660 issues)
+$PYTHON -m pip install --upgrade pip --quiet 2>/dev/null || true
 
-# If pip still missing in venv, fallback
 if ! $PYTHON -m pip --version &>/dev/null; then
     warn "pip not available — installing python3-pip system-wide"
     case "$PKG_MGR" in
@@ -274,7 +272,13 @@ if ! $PYTHON -m pip --version &>/dev/null; then
     USE_VENV=false
 fi
 
-$PYTHON -m pip install --quiet --no-cache-dir -e .
+# Upgrade pip again if newly installed
+$PYTHON -m pip install --upgrade pip --quiet 2>/dev/null || true
+
+$PYTHON -m pip install --quiet --no-cache-dir -e . 2>/dev/null || $PYTHON -m pip install --quiet --no-cache-dir . 2>/dev/null || {
+    warn "pip install failed — trying with --no-build-isolation"
+    $PYTHON -m pip install --quiet --no-cache-dir --no-build-isolation -e .
+}
 ok "${APP} installed"
 
 # ── Add to PATH ─────────────────────────────────────────────────
