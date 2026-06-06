@@ -165,8 +165,8 @@ def _parse_port_mapping(mapping):
 def ask_ports(template):
     ports = {}
     console.print(f"\n[bold]{t('port.mappings')}[/bold]")
-    console.print("  [dim]Format: host:container/proto (e.g. 8080:80/tcp)")
-    console.print("  Multiple: comma-separated (e.g. 80:80,443:443) or just a number[/dim]")
+    console.print("[dim]  Format: host:container/proto (e.g. 8080:80/tcp)[/dim]")
+    console.print("[dim]  Multiple with commas (e.g. 80:80,443:443)[/dim]")
 
     port_list = template.get("ports", [{"host": "", "container": "", "proto": "tcp"}])
     defaults_str = ",".join(f"{p['host']}:{p['container']}/{p['proto']}" for p in port_list if p.get("container"))
