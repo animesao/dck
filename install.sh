@@ -233,20 +233,37 @@ fi
 
 if [ ! -d "venv" ]; then
     ok "Creating virtual environment..."
+
+    # Ensure the venv module is available
     if [ "$VENV_MODULE_AVAIL" = false ]; then
-        warn "venv module not available — trying to install python3-venv"
-        pkg python3-venv 2>/dev/null || true
+        warn "venv module not available — trying to install"
+        pkg python3-venv 2>/dev/null || pkg "$($PYTHON -c 'import sys; print(f"python{sys.version_info.major}.{sys.version_info.minor}-venv")')" 2>/dev/null || true
     fi
 
     # Try normal venv, fallback to --without-pip, then global
-    if $PYTHON -m venv venv 2>/dev/null || $PYTHON -m venv --without-pip venv 2>/dev/null; then
+    VENV_OK=false
+    if $PYTHON -m venv venv 2>/dev/null; then
+        VENV_OK=true
+    elif $PYTHON -m venv --without-pip venv 2>/dev/null; then
+        VENV_OK=true
+    else
+        # Last attempt: try installing python3-venv explicitly by version
+        warn "venv still failing — trying version-specific package"
+        PY_VER="$($PYTHON -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+        pkg "python${PY_VER}-venv" 2>/dev/null || true
+        if $PYTHON -m venv --without-pip venv 2>/dev/null; then
+            VENV_OK=true
+        fi
+    fi
+
+    if [ "$VENV_OK" = true ]; then
         source venv/bin/activate
         PYTHON="python"
         # If created without pip, install pip manually
         if ! $PYTHON -m pip --version &>/dev/null; then
             $PYTHON -m ensurepip --upgrade 2>/dev/null || python3 -m ensurepip --upgrade 2>/dev/null || true
             if ! $PYTHON -m pip --version &>/dev/null; then
-                warn "ensurepip failed — installing pip manually"
+                warn 'ensurepip failed — installing pip manually'
                 curl -sSL https://bootstrap.pypa.io/get-pip.py | $PYTHON 2>/dev/null || true
             fi
         fi
