@@ -1,13 +1,24 @@
 import subprocess
-import sys
 
 from rich.console import Console
 from rich.table import Table
+from rich.prompt import Confirm
 from docker.errors import NotFound
 
 from dck.client import get_client
 
 console = Console()
+
+
+def _pick_shell(container_name):
+    for shell in ["bash", "sh", "ash", "powershell"]:
+        r = subprocess.run(
+            ["docker", "exec", container_name, "which", shell],
+            capture_output=True, timeout=5,
+        )
+        if r.returncode == 0:
+            return shell
+    return "sh"
 
 
 def exec_container(container_name, cmd):
@@ -21,6 +32,9 @@ def exec_container(container_name, cmd):
     if container.status != "running":
         console.print(f"[yellow]Container '{container_name}' is not running.[/yellow]")
         return
+
+    if not cmd or cmd == ["sh"]:
+        cmd = [_pick_shell(container_name)]
 
     subprocess.run(
         ["docker", "exec", "-it", container_name] + cmd,
@@ -89,3 +103,55 @@ def inspect_container(container_name):
         table.add_row("Entrypoint", " ".join(entrypoint) if isinstance(entrypoint, list) else entrypoint)
 
     console.print(table)
+
+
+def console_container(container_name):
+    """Open a debug console for a container: show logs, then enter shell"""
+    client = get_client()
+    try:
+        container = client.containers.get(container_name)
+    except NotFound:
+        console.print(f"[red]Error:[/red] Container '{container_name}' not found.")
+        return
+
+    console.print(f"[bold cyan]Console:[/bold cyan] [white]{container_name}[/white]")
+    console.print(f"  Status: [{'green' if container.status == 'running' else 'yellow'}]{container.status}[/]")
+    console.print(f"  Image: {container.image.tags[0] if container.image.tags else container.image.short_id[:12]}")
+    console.print()
+
+    # Show recent logs
+    try:
+        logs = container.logs(tail=30).decode("utf-8", errors="replace").strip()
+        if logs:
+            console.print("[bold]Recent logs:[/bold]")
+            for line in logs.split("\n")[-10:]:
+                console.print(f"  [dim]{line}[/dim]")
+        else:
+            console.print("[dim]No recent logs.[/dim]")
+    except Exception:
+        pass
+    console.print()
+
+    if container.status == "running":
+        shell = _pick_shell(container_name)
+        if Confirm.ask(f"Enter interactive shell ([bold]{shell}[/bold])?", default=True):
+            subprocess.run(["docker", "exec", "-it", container_name, shell])
+    else:
+        exit_code = container.attrs.get("State", {}).get("ExitCode", "?")
+        console.print(f"  Exit code: [bold]{exit_code}[/bold]")
+        if Confirm.ask("Start container and enter shell?", default=False):
+            try:
+                container.start()
+                import time
+                time.sleep(1)
+                container.reload()
+                if container.status == "running":
+                    shell = _pick_shell(container_name)
+                    subprocess.run(["docker", "exec", "-it", container_name, shell])
+                else:
+                    logs = container.logs(tail=10).decode("utf-8", errors="replace").strip()
+                    console.print(f"[red]Container exited again ({container.status})[/red]")
+                    if logs:
+                        console.print(f"[dim]{logs}[/dim]")
+            except Exception as e:
+                console.print(f"[red]Error:[/red] {e}")

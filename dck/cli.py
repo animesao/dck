@@ -18,7 +18,7 @@ from dck.create import create_interactive, show_templates as show_tmpl, run_cust
 from dck.uninstall import uninstall
 from dck.lang import lang_cmd
 from dck.port import ports_cmd
-from dck.exec import exec_container, inspect_container
+from dck.exec import exec_container, inspect_container, console_container
 from dck.update import update as update_cmd
 
 console = Console()
@@ -208,6 +208,13 @@ def exec_cmd(container, cmd):
 def inspect_cmd(container):
     """Show detailed container information"""
     inspect_container(container)
+
+
+@cli.command("console")
+@click.argument("container")
+def console_cmd(container):
+    """Open debug console for a container (logs + interactive shell)"""
+    console_container(container)
 
 
 cli.add_command(lang_cmd)
