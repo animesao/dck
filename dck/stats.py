@@ -38,14 +38,16 @@ def stats():
                     s = container_stats[c.id]
                     name = c.name
 
-                    cpu_delta = s["cpu_stats"]["cpu_usage"]["total_usage"] - s["precpu_stats"]["cpu_usage"]["total_usage"]
-                    system_delta = s["cpu_stats"]["system_cpu_usage"] - s["precpu_stats"]["system_cpu_usage"]
-                    num_cpus = s["cpu_stats"].get("online_cpus", 1)
+                    precpu = s.get("precpu_stats", {})
+                    cpu_stats = s.get("cpu_stats", {})
+                    cpu_delta = cpu_stats.get("cpu_usage", {}).get("total_usage", 0) - precpu.get("cpu_usage", {}).get("total_usage", 0)
+                    system_delta = cpu_stats.get("system_cpu_usage", 0) - precpu.get("system_cpu_usage", 0)
+                    num_cpus = cpu_stats.get("online_cpus", 1)
                     cpu_percent = 0.0
                     if system_delta > 0 and cpu_delta > 0:
                         cpu_percent = (cpu_delta / system_delta) * num_cpus * 100.0
 
-                    mem_stats = s["memory_stats"]
+                    mem_stats = s.get("memory_stats", {})
                     mem_usage = mem_stats.get("usage", 0)
                     mem_limit = mem_stats.get("limit", 1)
                     mem_percent = (mem_usage / mem_limit) * 100.0 if mem_limit > 0 else 0

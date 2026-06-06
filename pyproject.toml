@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dck"
-version = "0.1.0"
+version = "0.2.0"
 description = "Simple Docker CLI client - manage containers, images, compose and more"
 readme = "README.md"
 authors = [
