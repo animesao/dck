@@ -120,6 +120,11 @@ header "Installing ${APP}"
 
 USE_VENV=true
 # Try venv first; fall back to global pip if it fails
+if [ -d "venv" ] && [ ! -f "venv/bin/activate" ]; then
+    warn "Corrupted venv found — removing and recreating"
+    rm -rf venv
+fi
+
 if [ ! -d "venv" ] && [ "$USE_VENV" = true ]; then
     if $PYTHON -m venv venv 2>/dev/null; then
         source venv/bin/activate
