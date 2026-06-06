@@ -56,6 +56,7 @@ TRANSLATIONS = {
         "memory.invalid": "Invalid memory format. Use: 512m, 2g, 1t (b, k, m, g, t)",
         "docker.notfound": "Docker not found. Run 'dck doctor' for instructions.",
         "start.anyway": "Continue anyway?",
+        "update.notfound": "dck repository not found on this system.",
     },
     "ru": {
         "lang.name": "Русский",
@@ -106,6 +107,7 @@ TRANSLATIONS = {
         "memory.invalid": "Неверный формат памяти. Используйте: 512m, 2g, 1t (b, k, m, g, t)",
         "docker.notfound": "Docker не установлен. Запустите 'dck doctor' для инструкций.",
         "start.anyway": "Всё равно продолжить?",
+        "update.notfound": "Репозиторий dck не найден в системе.",
     },
 }
 

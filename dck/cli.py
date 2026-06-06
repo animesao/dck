@@ -19,6 +19,7 @@ from dck.uninstall import uninstall
 from dck.lang import lang_cmd
 from dck.port import ports_cmd
 from dck.exec import exec_container, inspect_container
+from dck.update import update as update_cmd
 
 console = Console()
 
@@ -211,6 +212,11 @@ def inspect_cmd(container):
 
 cli.add_command(lang_cmd)
 cli.add_command(ports_cmd)
+
+@cli.command("update")
+def update_dck():
+    """Update dck to the latest version (git pull + reinstall)"""
+    update_cmd()
 
 
 if __name__ == "__main__":
