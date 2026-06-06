@@ -25,6 +25,8 @@ pip install .
 | `dck restart <container>` | Restart a container |
 | `dck rm <container> [-f]` | Remove a container |
 | `dck restart-policy <c> <policy>` | Set auto-start policy (always/unless-stopped/on-failure/no) |
+| `dck console <container> [-f] [-a] [-t N]` | Interactive console with recent logs, live tail, or attach to main process |
+| `dck resources <container> [--ram <size>] [--cpu <cores>] [--restart <policy>]` | Update RAM/CPU limits and restart policy |
 
 ### Image management
 | Command | Description |
