@@ -80,7 +80,7 @@ done
 if [ -z "$PYTHON" ]; then
     warn "Python 3.10+ not found. Installing..."
     case "$PKG_MGR" in
-        apt)    $SUDO apt-get update && $SUDO apt-get install -y python3 python3-pip python3-venv ;;
+        apt)    $SUDO apt-get update && $SUDO apt-get install -y python3 python3-pip ;;
         dnf)    $SUDO dnf install -y python3 python3-pip ;;
         pacman) $SUDO pacman -S --noconfirm python python-pip ;;
         zypper) $SUDO zypper install -y python3 python3-pip ;;
@@ -91,13 +91,9 @@ if [ -z "$PYTHON" ]; then
 fi
 ok "$($PYTHON --version)"
 
-# Ensure python3-venv on Debian/Ubuntu
-if [ "$PKG_MGR" = "apt" ]; then
-    if ! dpkg -s python3-venv &>/dev/null 2>&1; then
-        info "Installing python3-venv..."
-        $SUDO apt-get install -y python3-venv
-    fi
-fi
+# Ensure python3-venv on Debian/Ubuntu (best-effort, fallback if unavailable)
+VENV_MODULE_AVAIL=true
+$PYTHON -m venv -h &>/dev/null || VENV_MODULE_AVAIL=false
 
 # ── Git ─────────────────────────────────────────────────────────
 header "Git"
@@ -135,13 +131,31 @@ fi
 
 if [ ! -d "venv" ]; then
     ok "Creating virtual environment..."
-    if $PYTHON -m venv venv 2>/dev/null; then
-        source venv/bin/activate
-        PYTHON="python"
-        ok "Virtual environment created"
+    if [ "$VENV_MODULE_AVAIL" = true ]; then
+        if $PYTHON -m venv venv 2>/dev/null; then
+            source venv/bin/activate
+            PYTHON="python"
+            ok "Virtual environment created"
+        else
+            warn "venv creation failed — installing globally"
+            USE_VENV=false
+        fi
     else
-        warn "venv creation failed — installing globally"
-        USE_VENV=false
+        # venv module missing — try to install it
+        warn "venv module not available — trying to install python3-venv"
+        case "$PKG_MGR" in
+            apt)    $SUDO apt-get install -y python3-venv 2>/dev/null || true ;;
+            dnf)    $SUDO dnf install -y python3-venv 2>/dev/null || true ;;
+            *)      true ;;
+        esac
+        if $PYTHON -m venv venv 2>/dev/null; then
+            source venv/bin/activate
+            PYTHON="python"
+            ok "Virtual environment created"
+        else
+            warn "venv still unavailable — installing globally"
+            USE_VENV=false
+        fi
     fi
 else
     source venv/bin/activate
