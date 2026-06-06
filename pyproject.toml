@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dck"
+version = "0.1.0"
+description = "Simple Docker CLI client - manage containers, images, compose and more"
+readme = "README.md"
+authors = [
+    {name = "dck"}
+]
+requires-python = ">=3.10"
+dependencies = [
+    "click>=8.1",
+    "rich>=13.0",
+    "docker>=7.0",
+]
+
+[project.scripts]
+dck = "dck.cli:cli"
+
+[tool.setuptools.packages.find]
+include = ["dck*"]
