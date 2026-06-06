@@ -11,3 +11,4 @@ build/
 venv/
 env/
 launchers/
+test.txt
