@@ -224,6 +224,12 @@ def ask_env(template):
     return env_vars
 
 
+def _ensure_dir(path):
+    if not os.path.exists(path):
+        os.makedirs(path, exist_ok=True)
+        console.print(f"  [dim]Created directory: {path}[/dim]")
+
+
 def ask_volumes(template):
     volumes = {}
     vol_list = template.get("volumes", [])
@@ -234,8 +240,7 @@ def ask_volumes(template):
             answer = Prompt.ask(f"  {vol['label']}", default=vol["default"])
             if answer:
                 abs_path = os.path.abspath(answer)
-                if not os.path.exists(abs_path):
-                    console.print(f"[yellow]{t('volume.notfound', path=abs_path)}[/yellow]")
+                _ensure_dir(abs_path)
                 volumes[abs_path] = {"bind": vol["path"], "mode": "rw"}
 
     while True:
@@ -245,8 +250,7 @@ def ask_volumes(template):
         if ":" in extra:
             h, c = extra.split(":", 1)
             abs_h = os.path.abspath(h)
-            if not os.path.exists(abs_h):
-                console.print(f"[yellow]{t('volume.notfound', path=abs_h)}[/yellow]")
+            _ensure_dir(abs_h)
             volumes[abs_h] = {"bind": c, "mode": "rw"}
         else:
             console.print(f"[red]{t('volume.invalid')}[/red]")

@@ -9,10 +9,9 @@ TEMPLATES = {
         "disk": "~100MB",
         "volumes": [
             {"path": "/usr/share/nginx/html", "label": "HTML files", "default": "./html"},
-            {"path": "/etc/nginx/conf.d", "label": "Nginx configs", "default": "./nginx-conf"},
         ],
         "env": [],
-        "note": "Place your static files in the html volume and restart",
+        "note": "Place index.html and other static files in ./html, then refresh your browser",
     },
     "minecraft": {
         "name": "Minecraft Server (Java Edition)",
