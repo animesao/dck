@@ -95,6 +95,20 @@ ok "$($PYTHON --version)"
 VENV_MODULE_AVAIL=true
 $PYTHON -m venv -h &>/dev/null || VENV_MODULE_AVAIL=false
 
+# ── curl ────────────────────────────────────────────────────────
+header "curl"
+if ! command -v curl &>/dev/null; then
+    warn "curl not found. Installing..."
+    case "$PKG_MGR" in
+        apt)    $SUDO apt-get install -y curl ;;
+        dnf)    $SUDO dnf install -y curl ;;
+        pacman) $SUDO pacman -S --noconfirm curl ;;
+        zypper) $SUDO zypper install -y curl ;;
+        brew)   brew install curl ;;
+    esac
+fi
+ok "curl"
+
 # ── Git ─────────────────────────────────────────────────────────
 header "Git"
 if ! command -v git &>/dev/null; then
@@ -108,6 +122,80 @@ if ! command -v git &>/dev/null; then
     esac
 fi
 ok "Git $(git --version 2>&1 | grep -oP '\d+\.\d+\.\d+')"
+
+# ── Docker ──────────────────────────────────────────────────────
+header "Docker"
+DOCKER_OK=true
+if ! command -v docker &>/dev/null; then
+    warn "Docker not found."
+    if [ -t 0 ]; then
+        if [ "$LANG_CHOICE" = "ru" ]; then
+            printf "%s" "  Установить Docker сейчас? [Y/n]: "
+        else
+            printf "%s" "  Install Docker now? [Y/n]: "
+        fi
+        read -r docker_choice
+        case "$docker_choice" in
+            n|N|no|NO) DOCKER_OK=false ;;
+            *)         DOCKER_OK=true  ;;
+        esac
+    else
+        DOCKER_OK=true
+    fi
+
+    if [ "$DOCKER_OK" = true ]; then
+        info "Installing Docker..."
+        if command -v curl &>/dev/null; then
+            curl -fsSL https://get.docker.com | sh || {
+                warn "get.docker.com failed — trying package manager..."
+                case "$PKG_MGR" in
+                    apt)    $SUDO apt-get install -y docker.io ;;
+                    dnf)    $SUDO dnf install -y docker-ce docker-ce-cli containerd.io ;;
+                    pacman) $SUDO pacman -S --noconfirm docker ;;
+                    zypper) $SUDO zypper install -y docker ;;
+                    brew)   brew install --cask docker ;;
+                esac
+            }
+        else
+            case "$PKG_MGR" in
+                apt)    $SUDO apt-get install -y docker.io ;;
+                dnf)    $SUDO dnf install -y docker-ce docker-ce-cli containerd.io ;;
+                pacman) $SUDO pacman -S --noconfirm docker ;;
+                zypper) $SUDO zypper install -y docker ;;
+                brew)   brew install --cask docker ;;
+            esac
+        fi
+    fi
+fi
+
+if command -v docker &>/dev/null; then
+    ok "$(docker --version 2>&1 | head -1)"
+
+    # Start and enable Docker daemon (Linux)
+    if [ "$OS" = "Linux" ]; then
+        if ! docker info &>/dev/null; then
+            info "Starting Docker daemon..."
+            $SUDO systemctl enable --now docker 2>/dev/null || $SUDO service docker start 2>/dev/null || true
+            sleep 2
+        fi
+        # Add user to docker group if not root
+        if [ "$(id -u)" -ne 0 ]; then
+            if ! groups | grep -q docker; then
+                warn "Adding user to 'docker' group (you may need to re-login)"
+                $SUDO usermod -aG docker "$USER" 2>/dev/null || true
+            fi
+        fi
+    fi
+
+    if docker info &>/dev/null; then
+        ok "Docker daemon is running"
+    else
+        warn "Docker daemon is not running — start it manually"
+    fi
+else
+    warn "Docker not installed. Some dck commands will not work."
+    warn "Install Docker manually: https://docs.docker.com/engine/install/"
+fi
 
 # ── Clone / Update ──────────────────────────────────────────────
 header "Getting source"
