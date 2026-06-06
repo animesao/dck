@@ -1,5 +1,6 @@
 import os
 import json
+import subprocess
 from pathlib import Path
 
 from rich.console import Console
@@ -17,6 +18,36 @@ from dck.port import open_container_ports
 console = Console()
 DCK_DIR = Path.home() / ".dck"
 TEMPLATES_FILE = DCK_DIR / "templates.json"
+
+
+def _get_server_ip():
+    try:
+        r = subprocess.run(
+            ["curl", "-s", "--max-time", "3", "https://ifconfig.me"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if r.returncode == 0 and r.stdout.strip():
+            return r.stdout.strip()
+    except Exception:
+        pass
+    try:
+        r = subprocess.run(
+            ["curl", "-s", "--max-time", "3", "https://api.ipify.org"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if r.returncode == 0 and r.stdout.strip():
+            return r.stdout.strip()
+    except Exception:
+        pass
+    try:
+        r = subprocess.run(
+            ["hostname", "-I"], capture_output=True, text=True, timeout=3,
+        )
+        if r.returncode == 0 and r.stdout.strip():
+            return r.stdout.strip().split()[0]
+    except Exception:
+        pass
+    return None
 
 
 def load_user_templates():
@@ -312,6 +343,37 @@ def _save_launcher_script(container_name, docker_run_cmd):
     console.print(f"  [green]✓[/green] Launcher saved: [bold]{script_path}[/bold]")
 
 
+def _show_container_summary(container_name, image, ports, volumes, env_vars, ram, cpu):
+    ip = _get_server_ip()
+    table = Table(title=f"Container: {container_name}", border_style="cyan", title_justify="left")
+    table.add_column("Key", style="bold")
+    table.add_column("Value")
+    table.add_row("Image", image)
+    table.add_row("Status", "[green]running[/green]")
+    if ram:
+        table.add_row("RAM", ram)
+    if cpu:
+        table.add_row("CPU", f"{cpu} cores")
+    for c_port, h_port in (ports or {}).items():
+        proto = c_port.split("/")[1] if "/" in c_port else "tcp"
+        c_num = c_port.split("/")[0]
+        port_str = f"{h_port}:{c_num}/{proto}"
+        if ip:
+            url = f"http://{ip}:{h_port}" if proto == "tcp" else f"{ip}:{h_port}/{proto}"
+            port_str += f"  [cyan]{url}[/cyan]"
+        table.add_row("Port", port_str)
+    for h_path, cfg in (volumes or {}).items():
+        table.add_row("Volume", f"{h_path} → {cfg['bind']}")
+    for k, v in (env_vars or {}).items():
+        if v:
+            table.add_row("Env", f"{k}={v}")
+    table.add_row("Manage", f"dck logs {container_name} | dck stop {container_name} | dck exec {container_name}")
+    table.add_row("Launcher", f"./launchers/{container_name}.sh")
+    table.add_row("Delete", f"docker rm -f {container_name}")
+    console.print()
+    console.print(table)
+
+
 def build_and_start(template_key, template, name, ports, env_vars, volumes, ram, cpu, start_now=True):
     client = get_client()
 
@@ -371,6 +433,9 @@ def build_and_start(template_key, template, name, ports, env_vars, volumes, ram,
     # Offer to save launcher script
     docker_run = _gen_docker_run(template_key, template, name, ports, env_vars, volumes, ram, cpu)
     _save_launcher_script(container_name, docker_run)
+
+    # Show comprehensive summary
+    _show_container_summary(container_name, image, ports, volumes, env_vars, ram, cpu)
 
     console.print(f"\n[dim]{t('manage.hint')}: dck ps | dck logs {container_name} | dck stop {container_name}[/dim]")
     if template.get("note"):
