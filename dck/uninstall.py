@@ -4,14 +4,12 @@ import subprocess
 import sys
 from pathlib import Path
 
-import click
 from rich.console import Console
 from rich.prompt import Confirm, Prompt
 
 console = Console()
 
 
-@click.command("uninstall")
 def uninstall():
     """Remove dck completely (package, files, symlinks)"""
     console.print("[bold red]dck Uninstall[/bold red]")
