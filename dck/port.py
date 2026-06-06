@@ -135,9 +135,10 @@ def _list_ports_ss():
             if len(parts) >= 4:
                 proto = parts[0]
                 addr = parts[3]
+                proc = " ".join(parts[5:]) if len(parts) > 5 else ""
                 if ":" in addr:
                     port = addr.rsplit(":", 1)[-1]
-                    ports.append({"port": port, "proto": proto, "addr": addr})
+                    ports.append({"port": port, "proto": proto.replace("tcp6", "tcp").replace("tcp", "tcp"), "addr": addr, "proc": proc})
         return ports
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return []
@@ -173,67 +174,149 @@ def _is_port_open(port):
 
 
 @click.command("ports")
-@click.argument("action", type=click.Choice(["list", "open", "close", "check"]), default="list")
+@click.argument("action", type=click.Choice(["list", "status", "open", "close", "check", "enable", "disable", "default"]), default="list")
 @click.argument("port", required=False)
 @click.option("--proto", default="tcp", help="Protocol (tcp/udp)")
 @click.option("--all", "-a", "show_all", is_flag=True, help="Show all (including container ports)")
 def ports_cmd(action, port, proto, show_all):
     """Manage firewall ports (ufw)"""
 
+    # ── status ─────────────────────────────────────────────────
+    if action == "status":
+        if not _ufw_installed():
+            console.print("[yellow]UFW is not installed.[/yellow]")
+            if Confirm.ask("Install UFW now?", default=True):
+                _install_ufw()
+                _ufw_allow_ssh()
+                subprocess.run(["ufw", "--force", "enable"], capture_output=True, text=True, timeout=10)
+            return
+
+        active = _check_ufw()
+        status_str = "[green]active[/green]" if active else "[red]inactive[/red]"
+        console.print(f"UFW status: {status_str}")
+
+        try:
+            r = subprocess.run(["ufw", "status", "verbose"], capture_output=True, text=True, timeout=5)
+            console.print(r.stdout)
+        except Exception:
+            pass
+        return
+
+    # ── enable / disable ────────────────────────────────────────
+    if action == "enable":
+        if not _ufw_installed():
+            _install_ufw()
+        _ufw_allow_ssh()
+        try:
+            r = subprocess.run(["ufw", "--force", "enable"], capture_output=True, text=True, timeout=10)
+            if r.returncode == 0:
+                console.print("[green]UFW enabled[/green] (SSH port 22 auto-allowed)")
+            else:
+                console.print(f"[red]Error:[/red] {r.stderr.strip()}")
+        except Exception as e:
+            console.print(f"[red]Error:[/red] {e}")
+        return
+
+    if action == "disable":
+        try:
+            r = subprocess.run(["ufw", "--force", "disable"], capture_output=True, text=True, timeout=10)
+            if r.returncode == 0:
+                console.print("[yellow]UFW disabled[/yellow]")
+            else:
+                console.print(f"[red]Error:[/red] {r.stderr.strip()}")
+        except Exception as e:
+            console.print(f"[red]Error:[/red] {e}")
+        return
+
+    # ── default ─────────────────────────────────────────────────
+    if action == "default":
+        if not port:
+            console.print("[red]Usage: dck ports default allow|deny[/red]")
+            return
+        if port not in ("allow", "deny"):
+            console.print("[red]Use: dck ports default allow[/red] or [red]dck ports default deny[/red]")
+            return
+        try:
+            r = subprocess.run(["ufw", "default", port, "incoming"], capture_output=True, text=True, timeout=10)
+            if r.returncode == 0:
+                console.print(f"[green]Default incoming policy set to {port}[/green]")
+            else:
+                console.print(f"[red]Error:[/red] {r.stderr.strip()}")
+        except Exception as e:
+            console.print(f"[red]Error:[/red] {e}")
+        return
+
+    # ── list ────────────────────────────────────────────────────
     if action == "list":
-        container_ports = []
+        # UFW status header
+        if _ufw_installed():
+            active = _check_ufw()
+            status_str = "[green]active[/green]" if active else "[red]inactive[/red]"
+            console.print(f"UFW: {status_str}")
+            if active:
+                rules = _list_ufw_rules()
+                if rules:
+                    ufw_table = Table(border_style="cyan", box=None, show_header=False)
+                    ufw_table.add_column("Rule")
+                    ufw_table.add_column("Action", style="bold")
+                    ufw_table.add_column("Proto")
+                    for r in rules:
+                        ufw_table.add_row(f"  {r['port']}", "[green]ALLOW[/green]", r['proto'])
+                    console.print(ufw_table)
+                else:
+                    console.print("  [dim]No UFW rules[/dim]")
+            console.print()
+
+        # Listening ports
+        listening = _list_ports_ss()
+        seen = set()
+
+        if not listening and not show_all:
+            console.print("[yellow]No listening ports found.[/yellow]")
+            return
+
+        table = Table(title="Listening Ports", border_style="cyan")
+        table.add_column("Port", style="bold")
+        table.add_column("Protocol")
+        table.add_column("Process")
+        table.add_column("Status")
+        table.add_column("UFW")
+
+        for p in listening:
+            ufw_allowed = any(r["port"] == p["port"] and r["proto"] == p["proto"] for r in _list_ufw_rules()) if _ufw_installed() else "—"
+            ufw_str = "[green]ALLOW[/green]" if ufw_allowed else "[yellow]—[/yellow]"
+            proc = p.get("proc", p.get("addr", ""))
+            table.add_row(p["port"], p["proto"], proc, "[green]LISTEN[/green]", ufw_str)
+
+        console.print(table)
+
         if show_all:
             try:
                 client = get_client()
+                container_ports = []
                 for c in client.containers.list():
                     for c_port, mappings in (c.ports or {}).items():
                         for m in (mappings or []):
                             hp = m.get("HostPort", "?")
-                            ip = m.get("HostIp", "0.0.0.0")
-                            container_ports.append({"port": hp, "proto": c_port.split("/")[1] if "/" in c_port else "tcp", "container": c.name})
+                            proto = c_port.split("/")[1] if "/" in c_port else "tcp"
+                            container_ports.append({"port": hp, "proto": proto, "container": c.name})
+                if container_ports:
+                    ct = Table(title="Container Ports", border_style="blue")
+                    ct.add_column("Port", style="bold")
+                    ct.add_column("Protocol")
+                    ct.add_column("Container")
+                    for cp in container_ports:
+                        ct.add_row(cp["port"], cp["proto"], cp["container"])
+                    console.print(ct)
             except Exception:
                 pass
-
-        table = Table(title="Ports", border_style="cyan")
-        table.add_column("Port", style="bold")
-        table.add_column("Protocol")
-        table.add_column("Status")
-        table.add_column("Source")
-
-        listening = _list_ports_ss()
-        seen = set()
-        for p in listening:
-            key = (p["port"], p["proto"])
-            if key not in seen:
-                seen.add(key)
-                status = "[green]LISTEN[/green]"
-                src = "system"
-                table.add_row(p["port"], p["proto"], status, src)
-
-        for cp in container_ports:
-            key = (cp["port"], cp["proto"])
-            if key not in seen:
-                seen.add(key)
-                table.add_row(cp["port"], cp["proto"], "[blue]CONTAINER[/blue]", cp["container"])
-
-        if _check_ufw():
-            console.print("\n[bold]UFW rules:[/bold]")
-            try:
-                r = subprocess.run(["ufw", "status"], capture_output=True, text=True, timeout=5)
-                console.print(r.stdout)
-            except Exception:
-                pass
-
-        if not seen:
-            console.print("[yellow]No ports found.[/yellow]")
-
         return
 
-    if not port:
-        console.print("[red]Error: port number required[/red]")
-        return
-
+    # ── check ───────────────────────────────────────────────────
     if action == "check":
+        if not port:
+            console.print("[red]Usage: dck ports check <port>[/red]")
+            return
         if _is_port_open(port):
             console.print(f"Port [bold]{port}/{proto}[/bold] is [green]in use[/green]")
         else:
@@ -245,7 +328,11 @@ def ports_cmd(action, port, proto, show_all):
                 console.print(f"  UFW: [green]allowed[/green]")
             else:
                 console.print(f"  UFW: [yellow]not explicitly allowed[/yellow]")
+        return
 
+    # ── open / close ────────────────────────────────────────────
+    if not port:
+        console.print(f"[red]Usage: dck ports {action} <port>[/red]")
         return
 
     if not _ensure_ufw():
