@@ -12,6 +12,7 @@ from docker.errors import APIError
 from dck.client import get_client
 from dck.templates import list_templates, get_template
 from dck.i18n import t
+from dck.port import open_container_ports
 
 console = Console()
 DCK_DIR = Path.home() / ".dck"
@@ -140,43 +141,62 @@ def _validate_memory(mem_str):
         return None
 
 
+def _parse_port_mapping(mapping):
+    """Parse 'host:container/proto' or 'host:container' into (host, container, proto)"""
+    mapping = mapping.strip()
+    if not mapping:
+        return None
+    try:
+        proto = "tcp"
+        if "/" in mapping:
+            mapping, proto = mapping.rsplit("/", 1)
+        if ":" in mapping:
+            h_str, c_str = mapping.split(":", 1)
+            host = int(h_str.strip())
+            container = int(c_str.strip())
+        else:
+            host = int(mapping)
+            container = host
+        return host, container, proto.strip().lower()
+    except (ValueError, IndexError):
+        return None
+
+
 def ask_ports(template):
     ports = {}
     console.print(f"\n[bold]{t('port.mappings')}[/bold]")
+    console.print("  [dim]Format: host:container/proto (e.g. 8080:80/tcp)")
+    console.print("  Multiple: comma-separated (e.g. 80:80,443:443) or just a number[/dim]")
+
     port_list = template.get("ports", [{"host": "", "container": "", "proto": "tcp"}])
+    defaults_str = ",".join(f"{p['host']}:{p['container']}/{p['proto']}" for p in port_list if p.get("container"))
 
-    for p in port_list:
-        if p.get("container"):
-            default = f"{p['host']}:{p['container']}/{p['proto']}"
-            answer = Prompt.ask(f"  {p['container']}/{p['proto']}", default=default)
+    answer = Prompt.ask("  Ports", default=defaults_str or "80")
+    for mapping in answer.replace(";", ",").split(","):
+        mapping = mapping.strip()
+        if not mapping:
+            continue
+        parsed = _parse_port_mapping(mapping)
+        if parsed:
+            host, container, proto = parsed
+            ports[f"{container}/{proto}"] = host
         else:
-            answer = Prompt.ask(f"  Port (host:container/proto)", default="")
-
-        if answer:
-            try:
-                parts = answer.split(":")
-                h = int(parts[0])
-                rest = parts[1].split("/")
-                c = int(rest[0])
-                proto = rest[1] if len(rest) > 1 else "tcp"
-                ports[f"{c}/{proto}"] = h
-            except (IndexError, ValueError):
-                if "container" in p:
-                    ports[f"{p['container']}/{p.get('proto', 'tcp')}"] = p["host"]
+            console.print(f"  [red]Invalid: {mapping} (use host:container/proto)[/red]")
 
     while True:
         extra = Prompt.ask(f"  {t('port.extra')}", default="")
         if not extra:
             break
-        try:
-            parts = extra.split(":")
-            h = int(parts[0])
-            rest = parts[1].split("/")
-            c = int(rest[0])
-            proto = rest[1] if len(rest) > 1 else "tcp"
-            ports[f"{c}/{proto}"] = h
-        except (IndexError, ValueError):
-            console.print(f"[red]{t('port.invalid')}[/red]")
+        for mapping in extra.replace(";", ",").split(","):
+            mapping = mapping.strip()
+            if not mapping:
+                continue
+            parsed = _parse_port_mapping(mapping)
+            if parsed:
+                host, container, proto = parsed
+                ports[f"{container}/{proto}"] = host
+            else:
+                console.print(f"  [red]{t('port.invalid')}[/red]")
 
     return ports
 
@@ -304,6 +324,9 @@ def build_and_start(template_key, template, name, ports, env_vars, volumes, ram,
                     console.print(f"  {t('port.info')}: [bold]{h_port}:{c_num}/{proto}[/bold]")
             except APIError as e:
                 console.print(f"[red]{t('error')}:[/red] {e}")
+
+    # Ask to open ports in firewall
+    open_container_ports(container_name, ports)
 
     console.print(f"\n[dim]{t('manage.hint')}: dck ps | dck logs {container_name} | dck stop {container_name}[/dim]")
     if template.get("note"):

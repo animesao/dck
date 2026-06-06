@@ -17,6 +17,7 @@ from dck.doctor import doctor
 from dck.create import create_interactive, show_templates as show_tmpl, run_custom
 from dck.uninstall import uninstall
 from dck.lang import lang_cmd
+from dck.port import ports_cmd
 
 console = Console()
 
@@ -193,6 +194,7 @@ def run_cmd(image, name, ram, cpu):
 
 
 cli.add_command(lang_cmd)
+cli.add_command(ports_cmd)
 
 
 if __name__ == "__main__":

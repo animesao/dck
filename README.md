@@ -56,12 +56,24 @@ pip install .
 - **CS2** — Counter-Strike 2 server (port 27015, 4GB RAM)
 - **Satisfactory** — dedicated server (port 7777, 4GB RAM)
 
-Each template interactively configures ports, RAM, CPU, volumes, and env vars.
+Port input supports comma-separated values: `80:80,443:443` or just `80,443`.
+
 Custom templates are saved to `~/.dck/templates.json` for reuse.
+
+### Firewall & Ports
+| Command | Description |
+|---------|-------------|
+| `dck ports` | List listening ports |
+| `dck ports check <port>` | Check if port is available |
+| `dck ports open <port> [--proto udp]` | Open port in firewall (UFW) |
+| `dck ports close <port>` | Close port in firewall |
+
+When creating a container with `dck create`, it will ask to auto-open required ports in the firewall.
 
 ### Other
 | Command | Description |
 |---------|-------------|
 | `dck stats` | Live CPU / memory / network monitoring |
 | `dck doctor` | Docker diagnostics + install instructions |
+| `dck lang` | Switch language (`dck lang ru` / `dck lang en`) |
 | `dck uninstall` | Remove dck completely from your system |
