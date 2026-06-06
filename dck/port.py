@@ -11,6 +11,68 @@ from dck.client import get_client
 console = Console()
 
 
+def _ufw_installed():
+    try:
+        r = subprocess.run(["ufw", "--version"], capture_output=True, text=True, timeout=5)
+        return r.returncode == 0
+    except FileNotFoundError:
+        return False
+
+
+def _install_ufw():
+    console.print("[yellow]UFW not found. Installing...[/yellow]")
+    try:
+        r = subprocess.run(
+            ["apt-get", "install", "-y", "ufw"],
+            capture_output=True, text=True, timeout=60,
+        )
+        if r.returncode == 0:
+            console.print("[green]✓[/green] UFW installed")
+            return True
+        else:
+            console.print(f"[red]Error installing UFW:[/red] {r.stderr.strip()}")
+            return False
+    except FileNotFoundError:
+        console.print("[red]Error:[/red] apt-get not found. Install UFW manually.")
+        return False
+    except subprocess.TimeoutExpired:
+        console.print("[red]Error:[/red] Installation timed out.")
+        return False
+
+
+def _ensure_ufw():
+    """Ensure UFW is installed and active; offer to install/activate if needed"""
+    if not _ufw_installed():
+        if Confirm.ask("  UFW is not installed. Install it now?", default=True):
+            if not _install_ufw():
+                return False
+            # Enable after install
+            try:
+                subprocess.run(
+                    ["ufw", "--force", "enable"],
+                    capture_output=True, text=True, timeout=10,
+                )
+            except Exception:
+                pass
+        else:
+            return False
+
+    if not _check_ufw():
+        if Confirm.ask("  UFW is inactive. Enable it now?", default=True):
+            try:
+                r = subprocess.run(
+                    ["ufw", "--force", "enable"],
+                    capture_output=True, text=True, timeout=10,
+                )
+                if r.returncode != 0:
+                    console.print(f"[red]Error enabling UFW:[/red] {r.stderr.strip()}")
+                    return False
+            except Exception as e:
+                console.print(f"[red]Error:[/red] {e}")
+                return False
+    return True
+
+
 def _check_ufw():
     try:
         r = subprocess.run(["ufw", "status"], capture_output=True, text=True, timeout=5)
@@ -177,10 +239,9 @@ def ports_cmd(action, port, proto, show_all):
 
         return
 
-    if not _check_ufw():
-        if not Confirm.ask("UFW is not active. Use iptables instead?", default=False):
-            console.print("[yellow]Cancelled.[/yellow]")
-            return
+    if not _ensure_ufw():
+        console.print("[yellow]Operation cancelled.[/yellow]")
+        return
 
     if action == "open":
         ok, msg = _open_ufw(port, proto)
@@ -199,9 +260,10 @@ def ports_cmd(action, port, proto, show_all):
 
 def open_container_ports(container_name, ports, ask_confirm=True):
     """Auto-open firewall ports for a container"""
-    if not _check_ufw():
-        return
-    if ask_confirm and not Confirm.ask(f"  Open these ports in firewall (UFW)?", default=True):
+    if ask_confirm and Confirm.ask(f"  Open these ports in firewall (UFW)?", default=True):
+        if not _ensure_ufw():
+            return
+    else:
         return
     for c_port, h_port in (ports or {}).items():
         proto = c_port.split("/")[1] if "/" in c_port else "tcp"
