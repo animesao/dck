@@ -118,7 +118,8 @@ done
 if [ -z "$PYTHON" ]; then
     warn "Python 3.10+ not found. Installing..."
     case "$PKG_MGR" in
-        apt|dnf|pacman|zypper) pkg python3 python3-pip ;;
+        apt|dnf|zypper) pkg python3 python3-pip ;;
+        pacman) pkg python python-pip ;;
         brew)   pkg python@3.12 ;;
         *)      err "Install Python 3.10+ manually: https://python.org/downloads" ;;
     esac
@@ -126,15 +127,13 @@ if [ -z "$PYTHON" ]; then
 fi
 ok "$($PYTHON --version)"
 
-# Ensure the venv module is available
-VENV_MODULE_AVAIL=true
-$PYTHON -m venv -h >/dev/null 2>&1 || VENV_MODULE_AVAIL=false
-if [ "$VENV_MODULE_AVAIL" = false ]; then
-    warn "venv module not available — trying to install"
-    PY_VER="$($PYTHON -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
-    pkg "python${PY_VER}-venv" 2>/dev/null || pkg python3-venv 2>/dev/null || true
-    $PYTHON -m venv -h >/dev/null 2>&1 && VENV_MODULE_AVAIL=true
-fi
+# Install python3-venv (needed for ensurepip on Debian/Ubuntu)
+# This ensures venv creation won't fail due to missing ensurepip
+PY_VER="$($PYTHON -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+case "$PKG_MGR" in
+    apt|dnf) pkg "python${PY_VER}-venv" 2>/dev/null || pkg python3-venv 2>/dev/null || true ;;
+    *) true ;;
+esac
 
 # ── curl ────────────────────────────────────────────────────────
 header "curl"
@@ -242,33 +241,27 @@ ORIG_PYTHON="$PYTHON"
 if [ ! -d "venv" ]; then
     ok "Creating virtual environment..."
 
+    # Try to create venv. If it fails, install python3-venv and retry once.
+    if ! $PYTHON -m venv venv >/dev/null 2>&1; then
+        warn "venv failed — installing python3-venv and retrying"
+        PY_VER="$($ORIG_PYTHON -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+        pkg "python${PY_VER}-venv" 2>/dev/null || pkg python3-venv 2>/dev/null || true
+        $PYTHON -m venv venv >/dev/null 2>&1 || true
+    fi
+
     VENV_OK=false
-    if $PYTHON -m venv venv >/dev/null 2>&1; then
+    if [ -f "venv/bin/activate" ]; then
         source venv/bin/activate
         PYTHON="python"
         if $PYTHON -m pip --version &>/dev/null; then
             VENV_OK=true
             ok "Virtual environment created"
-        else
-            # venv was created but pip isn't available — try to fix it
-            warn 'pip not in venv — installing python3-venv'
-            PY_VER="$($ORIG_PYTHON -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
-            pkg "python${PY_VER}-venv" 2>/dev/null || pkg python3-venv 2>/dev/null || true
-            deactivate 2>/dev/null || true
-            rm -rf venv
-            if $ORIG_PYTHON -m venv venv >/dev/null 2>&1; then
-                source venv/bin/activate
-                PYTHON="python"
-                if $PYTHON -m pip --version &>/dev/null; then
-                    VENV_OK=true
-                    ok "Virtual environment created"
-                fi
-            fi
         fi
     fi
 
     if [ "$VENV_OK" != true ]; then
         warn 'venv creation failed — installing globally'
+        rm -rf venv 2>/dev/null || true
         PYTHON="$ORIG_PYTHON"
         USE_VENV=false
     fi
