@@ -22,6 +22,15 @@ ok()    { printf "${GREEN}✓ %s${NC}\n" "$*"; }
 warn()  { printf "${YELLOW}⚠ %s${NC}\n" "$*"; }
 err()   { printf "${RED}✗ %s${NC}\n" "$*"; exit 1; }
 header(){ printf "\n${BOLD}=== %s ===${NC}\n\n" "$*"; }
+pkg()   {
+    case "$PKG_MGR" in
+        apt)    $SUDO apt-get install --no-install-recommends -y "$@" ;;
+        dnf)    $SUDO dnf install -y "$@" ;;
+        pacman) $SUDO pacman -S --noconfirm "$@" ;;
+        zypper) $SUDO zypper install -y "$@" ;;
+        brew)   brew install "$@" ;;
+    esac
+}
 
 cleanup() {
     header "Cleaning up"
@@ -63,6 +72,12 @@ if [ "$(id -u)" -ne 0 ] && command -v sudo &>/dev/null; then
     SUDO="sudo"
 fi
 
+# ── Update package index (apt only) ─────────────────────────────
+if [ "$PKG_MGR" = "apt" ]; then
+    header "Updating package index"
+    $SUDO apt-get update -qq 2>/dev/null || warn "apt update failed (might be offline)"
+fi
+
 # ── Python ──────────────────────────────────────────────────────
 header "Python"
 PYTHON=""
@@ -80,11 +95,8 @@ done
 if [ -z "$PYTHON" ]; then
     warn "Python 3.10+ not found. Installing..."
     case "$PKG_MGR" in
-        apt)    $SUDO apt-get update && $SUDO apt-get install -y python3 python3-pip ;;
-        dnf)    $SUDO dnf install -y python3 python3-pip ;;
-        pacman) $SUDO pacman -S --noconfirm python python-pip ;;
-        zypper) $SUDO zypper install -y python3 python3-pip ;;
-        brew)   brew install python@3.12 ;;
+        apt|dnf|pacman|zypper) pkg python3 python3-pip ;;
+        brew)   pkg python@3.12 ;;
         *)      err "Install Python 3.10+ manually: https://python.org/downloads" ;;
     esac
     PYTHON="python3"
@@ -99,13 +111,7 @@ $PYTHON -m venv -h &>/dev/null || VENV_MODULE_AVAIL=false
 header "curl"
 if ! command -v curl &>/dev/null; then
     warn "curl not found. Installing..."
-    case "$PKG_MGR" in
-        apt)    $SUDO apt-get install -y curl ;;
-        dnf)    $SUDO dnf install -y curl ;;
-        pacman) $SUDO pacman -S --noconfirm curl ;;
-        zypper) $SUDO zypper install -y curl ;;
-        brew)   brew install curl ;;
-    esac
+    pkg curl
 fi
 ok "curl"
 
@@ -113,13 +119,7 @@ ok "curl"
 header "Git"
 if ! command -v git &>/dev/null; then
     warn "Git not found. Installing..."
-    case "$PKG_MGR" in
-        apt)    $SUDO apt-get install -y git ;;
-        dnf)    $SUDO dnf install -y git ;;
-        pacman) $SUDO pacman -S --noconfirm git ;;
-        zypper) $SUDO zypper install -y git ;;
-        brew)   brew install git ;;
-    esac
+    pkg git
 fi
 ok "Git $(git --version 2>&1 | grep -oP '\d+\.\d+\.\d+')"
 
@@ -148,22 +148,10 @@ if ! command -v docker &>/dev/null; then
         if command -v curl &>/dev/null; then
             curl -fsSL https://get.docker.com | sh || {
                 warn "get.docker.com failed — trying package manager..."
-                case "$PKG_MGR" in
-                    apt)    $SUDO apt-get install -y docker.io ;;
-                    dnf)    $SUDO dnf install -y docker-ce docker-ce-cli containerd.io ;;
-                    pacman) $SUDO pacman -S --noconfirm docker ;;
-                    zypper) $SUDO zypper install -y docker ;;
-                    brew)   brew install --cask docker ;;
-                esac
+                pkg docker 2>/dev/null || brew install --cask docker 2>/dev/null || true
             }
         else
-            case "$PKG_MGR" in
-                apt)    $SUDO apt-get install -y docker.io ;;
-                dnf)    $SUDO dnf install -y docker-ce docker-ce-cli containerd.io ;;
-                pacman) $SUDO pacman -S --noconfirm docker ;;
-                zypper) $SUDO zypper install -y docker ;;
-                brew)   brew install --cask docker ;;
-            esac
+            pkg docker 2>/dev/null || brew install --cask docker 2>/dev/null || true
         fi
     fi
 fi
@@ -231,11 +219,7 @@ if [ ! -d "venv" ]; then
     else
         # venv module missing — try to install it
         warn "venv module not available — trying to install python3-venv"
-        case "$PKG_MGR" in
-            apt)    $SUDO apt-get install -y python3-venv 2>/dev/null || true ;;
-            dnf)    $SUDO dnf install -y python3-venv 2>/dev/null || true ;;
-            *)      true ;;
-        esac
+        pkg python3-venv 2>/dev/null || true
         if $PYTHON -m venv venv 2>/dev/null; then
             source venv/bin/activate
             PYTHON="python"
@@ -259,10 +243,7 @@ fi
 if ! $PYTHON -m pip --version &>/dev/null; then
     warn "pip not available — installing python3-pip system-wide"
     case "$PKG_MGR" in
-        apt)    $SUDO apt-get install -y python3-pip >/dev/null 2>&1 ;;
-        dnf)    $SUDO dnf install -y python3-pip >/dev/null 2>&1 ;;
-        pacman) $SUDO pacman -S --noconfirm python-pip >/dev/null 2>&1 ;;
-        zypper) $SUDO zypper install -y python3-pip >/dev/null 2>&1 ;;
+        apt|dnf|pacman|zypper) pkg python3-pip 2>/dev/null || pkg python-pip 2>/dev/null || true ;;
     esac
     USE_VENV=false
 fi
