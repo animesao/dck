@@ -3,10 +3,7 @@ import sys
 import os
 import threading
 import time
-import select as select_module
-import pty
 import re
-import signal
 
 from rich.console import Console
 from rich.table import Table
@@ -291,8 +288,8 @@ def _exec_command(container_name, cmd):
 def _ptero_console(container, container_name, tail=30, use_stdin=False):
     """Pterodactyl-style real-time console.
 
-    stdin mode: creates a PTY and runs `docker attach` for true
-    bidirectional communication with PID 1 — exactly like Pterodactyl.
+    stdin mode: direct `docker attach` with auto-reconnect — true
+    bidirectional real-time terminal. Works with any game server.
 
     exec mode: uses docker exec for apps/scripts.
     """
@@ -303,7 +300,7 @@ def _ptero_console(container, container_name, tail=30, use_stdin=False):
         return
 
     if use_stdin:
-        _ptero_console_pty(container, container_name, tail)
+        _ptero_console_direct(container_name)
         return
 
     console.print(f"\n[bold cyan]══ Pterodactyl Console: {container_name} (docker exec) ══[/bold cyan]")
@@ -348,155 +345,76 @@ def _ptero_console(container, container_name, tail=30, use_stdin=False):
     console.print(f"\n[bold yellow]── Console session ended ──[/bold yellow]")
 
 
-def _ptero_console_pty(container, container_name, tail=30):
-    """Pterodactyl console via PTY + docker attach (true bidirectional).
-    Auto-reconnects when container restarts.
+def _ptero_console_direct(container_name):
+    """Direct docker attach with auto-reconnect. True real-time terminal.
+
+    Runs `docker attach` directly on the user's terminal without any PTY
+    wrapper. Auto-reconnects when the container restarts. Ctrl+C prompts
+    to exit.
+
+    This is the same approach as Pterodactyl Wings (Docker SDK attach),
+    but using the CLI for simplicity.
     """
     console.print()
     console.print(Panel.fit(
-        "[bold cyan]Pterodactyl Console[/bold cyan] — real-time server console\n"
-        "Logs and command output appear in the same stream.\n"
-        "Type [bold]exit[/bold]/[bold]quit[/bold] or Ctrl+C to leave.\n"
-        "[dim]Auto-reconnects on container restart.[/dim]",
+        "[bold cyan]Game Console[/bold cyan] — real-time terminal\n"
+        "Commands go directly to the server. Ctrl+C to detach.\n"
+        "Auto-reconnects on container restart.",
         border_style="cyan",
     ))
-
-    try:
-        logs = container.logs(tail=tail).decode("utf-8", errors="replace").strip()
-        if logs:
-            console.print()
-            for line in logs.split("\n")[-15:]:
-                if line.strip():
-                    console.print(f"  {escape(line)}")
-    except Exception:
-        pass
-
-    docker_cmd = ["docker", "attach", container_name]
-    sent_cmds = {}
-    log_queue = []
-    exit_requested = False
-
-    def _reader(mfd):
-        buf = b""
-        try:
-            while not exit_requested:
-                r, _, _ = select_module.select([mfd], [], [], 0.1)
-                if not r:
-                    continue
-                chunk = os.read(mfd, 65536)
-                if not chunk:
-                    break
-                buf += chunk
-                while b"\n" in buf:
-                    line, buf = buf.split(b"\n", 1)
-                    text = line.decode("utf-8", errors="replace").rstrip("\r")
-                    text = ANSI_RE.sub("", text)
-                    if text:
-                        stripped = text.strip()
-                        if stripped in sent_cmds and time.time() - sent_cmds[stripped] < 1.0:
-                            del sent_cmds[stripped]
-                            continue
-                        log_queue.append(text)
-        except Exception:
-            pass
-        finally:
-            if buf:
-                text = buf.decode("utf-8", errors="replace").rstrip("\r")
-                text = ANSI_RE.sub("", text)
-                if text:
-                    log_queue.append(text)
+    console.print("[dim]Attaching to container...[/dim]")
 
     client = get_client()
 
-    preexec = None
-    if os.name != "nt":
-        preexec = lambda: signal.signal(signal.SIGINT, signal.SIG_IGN)
-
-    while not exit_requested:
-        will_reconnect = False
-
-        try:
-            mfd, sfd = pty.openpty()
-            proc = subprocess.Popen(
-                docker_cmd,
-                stdin=sfd,
-                stdout=sfd,
-                stderr=subprocess.STDOUT,
-                close_fds=True,
-                preexec_fn=preexec,
-            )
-            os.close(sfd)
-        except Exception as e:
-            console.print(f"[red]Failed to attach: {e}[/red]")
-            return
-
-        reader = threading.Thread(target=_reader, args=(mfd,), daemon=True, name="pty-reader")
-        reader.start()
-
-        _drain_logs(log_queue)
-
-        cmd = None
-        while not exit_requested:
-            try:
-                cmd = input("\n▶ ").strip()
-            except (EOFError, KeyboardInterrupt):
-                print()
-                exit_requested = True
-                break
-
-            if not cmd:
-                continue
-            if cmd.lower() in ("exit", "quit"):
-                exit_requested = True
-                break
-
-            sent_cmds[cmd.strip()] = time.time()
-
-            try:
-                os.write(mfd, (cmd + "\n").encode())
-                time.sleep(0.3)
-                _drain_logs(log_queue)
-            except OSError:
-                will_reconnect = True
-                break
+    while True:
+        proc = subprocess.Popen(
+            ["docker", "attach", "--sig-proxy=false", container_name],
+            stdin=sys.stdin,
+            stdout=sys.stdout,
+            stderr=subprocess.STDOUT,
+        )
 
         try:
-            os.write(mfd, b"\x03")
-        except Exception:
-            pass
-        try:
-            proc.terminate()
-            proc.wait(timeout=3)
-        except Exception:
+            proc.wait()
+        except KeyboardInterrupt:
             try:
-                proc.kill()
-                proc.wait(timeout=2)
+                proc.terminate()
+                proc.wait(timeout=3)
             except Exception:
-                pass
-        try:
-            os.close(mfd)
-        except Exception:
-            pass
-        reader.join(timeout=3)
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
 
-        if not will_reconnect:
-            break
+            console.print("\n[yellow]Exit console? (y/n): [/yellow]", end="", flush=True)
+            try:
+                response = sys.stdin.readline().strip().lower()
+            except Exception:
+                response = "y"
+            if response == "y":
+                break
+            # Clear any stale input
+            continue
 
-        console.print("\n[yellow]Connection lost, waiting for container to restart...[/yellow]")
+        console.print("\n[yellow]Disconnected, waiting for container to restart...[/yellow]")
+
+        reconnected = False
         for _ in range(300):
             try:
-                c = client.containers.get(container_name)
-                if c.status == "running":
+                container = client.containers.get(container_name)
+                container.reload()
+                if container.status == "running":
+                    reconnected = True
                     break
             except Exception:
                 pass
             time.sleep(1)
-        else:
+
+        if not reconnected:
             console.print("[red]Container did not restart[/red]")
             break
-        console.print("[green]Reconnected[/green]")
-        log_queue.clear()
-        sent_cmds.clear()
+
+        console.print("[green]Reconnecting...[/green]")
 
     console.print(f"\n[bold yellow]── Console session ended ──[/bold yellow]")
 
@@ -553,7 +471,7 @@ def console_container(container_name, mode="auto", tail=20, stdin=False):
         console.print("  2. Attach to main process   [dim](docker attach)[/dim]  [green]← for game servers[/green]")
         console.print("  3. Stream live logs         [dim](docker logs -f)[/dim]")
         console.print("  4. Pterodactyl console mode [dim](real-time logs + cmd)[/dim]")
-        console.print("  5. Pterodactyl (stdin mode) [dim]for game servers (Minecraft, etc.)[/dim]")
+        console.print("  5. Real-time game console   [dim](docker attach, auto-reconnect)[/dim]  [green]← for game servers[/green]")
         choice = Prompt.ask("  Choose", default="1")
         if choice == "1":
             _enter_interactive_shell(container_name)
