@@ -83,20 +83,20 @@ ensure_packages() {
     os="$1"
     case "$os" in
         debian|ubuntu|linuxmint|pop)
-            install_pkgs "$os" util-linux iproute2 iptables procps curl ufw
+            install_pkgs "$os" util-linux iproute2 iptables procps curl git ufw
             ;;
         fedora|rhel|centos|rocky|almalinux)
-            install_pkgs "$os" util-linux iproute iptables procps-ng curl ufw
+            install_pkgs "$os" util-linux iproute iptables procps-ng curl git ufw
             ;;
         arch|manjaro|endeavouros)
-            install_pkgs "$os" util-linux iproute2 iptables procps-ng curl ufw
+            install_pkgs "$os" util-linux iproute2 iptables procps-ng curl git ufw
             ;;
         alpine)
-            install_pkgs "$os" util-linux iproute2 iptables procps curl
+            install_pkgs "$os" util-linux iproute2 iptables procps curl git
             warn "UFW not available on Alpine (use iptables directly)"
             ;;
         suse|opensuse*|opensuse-leap|opensuse-tumbleweed)
-            install_pkgs "$os" util-linux iproute2 iptables procps curl ufw
+            install_pkgs "$os" util-linux iproute2 iptables procps curl git ufw
             ;;
         *)
             warn "Unknown OS. Ensure these are installed:"
@@ -141,8 +141,34 @@ setup_system() {
     fi
 }
 
+ensure_source() {
+    if [ -f "$DIR/go.mod" ]; then
+        return 0
+    fi
+    info "Source not found locally. Downloading from GitLab..."
+    SRC_DIR="$(mktemp -d /tmp/dck-source-XXXXXX)"
+    if command -v git >/dev/null 2>&1; then
+        git clone --depth 1 https://gitlab.com/animesao/dck.git "$SRC_DIR" 2>/dev/null || {
+            warn "git clone failed, trying archive download..."
+            rm -rf "$SRC_DIR"
+            SRC_DIR="$(mktemp -d /tmp/dck-source-XXXXXX)"
+            curl -sSL "https://gitlab.com/animesao/dck/-/archive/main/dck-main.tar.gz" | tar xz -C "$SRC_DIR" --strip=1 2>/dev/null || {
+                err "Failed to download source."
+                exit 1
+            }
+        }
+    else
+        curl -sSL "https://gitlab.com/animesao/dck/-/archive/main/dck-main.tar.gz" | tar xz -C "$SRC_DIR" --strip=1 2>/dev/null || {
+            err "Failed to download source."
+            exit 1
+        }
+    fi
+    DIR="$SRC_DIR"
+}
+
 build_dck() {
     info "Building dck..."
+    ensure_source
     cd "$DIR"
     if ! command -v go >/dev/null 2>&1; then
         err "Go not found in PATH even after installation."
@@ -177,6 +203,8 @@ main() {
     echo ""
     info "${BOLD}dck - Simple Container Runtime Installer${RESET}"
     echo ""
+
+    trap 'rm -rf "${SRC_DIR:-}"' EXIT
 
     if [ "$(id -u)" != "0" ]; then
         err "This installer must be run as root (or with sudo)."
