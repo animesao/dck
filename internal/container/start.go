@@ -163,7 +163,7 @@ func findChildPID(ppid int) int {
 }
 
 func setupNetworking(c *Container, pid int) error {
-	network.EnsureBridge()
+	network.EnsureNetBase()
 
 	ip, err := network.AllocateIP()
 	if err != nil {

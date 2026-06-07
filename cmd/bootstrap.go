@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"syscall"
 
 	"dck/internal/container"
+	"dck/internal/network"
 )
 
 func Bootstrap(args []string) {
@@ -29,6 +31,8 @@ func Bootstrap(args []string) {
 		installSystemdService()
 	}
 
+	network.EnsureNetBase()
+
 	all, err := container.List(true)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error listing containers: %v\n", err)
@@ -40,11 +44,17 @@ func Bootstrap(args []string) {
 		if c.Restart != "always" {
 			continue
 		}
-		if c.Status == container.Running {
-			fmt.Printf("  %s (%s) already running\n", c.ID[:12], c.Name)
+		if c.Status == container.Running && pidAlive(c.PID) {
+			fmt.Printf("  %s (%s) already running — restoring port rules\n", c.ID[:12], c.Name)
+			if c.IP != "" {
+				for _, p := range c.Ports {
+					network.AddPortForwarding(c.IP, p.HostPort, p.ContainerPort, p.Protocol)
+				}
+			}
 			continue
 		}
 		fmt.Printf("  Starting %s (%s)... ", c.ID[:12], c.Name)
+		c.Status = container.Created
 		if err := c.Start(); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			continue
@@ -55,6 +65,17 @@ func Bootstrap(args []string) {
 	}
 
 	fmt.Printf("Bootstrap complete: %d containers started\n", count)
+}
+
+func pidAlive(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+	return proc.Signal(syscall.Signal(0)) == nil
 }
 
 func installSystemdService() {

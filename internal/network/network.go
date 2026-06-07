@@ -7,10 +7,40 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"dck/internal/state"
 )
+
+func EnsureSysctl() {
+	exec.Command("sysctl", "-w", "net.ipv4.ip_forward=1").Run()
+
+	os.MkdirAll("/etc/sysctl.d", 0755)
+	confPath := "/etc/sysctl.d/99-dck.conf"
+	data, err := os.ReadFile(confPath)
+	if err != nil || !strings.Contains(string(data), "net.ipv4.ip_forward=1") {
+		f, err := os.OpenFile(confPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err == nil {
+			f.WriteString("# dck: enable IP forwarding for container networking\nnet.ipv4.ip_forward=1\n")
+			f.Close()
+		}
+	}
+}
+
+func EnsureUFW() {
+	if _, err := exec.Command("ufw", "status").Output(); err != nil {
+		return
+	}
+	exec.Command("ufw", "route", "allow", "in", "on", BridgeName).Run()
+	exec.Command("ufw", "route", "allow", "out", "on", BridgeName).Run()
+}
+
+func EnsureNetBase() {
+	EnsureSysctl()
+	EnsureUFW()
+	EnsureBridge()
+}
 
 const (
 	BridgeName = "dck0"
