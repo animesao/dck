@@ -16,7 +16,7 @@ TEMPLATES = {
     },
     "minecraft": {
         "name": "Minecraft Server (Java Edition)",
-            "desc": "Minecraft Java Edition dedicated server (Paper, latest stable by default)",
+        "desc": "Minecraft Java Edition server (bring your own server.jar)",
         "image": "itzg/minecraft-server",
         "ports": [{"host": 25565, "container": 25565, "proto": "tcp"}],
         "ram": "2g",
@@ -24,21 +24,12 @@ TEMPLATES = {
         "disk": "~1GB",
         "tty": True,
         "volumes": [
-            {"path": "/data", "label": "World data & config", "default": "./minecraft-data/{name}"},
+            {"path": "/data", "label": "Server data (jar, worlds, config)", "default": "./minecraft-data/{name}"},
         ],
         "env": [
             {"key": "EULA", "default": "TRUE", "desc": "Accept EULA (must be TRUE)"},
-            {"key": "TYPE", "default": "PAPER", "desc": "Server type: VANILLA | PAPER | SPIGOT | FABRIC | FORGE"},
-            {"key": "VERSION", "default": "", "desc": "Minecraft version (e.g. 1.21, 1.20.4, LATEST). Leave empty for latest stable."},
-            {"key": "OVERRIDE_SERVER_PROPERTIES", "default": "true", "desc": "Force overwrite server.properties on start"},
-            {"key": "REMOVE_OLD_MODS_DIR", "default": "true", "desc": "Clean old mods when switching server types"},
-            {"key": "DIFFICULTY", "default": "easy", "desc": "peaceful | easy | normal | hard"},
-            {"key": "GAMEMODE", "default": "survival", "desc": "survival | creative | adventure"},
-            {"key": "MAX_PLAYERS", "default": "20", "desc": "Max players"},
-            {"key": "MOTD", "default": "dck Minecraft Server!", "desc": "Server message of the day"},
-            {"key": "MEMORY", "default": "2g", "desc": "Java heap memory (e.g. 1g, 2g, 4g)"},
         ],
-        "note": "Auto-restart unless-stopped. Server restarts automatically on crash.",
+        "note": "Put your server.jar in the data folder and run ./run.sh",
     },
     "terraria": {
         "name": "Terraria Server",
