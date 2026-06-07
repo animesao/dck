@@ -130,24 +130,24 @@ dck attach web              # Attach to main process
 ### Network & Ports
 ```bash
 # Port mapping: -p HOST_PORT:CONTAINER_PORT
-#   HOST_PORT       — порт на твоём сервере (через который заходишь)
-#   CONTAINER_PORT  — порт, который слушает приложение ВНУТРИ контейнера
+#   HOST_PORT      — the port on your server (where you connect to)
+#   CONTAINER_PORT — the port the application listens on INSIDE the container
 
-dck run -d -p 8080:80 nginx:alpine       # nginx слушает 80 внутри → открыто на 8080
-dck run -d -p 443:80 nginx:alpine        # nginx слушает 80 внутри → открыто на 443
-dck run -d -p 25565:25565 minecraft      # майнкрафт слушает 25565 внутри → 25565
-dck run -d -p 5432:5432 postgres:16      # postgres слушает 5432 внутри → 5432
+dck run -d -p 8080:80 nginx:alpine       # nginx listens on 80 inside → exposed on 8080
+dck run -d -p 443:80 nginx:alpine        # nginx listens on 80 inside → exposed on 443
+dck run -d -p 25565:25565 minecraft      # minecraft listens on 25565 inside → 25565
+dck run -d -p 5432:5432 postgres:16      # postgres listens on 5432 inside → 5432
 
 # iptables rules are automatically created/removed
 # Bridge network: 10.0.2.0/24
 # Each container gets a unique IP on dck0 bridge
 ```
 
-> **Важно:** Второе число — это порт ВНУТРИ контейнера. Если приложение слушает 80,
-> а ты делаешь `-p 443:443` — трафик уйдёт на 443 внутри контейнера, где ничего нет.
-> Проверить можно через `dck logs <id>` (показывает реальные запросы внутри).
+> **Important:** The second number is the port INSIDE the container. If your app listens on 80
+> and you use `-p 443:443`, traffic goes to port 443 inside the container where nothing is listening.
+> Check with `dck logs <id>` (shows real requests inside the container).
 >
-> Если не работает — проверь UFW: `ufw status` (порт должен быть ALLOW).
+> If it doesn't work — check UFW: `ufw status` (port must be ALLOW).
 
 ## Run Options Reference
 
@@ -155,7 +155,7 @@ dck run -d -p 5432:5432 postgres:16      # postgres слушает 5432 внут
 |------|-------------|---------|
 | `-d` | Detach (run in background) | `false` |
 | `-n, --name` | Container name | auto-generated |
-| `-p` | Port mapping `host:container` (`-p 8080:80` = хост:8080 → контейнер:80) | - |
+| `-p` | Port mapping `host:container` (`-p 8080:80` = host:8080 → container:80) | - |
 | `-v` | Volume mount `src:dst` | - |
 | `-e` | Environment variable `KEY=val` | - |
 | `-i` | Interactive (keep STDIN open) | `false` |
@@ -473,59 +473,59 @@ systemctl enable --now dck-backup.timer
 
 ## Auto-Start on Boot (`dck bootstrap`)
 
-`dck` не имеет демона. Вместо этого используется systemd oneshot сервис,
-который при загрузке запускает все контейнеры с `--restart always`.
+`dck` has no daemon. Instead, it uses a systemd oneshot service
+that starts all containers with `--restart always` on boot.
 
 ```bash
-# Установить systemd сервис
+# Install the systemd service
 dck bootstrap --install
 
-# Запустить все контейнеры сейчас (без перезагрузки)
+# Start all containers now (without reboot)
 dck bootstrap
 ```
 
-После перезагрузки systemd автоматически вызывает `dck bootstrap`,
-который поднимает все контейнеры с политикой `--restart always`.
+After reboot, systemd automatically calls `dck bootstrap`,
+which brings up all containers with the `--restart always` policy.
 
-### Как это работает
+### How it works
 
 ```
-Загрузка системы
+System boot
       │
       ▼
-systemd запускает dck-bootstrap.service (Type=oneshot, KillMode=process)
+systemd starts dck-bootstrap.service (Type=oneshot, KillMode=process)
       │
       ▼
-dck bootstrap читает /root/.dck/containers/*.json
+dck bootstrap reads /root/.dck/containers/*.json
       │
       ▼
-Для каждого контейнера с "restart":"always":
-  1. Пересоздаёт overlayfs (upper/work/merged)
-  2. Запускает unshare --fork --pid --mount --net --uts --ipc
-  3. Настраивает veth пару (dck0 ↔ container)
-  4. Добавляет iptables DNAT (PREROUTING + OUTPUT) и FORWARD ACCEPT
-  5. Очищает старые DNAT правила для этого порта (чтобы не было дубликатов)
+For each container with "restart":"always":
+  1. Recreates overlayfs (upper/work/merged)
+  2. Runs unshare --fork --pid --mount --net --uts --ipc
+  3. Sets up veth pair (dck0 ↔ container)
+  4. Adds iptables DNAT (PREROUTING + OUTPUT) and FORWARD ACCEPT
+  5. Cleans old DNAT rules for this port (to avoid duplicates)
       │
       ▼
-bootstrap завершается, контейнеры продолжают работать
-(systemd НЕ убивает их благодаря KillMode=process)
+bootstrap finishes, containers keep running
+(systemd does NOT kill them thanks to KillMode=process)
 ```
 
-### Почему `KillMode=process`?
+### Why `KillMode=process`?
 
-Systemd с `Type=oneshot` по умолчанию использует `KillMode=process-group`.
-Когда `dck bootstrap` завершается, systemd посылает SIGTERM всей **process group**,
-включая дочерний процесс `unshare`. `unshare` форвардит SIGTERM в контейнер
-(через `--kill-child`) — и nginx/приложение умирает.
+Systemd with `Type=oneshot` defaults to `KillMode=process-group`.
+When `dck bootstrap` finishes, systemd sends SIGTERM to the entire **process group**,
+including the `unshare` child process. `unshare` forwards SIGTERM into the container
+(via `--kill-child`) — and nginx/app dies.
 
-`KillMode=process` говорит systemd посылать SIGTERM только главному процессу
-(bootstrap), который и так собирался завершиться. Дочерние процессы
-(unshare, nginx) остаются жить.
+`KillMode=process` tells systemd to send SIGTERM only to the main process
+(bootstrap), which was going to exit anyway. Child processes
+(unshare, nginx) keep running.
 
-### Принудительный перезапуск при падении
+### Crash recovery with per-container systemd unit
 
-Если нужен гарантированный restart после crash (даже если монитор dck не успел
-среагировать), создай отдельный systemd сервис на конкретный контейнер:
+If you need guaranteed restart after a crash (even if dck monitor hasn't reacted yet),
+create a separate systemd service for a specific container:
 
 ```bash
 cat > /etc/systemd/system/dck-web.service << 'EOF'
@@ -551,36 +551,36 @@ systemctl enable --now dck-web
 ## How Port Forwarding Works
 
 ```
-Внешний запрос → 193.23.220.15:443
+External request → 193.23.220.15:443
       │
       ▼
-PREROUTING DNAT: 443 → 10.0.2.5:80  (перенаправление)
+PREROUTING DNAT: 443 → 10.0.2.5:80  (redirect)
       │
       ▼
-FORWARD ACCEPT: разрешён трафик к 10.0.2.5:80
+FORWARD ACCEPT: traffic to 10.0.2.5:80 allowed
       │
       ▼
-dck0 bridge → veth → eth0 (10.0.2.5) → nginx (порт 80)
+dck0 bridge → veth → eth0 (10.0.2.5) → nginx (port 80)
 ```
 
-Три iptables правила на каждый порт:
+Three iptables rules per port:
 
-| Цепочка | Назначение |
-|----------|------------|
-| `PREROUTING DNAT` | Перенаправляет входящие пакеты с порта хоста на IP контейнера |
-| `OUTPUT DNAT` | Перенаправляет пакеты, идущие с самого хоста (localhost → container) |
-| `FORWARD ACCEPT` | Разрешает форвардинг трафика к контейнеру |
+| Chain | Purpose |
+|-------|---------|
+| `PREROUTING DNAT` | Redirects incoming packets from host port to container IP |
+| `OUTPUT DNAT` | Redirects packets originating from the host itself (localhost → container) |
+| `FORWARD ACCEPT` | Allows traffic forwarding to the container |
 
-При каждом запуске `dck` удаляет старые DNAT правила для этого порта
-(через `iptables-save` + разбор), чтобы избежать дубликатов.
+On each start, `dck` removes old DNAT rules for this port
+(via `iptables-save` + parsing) to avoid duplicates.
 
 ### UFW (Uncomplicated Firewall)
 
-`dck` автоматически:
-- Включает `ip_forward` (sysctl)
-- Добавляет `ufw route allow in/out on dck0`
-- После перезагрузки: `dck bootstrap` вызывает `EnsureNetBase()`,
-  который восстанавливает все сетевые настройки
+`dck` automatically:
+- Enables `ip_forward` (sysctl)
+- Adds `ufw route allow in/out on dck0`
+- After reboot: `dck bootstrap` calls `EnsureNetBase()`,
+  which restores all network settings
 
 ## Storage
 
@@ -607,9 +607,9 @@ All data stored in `~/.dck/` (or `/root/.dck/` for root):
 
 ### Why `/root/.dck/` for root?
 
-Systemd запускает root-сервисы с `HOME=/`, а не `/root`.
-`dck` определяет это по `os.Getuid() == 0` и использует `/root/.dck/`
-напрямую, чтобы не зависеть от переменной `$HOME`.
+Systemd starts root services with `HOME=/`, not `/root`.
+`dck` detects this via `os.Getuid() == 0` and uses `/root/.dck/`
+directly, without relying on the `$HOME` variable.
 
 ## Architecture
 
@@ -638,15 +638,15 @@ dck pull nginx              dck run -p 8080:80 nginx
 
 ### Process Tree
 ```
-dck bootstrap (завершается после запуска)
+dck bootstrap (exits after starting containers)
   └─ unshare --fork --pid --mount --net --uts --ipc dck init <id>
       └─ dck init (chroot → mounts → exec nginx)
-          └─ nginx (PID 1 внутри контейнера)
+          └─ nginx (PID 1 inside the container)
 ```
 
-`dck init` входит в namespace контейнера, монтирует overlayfs,
-настраивает `/proc`, `lo`, и заменяет себя (`syscall.Exec`)
-на команду пользователя (nginx, sh, python, …).
+`dck init` enters the container namespace, mounts overlayfs,
+sets up `/proc`, `lo`, and replaces itself (`syscall.Exec`)
+with the user's command (nginx, sh, python, …).
 
 ### Network Architecture
 ```
@@ -670,22 +670,22 @@ Host (10.0.2.1)                       Container (10.0.2.x)
 
 ## State Management & Stale Detection
 
-Если контейнер был убит снаружи (kill -9, crash), его статус в `dck ps`
-оставался "running" навсегда. Теперь `dck` проверяет живость PID:
+If a container was killed externally (kill -9, crash), its status in `dck ps`
+stayed "running" forever. Now `dck` checks PID liveness:
 
-- `dck ps` — проверяет `/proc/<pid>` для каждого "running" контейнера
-- `dck exec` — не пытается nsenter в мёртвый PID
-- `dck logs` — работает даже для мёртвых контейнеров (читает файл)
-- `dck bootstrap` — всегда пересоздаёт контейнер с `--restart always`
+- `dck ps` — checks `/proc/<pid>` for each "running" container
+- `dck exec` — won't nsenter into a dead PID
+- `dck logs` — works even for dead containers (reads the log file)
+- `dck bootstrap` — always recreates containers with `--restart always`
 
 ### Duplicate DNAT Prevention
 
-При каждом запуске контейнера `dck` удаляет существующие DNAT правила
-для того же порта (через `iptables-save -t nat` + разбор вывода),
-чтобы старые правила не накапливались и не shadow-или актуальные.
+On each container start, `dck` removes existing DNAT rules
+for the same port (via `iptables-save -t nat` + parsing the output),
+so old rules don't accumulate and shadow the current ones.
 
 ```bash
-# Ручная очистка (если что-то пошло не так)
+# Manual cleanup (if something went wrong)
 iptables -t nat -F PREROUTING
 iptables -t nat -F OUTPUT
 ```
@@ -709,13 +709,13 @@ sudo setcap cap_sys_admin+ep /usr/local/bin/dck
 ```
 
 ### Container dies immediately after bootstrap
-Симптом: `dck ps` показывает "running", но `curl http://localhost:443` —
-"No route to host". `dck logs <id>` показывает SIGTERM.
+Symptom: `dck ps` shows "running", but `curl http://localhost:443` —
+"No route to host". `dck logs <id>` shows SIGTERM.
 
-Причина: systemd убивает unshare/nginx вместе с bootstrap
-(см. раздел про `KillMode=process`).
+Cause: systemd kills unshare/nginx along with bootstrap
+(see `KillMode=process` section above).
 
-Решение: переустановить systemd unit:
+Fix: reinstall the systemd unit:
 ```bash
 dck bootstrap --install
 ```
@@ -748,53 +748,53 @@ dck exec <id> wget -qO- http://127.0.0.1:80
 
 ### No route to host after reboot
 ```bash
-# 1. Проверить что bootstrap отработал
+# 1. Check that bootstrap ran
 systemctl status dck-bootstrap
 
-# 2. Проверить iptables
+# 2. Check iptables
 iptables -t nat -L PREROUTING -n
 
-# 3. Проверить что контейнер жив
+# 3. Check that the container is alive
 dck ps
-ping -c 2 $(dck inspect <id> ip)  # или cat /root/.dck/containers/*.json | grep ip
+ping -c 2 $(dck inspect <id> ip)  # or cat /root/.dck/containers/*.json | grep ip
 
-# 4. Если контейнер мёртв — запустить вручную
+# 4. If container is dead — restart manually
 dck rm -f <id>
 dck run -d --restart always -n web -p 443:80 nginx:alpine
 
-# 5. Если есть дубликаты DNAT — очистить
+# 5. If there are duplicate DNAT rules — flush them
 iptables -t nat -F PREROUTING
 iptables -t nat -F OUTPUT
 ```
 
-### HTTPS to GitLab не работает (SSL wrong version number)
-Некоторые VPS провайдеры ставят прозрачный HTTP-прокси на 443 порт,
-либо есть локальное DNAT правило, которое редиректит HTTPS на plain HTTP:
+### HTTPS to GitLab fails (SSL wrong version number)
+Some VPS providers put a transparent HTTP proxy on port 443,
+or there is a local DNAT rule redirecting HTTPS to plain HTTP:
 
 ```bash
-# Проверить iptables — нет ли локального редиректа
+# Check iptables for local redirects
 iptables -t nat -L -n | grep ':443 '
 
-# Если видно такое:
+# If you see something like:
 #   DNAT tcp -- 0.0.0.0/0 0.0.0.0/0 tcp dpt:443 to:10.0.2.4:80
-# Удалить правила:
+# Remove the rules:
 iptables -t nat -D PREROUTING -p tcp --dport 443 -j DNAT --to-destination 10.0.2.4:80
 iptables -t nat -D OUTPUT -p tcp --dport 443 -j DNAT --to-destination 10.0.2.4:80
 ```
 
-Если это не локальный DNAT, а провайдерский блок:
+If it's not a local DNAT but a provider-level block:
 ```bash
-# Собрать из исходников через HTTP
+# Build from source via HTTP
 git clone http://gitlab.com/animesao/dck.git /tmp/dck
 cd /tmp/dck && go build -o dck . && install dck /usr/local/bin/
 
-# Или через SSH (если добавлен ключ на GitLab)
+# Or via SSH (if you have a key on GitLab)
 git clone git@gitlab.com:animesao/dck.git /tmp/dck
 cd /tmp/dck && go build -o dck . && install dck /usr/local/bin/
 
-# dck update пробует: Go HTTP → curl → wget → git ls-remote (SSH)
-# Плюс можно указать зеркало через DCK_UPDATE_MIRROR:
-DCK_UPDATE_MIRROR=http://ваш-зеркало dck update --check
+# dck update tries: Go HTTP → curl → wget → git ls-remote (SSH)
+# You can also set a mirror via DCK_UPDATE_MIRROR:
+DCK_UPDATE_MIRROR=http://your-mirror dck update --check
 ```
 
 ### Container won't start
@@ -818,7 +818,7 @@ mount -V
 |---------|-------------|
 | `pull` | Pull image from Docker Hub |
 | `run` | Create and start a container |
-| `ps` | List containers (с проверкой живости PID) |
+| `ps` | List containers (with PID liveness check) |
 | `stop` | Stop a running container |
 | `rm` | Remove a container |
 | `exec` | Execute a command in a container |
@@ -827,7 +827,7 @@ mount -V
 | `logs` | Show or follow container logs |
 | `images` | List local images |
 | `rmi` | Remove a local image |
-| `bootstrap` | Start all containers with `--restart always` (автостарт при boot) |
+| `bootstrap` | Start all containers with `--restart always` (auto-start on boot) |
 | `inspect` | Show container details |
 | `version` | Show dck version |
 | `update` | Check for updates and self-update |
@@ -842,7 +842,7 @@ dck update --check
 dck update
 
 # Use a custom mirror (if GitLab is blocked)
-DCK_UPDATE_MIRROR=http://ваш-зеркало dck update
+DCK_UPDATE_MIRROR=http://your-mirror dck update
 ```
 
 The update command tries multiple methods in order:
@@ -850,15 +850,15 @@ The update command tries multiple methods in order:
 2. **curl** (HTTPS)
 3. **wget** (HTTPS)
 4. **git ls-remote over SSH** (version check only)
-5. `DCK_UPDATE_MIRROR` env var — полное зеркало с той же структурой URL
+5. `DCK_UPDATE_MIRROR` env var — full mirror with the same URL structure
 
-Если `dck update` не работает — собери вручную:
+If `dck update` doesn't work — build manually:
 ```bash
-# HTTP (если HTTPS блокирован)
+# HTTP (if HTTPS is blocked)
 git clone http://gitlab.com/animesao/dck.git /tmp/dck
 cd /tmp/dck && go build -o dck . && install dck /usr/local/bin/
 
-# SSH (если ключ добавлен на GitLab)
+# SSH (if you have a key on GitLab)
 git clone git@gitlab.com:animesao/dck.git /tmp/dck
 cd /tmp/dck && go build -o dck . && install dck /usr/local/bin/
 ```
@@ -866,23 +866,23 @@ cd /tmp/dck && go build -o dck . && install dck /usr/local/bin/
 ## Changelog
 
 ### v1.2.1 (current)
-- **KillMode=process** в systemd unit — контейнеры больше не умирают после bootstrap
-- **DNAT deduplication** — старые DNAT правила удаляются перед добавлением новых
-- **PID liveness check** — `dck ps` показывает реальный статус, а не stale "running"
-- **Улучшен bootstrap** — всегда пересоздаёт контейнеры без race condition
-- **/root/.dck для root** — не зависит от systemd `HOME=/`
-- **Мульти-транспорт для update** — Go HTTP → curl → wget → git SSH
-- **`DCK_UPDATE_MIRROR`** — env var для зеркала обновлений
+- **KillMode=process** in systemd unit — containers no longer die after bootstrap
+- **DNAT deduplication** — old DNAT rules are removed before adding new ones
+- **PID liveness check** — `dck ps` shows real status instead of stale "running"
+- **Improved bootstrap** — always recreates containers without race conditions
+- **/root/.dck for root** — doesn't depend on systemd's `HOME=/`
+- **Multi-transport update** — Go HTTP → curl → wget → git SSH
+- **`DCK_UPDATE_MIRROR`** — env var for update mirror
 
 ### v1.2.0
 - OUTPUT DNAT rule (localhost → container)
 - UFW route allow in/out on dck0
 - ip_forward auto-configure
 - Removed RemainAfterExit (systemd skip bug)
-- --install не запускает systemctl start (race fix)
+- --install no longer calls systemctl start (race fix)
 
 ### v1.1.0
-- Первая стабильная версия
+- First stable release
 - Pull/run/ps/stop/rm/logs/exec
 - Bridge networking (dck0), iptables DNAT
 - overlayfs, OCI image format
