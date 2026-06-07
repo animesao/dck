@@ -9,7 +9,6 @@ from rich.table import Table
 from dck.doctor import doctor
 from dck.create import create_interactive
 from dck.uninstall import uninstall
-from dck.lang import lang_cmd
 from dck.update import update as update_dck
 
 console = Console()

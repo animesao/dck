@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "dck"
 version = "0.5.0"
-description = "Simple Docker CLI client - manage containers, images, compose and more"
+description = "Native Linux container runtime - OCI pulls, namespaces, cgroups v2, overlayfs"
 readme = "README.md"
 authors = [
     {name = "dck"}
@@ -15,7 +15,6 @@ requires-python = ">=3.10"
 dependencies = [
     "click>=8.1",
     "rich>=13.0",
-    "docker>=7.0",
 ]
 
 [project.scripts]
