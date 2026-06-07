@@ -21,6 +21,14 @@ from dck.lang import lang_cmd
 from dck.port import ports_cmd
 from dck.exec import exec_container, inspect_container, console_container
 from dck.update import update as update_dck
+from dck.startup import (
+    show_startup_config,
+    set_startup_command,
+    set_startup_entrypoint,
+    set_startup_file,
+    clear_startup_config,
+)
+from dck.manifest import deploy_manifest, destroy_manifest, show_manifest
 
 console = Console()
 
@@ -31,6 +39,8 @@ def cli():
     """dck - Simple Docker CLI client
 
     Manage containers, images, compose projects and more.
+
+    Short aliases: l=logs, s=start, st=stop, r=restart, i=images, e=exec
     """
     pass
 
@@ -41,6 +51,56 @@ def ps(show_all):
     """List containers"""
     list_containers(show_all)
 
+
+# --- Short aliases ---
+
+@cli.command("l")
+@click.argument("container")
+@click.option("--follow", "-f", is_flag=True, help="Follow log output")
+@click.option("--tail", "-t", type=int, default=50, help="Number of lines to show from the end")
+def l_alias(container, follow, tail):
+    """Alias: view container logs (dck l <container>)"""
+    view_logs(container, follow, tail)
+
+
+@cli.command("s")
+@click.argument("container")
+@click.option("--restart", type=click.Choice(["no", "always", "unless-stopped", "on-failure"]),
+              help="Set restart policy after starting")
+def s_alias(container, restart):
+    """Alias: start a container (dck s <container>)"""
+    start_container(container, restart)
+
+
+@cli.command("st")
+@click.argument("container")
+def st_alias(container):
+    """Alias: stop a container (dck st <container>)"""
+    stop_container(container)
+
+
+@cli.command("r")
+@click.argument("container")
+def r_alias(container):
+    """Alias: restart a container (dck r <container>)"""
+    restart_container(container)
+
+
+@cli.command("i")
+def i_alias():
+    """Alias: list Docker images (dck i)"""
+    list_images()
+
+
+@cli.command("e")
+@click.argument("container")
+@click.argument("cmd", nargs=-1)
+def e_alias(container, cmd):
+    """Alias: exec in container (dck e <container>)"""
+    exec_container(container, list(cmd) if cmd else None)
+
+
+# --- Main commands ---
 
 @cli.command("logs")
 @click.argument("container")
@@ -258,9 +318,51 @@ def uninstall_cmd():
     uninstall()
 
 
+# --- Startup commands ---
+
+@cli.command("startup")
+@click.argument("container")
+@click.option("--command", "-c", "cmd_val", help="Set custom startup command")
+@click.option("--entrypoint", "-e", "entry_val", help="Set custom entrypoint")
+@click.option("--file", "-f", "file_val", help="Set startup script path inside container")
+@click.option("--clear", "-C", "clear_flag", is_flag=True, help="Clear startup config")
+def startup_cmd(container, cmd_val, entry_val, file_val, clear_flag):
+    """Manage per-container startup settings (command, entrypoint, script)"""
+    if clear_flag:
+        clear_startup_config(container)
+    elif cmd_val:
+        set_startup_command(container, cmd_val)
+    elif entry_val:
+        set_startup_entrypoint(container, entry_val)
+    elif file_val:
+        set_startup_file(container, file_val)
+    else:
+        show_startup_config(container)
+
+
+# --- Manifest commands ---
+
+@cli.command("up")
+@click.option("--force", "-f", is_flag=True, help="Force recreate containers")
+def up_cmd(force):
+    """Deploy containers from manifest (dck.yml / dck.json)"""
+    deploy_manifest()
+
+
+@cli.command("down")
+def down_cmd():
+    """Stop and remove containers defined in manifest"""
+    destroy_manifest()
+
+
+@cli.command("manifest")
+def manifest_cmd():
+    """Show containers defined in manifest"""
+    show_manifest()
+
+
 # Add the ports command (already a click command)
 cli.add_command(ports_cmd)
 
 # Add the lang command (already a click command)
 cli.add_command(lang_cmd)
-

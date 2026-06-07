@@ -15,6 +15,11 @@ from dck.client import get_client
 from dck.templates import list_templates, get_template
 from dck.i18n import t
 from dck.port import open_container_ports
+from dck.startup import (
+    startup_prompt,
+    save_startup_for_container,
+    get_startup_config,
+)
 
 console = Console()
 DCK_DIR = Path.home() / ".dck"
@@ -376,7 +381,7 @@ def _show_container_summary(container_name, image, ports, volumes, env_vars, ram
     console.print(table)
 
 
-def build_and_start(template_key, template, name, ports, env_vars, volumes, ram, cpu, start_now=True):
+def build_and_start(template_key, template, name, ports, env_vars, volumes, ram, cpu, start_now=True, startup_cfg=None):
     client = get_client()
 
     host_cfg = {}
@@ -388,6 +393,15 @@ def build_and_start(template_key, template, name, ports, env_vars, volumes, ram,
         host_cfg["nano_cpus"] = _parse_cpu(cpu)
 
     image = template["image"]
+
+    create_kwargs = {}
+    if startup_cfg:
+        stype = startup_cfg.get("type", "")
+        svalue = startup_cfg.get("value", "")
+        if stype == "command":
+            create_kwargs["command"] = svalue
+        elif stype == "entrypoint":
+            create_kwargs["entrypoint"] = svalue
 
     with console.status(f"{t('pulling')} [cyan]{escape(image)}[/cyan]..."):
         try:
@@ -407,11 +421,15 @@ def build_and_start(template_key, template, name, ports, env_vars, volumes, ram,
                 environment=env_vars or None,
                 volumes=volumes or None,
                 detach=True,
+                **create_kwargs,
                 **host_cfg,
             )
         except APIError as e:
             console.print(f"[red]{t('error')}:[/red] {e}")
             return None
+
+    if startup_cfg:
+        save_startup_for_container(container_name, startup_cfg)
 
     console.print(f"\n[green]{t('created')}![/green]")
     console.print(f"  Name: [bold]{container_name}[/bold]")
@@ -494,6 +512,8 @@ def create_interactive(template_name, name, ram, cpu, port, env, volume, list_on
         volumes = ask_volumes(tpl)
         ram_cfg, cpu_cfg = ask_resources(tpl) if not (ram and cpu) else (ram or "512m", cpu or "1")
 
+        startup_cfg = startup_prompt()
+
         if Confirm.ask(f"  {t('save.template')}", default=False):
             save_key = Prompt.ask(f"  {t('template.name')}", default=image.split("/")[-1].split(":")[0])
             save_tpl = {
@@ -509,7 +529,7 @@ def create_interactive(template_name, name, ram, cpu, port, env, volume, list_on
             }
             save_user_template(save_key, save_tpl)
 
-        build_and_start(template_key, tpl, name, ports, env_vars, volumes, ram_cfg, cpu_cfg)
+        build_and_start(template_key, tpl, name, ports, env_vars, volumes, ram_cfg, cpu_cfg, startup_cfg=startup_cfg)
         return
 
     if template_name.startswith("builtin:"):
@@ -538,6 +558,8 @@ def create_interactive(template_name, name, ram, cpu, port, env, volume, list_on
     volumes = ask_volumes(tpl)
     ram_cfg, cpu_cfg = ask_resources(tpl)
 
+    startup_cfg = startup_prompt()
+
     is_user_template = template_name.startswith("user:")
     if is_user_template and Confirm.ask(f"  {t('update.template')}", default=False):
         user_templates = load_user_templates()
@@ -551,7 +573,7 @@ def create_interactive(template_name, name, ram, cpu, port, env, volume, list_on
             TEMPLATES_FILE.write_text(json.dumps(user_templates, indent=2))
             console.print(t("template.updated", name=template_key))
 
-    build_and_start(template_key, tpl, name, ports, env_vars, volumes, ram_cfg, cpu_cfg)
+    build_and_start(template_key, tpl, name, ports, env_vars, volumes, ram_cfg, cpu_cfg, startup_cfg=startup_cfg)
 
 
 def run_custom(image, name, ram, cpu):
@@ -581,5 +603,7 @@ def run_custom(image, name, ram, cpu):
     if not (ram and cpu):
         ram_cfg, cpu_cfg = ask_resources(tpl)
 
+    startup_cfg = startup_prompt()
+
     key = image.split("/")[-1].split(":")[0]
-    build_and_start(key, tpl, name, ports, env_vars, volumes, ram_cfg, cpu_cfg)
+    build_and_start(key, tpl, name, ports, env_vars, volumes, ram_cfg, cpu_cfg, startup_cfg=startup_cfg)

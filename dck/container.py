@@ -7,6 +7,7 @@ from rich.text import Text
 from docker.errors import NotFound, APIError
 
 from dck.client import get_client
+from dck.startup import get_startup_config
 
 console = Console()
 
@@ -147,6 +148,16 @@ def start_container(container_name, restart=None):
         if restart:
             set_restart_policy(container_name, restart, _silent=True)
         console.print(f"[green]Started[/green] container '{container_name}'")
+        startup_cfg = get_startup_config(container_name)
+        if startup_cfg:
+            stype = startup_cfg.get("type", "")
+            sval = startup_cfg.get("value", "")
+            if stype == "command":
+                console.print(f"  [dim]Startup command: {sval}[/dim]")
+            elif stype == "entrypoint":
+                console.print(f"  [dim]Startup entrypoint: {sval}[/dim]")
+            elif stype == "script":
+                console.print(f"  [dim]Startup script: {sval}[/dim]")
     except NotFound:
         console.print(f"[red]Error:[/red] Container '{container_name}' not found.")
     except APIError as e:
