@@ -17,40 +17,40 @@ DIR="$(cd "$(dirname "$0")" && pwd)"
 detect_os() {
     if [ -f /etc/os-release ]; then
         . /etc/os-release
-        OS=$ID
-        OS_LIKE=$ID_LIKE
+        echo "$ID"
     elif command -v lsb_release >/dev/null 2>&1; then
-        OS=$(lsb_release -si | tr '[:upper:]' '[:lower:]')
+        lsb_release -si | tr '[:upper:]' '[:lower:]'
     else
-        OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+        uname -s | tr '[:upper:]' '[:lower:]'
     fi
-    echo "$OS"
 }
 
-install_pkg() {
-    case "$1" in
+install_pkgs() {
+    os="$1"
+    shift
+    case "$os" in
         debian|ubuntu|linuxmint|pop)
             apt-get update -qq
-            apt-get install -y -qq "$2"
+            apt-get install -y -qq "$@"
             ;;
         rhel|centos|fedora|rocky|almalinux)
             if command -v dnf >/dev/null 2>&1; then
-                dnf install -y -q "$2"
+                dnf install -y -q "$@"
             else
-                yum install -y -q "$2"
+                yum install -y -q "$@"
             fi
             ;;
         arch|manjaro|endeavouros)
-            pacman -S --noconfirm "$2"
+            pacman -S --noconfirm "$@"
             ;;
         alpine)
-            apk add "$2"
+            apk add "$@"
             ;;
         suse|opensuse*)
-            zypper install -y "$2"
+            zypper install -y "$@"
             ;;
         *)
-            warn "Unknown OS: $1. Please install $2 manually."
+            warn "Unknown OS: $os. Please install manually: $*"
             return 1
             ;;
     esac
@@ -62,44 +62,37 @@ ensure_go() {
         return 0
     fi
     warn "Go not found. Installing..."
-    case "$1" in
-        debian|ubuntu|linuxmint|pop)
-            install_pkg "$1" "golang-go"
-            ;;
-        fedora|rhel|centos)
-            install_pkg "$1" "golang"
-            ;;
-        arch|manjaro)
-            install_pkg "$1" "go"
-            ;;
-        alpine)
-            install_pkg "$1" "go"
-            ;;
-        *)
-            err "Please install Go manually from https://go.dev/dl/"
-            exit 1
-            ;;
-    esac
+    install_pkgs "$1" "golang-go" 2>/dev/null || \
+    install_pkgs "$1" "golang" 2>/dev/null || \
+    install_pkgs "$1" "go" 2>/dev/null || {
+        err "Could not install Go via package manager."
+        err "Install Go manually from https://go.dev/dl/"
+        exit 1
+    }
+    if command -v go >/dev/null 2>&1; then
+        info "Go installed: $(go version)"
+    fi
 }
 
 ensure_packages() {
     info "Checking required packages..."
-    case "$1" in
+    os="$1"
+    case "$os" in
         debian|ubuntu|linuxmint|pop)
-            install_pkg "$1" "util-linux iproute2 iptables procps curl ufw"
+            install_pkgs "$os" util-linux iproute2 iptables procps curl ufw
             ;;
         fedora|rhel|centos|rocky|almalinux)
-            install_pkg "$1" "util-linux iproute iptables procps-ng curl ufw"
+            install_pkgs "$os" util-linux iproute iptables procps-ng curl ufw
             ;;
         arch|manjaro|endeavouros)
-            install_pkg "$1" "util-linux iproute2 iptables procps-ng curl ufw"
+            install_pkgs "$os" util-linux iproute2 iptables procps-ng curl ufw
             ;;
         alpine)
-            install_pkg "$1" "util-linux iproute2 iptables procps curl"
+            install_pkgs "$os" util-linux iproute2 iptables procps curl
             warn "UFW not available on Alpine (use iptables directly)"
             ;;
         suse|opensuse*)
-            install_pkg "$1" "util-linux iproute2 iptables procps curl ufw"
+            install_pkgs "$os" util-linux iproute2 iptables procps curl ufw
             ;;
         *)
             warn "Unknown OS. Ensure these are installed:"
@@ -144,7 +137,7 @@ setup_system() {
     fi
 }
 
-install_dck() {
+build_dck() {
     info "Building dck..."
     cd "$DIR"
     go build -ldflags="-s -w" -o dck .
@@ -193,7 +186,7 @@ main() {
     ensure_packages "$OS"
     setup_ufw
     setup_system
-    install_dck
+    build_dck
     verify
 
     echo ""
