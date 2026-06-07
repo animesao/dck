@@ -55,7 +55,7 @@ pip install .
 
 **`dck console -m ptero`** (exec mode) — commands run via `docker exec`. For: nginx, postgres, python, node, etc.
 
-**`dck console -m ptero -s`** (stdin mode, Pterodactyl-like) — creates a **PTY** (pseudo-terminal) and runs `docker attach` through it. Commands go to the server's stdin, and all output (logs + command responses) appears in a **single stream**. Works with any game server (Minecraft, Terraria, Valheim, CS2) by allocating a TTY and providing true bidirectional console — exactly like Pterodactyl.
+**`dck console -m ptero -s`** (stdin mode, Pterodactyl-like) — runs `docker attach --sig-proxy=false` directly on your terminal with auto-reconnect. Commands go to the server's stdin, all output appears in the same stream. True real-time terminal — exactly like Pterodactyl Wings. Works with any game server (Minecraft, Terraria, Valheim, CS2). Survives container restarts automatically.
 
 When you create a container from a game server template, `tty: True` is set automatically so stdin works out of the box.
 
