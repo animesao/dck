@@ -5,7 +5,7 @@ A lightweight container runtime that pulls OCI images directly from Docker Hub a
 ## Quick Install
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/animesao/dck/main/install.sh | bash
+curl -sSL https://gitlab.com/animesao/dck/-/raw/main/install.sh | bash
 ```
 
 Or via pip:
