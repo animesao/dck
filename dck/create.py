@@ -9,6 +9,7 @@ from rich.table import Table
 from rich.panel import Panel
 from rich.prompt import Prompt, Confirm
 from rich.markup import escape
+from rich.layout import Layout
 from docker.errors import APIError
 
 from dck.client import get_client
@@ -398,6 +399,36 @@ def _save_launcher_script(container_name, docker_run_cmd):
     console.print(f"  [green]✓[/green] Launcher saved: [bold]{script_path}[/bold]")
 
 
+def _show_creation_summary(template_key, name, ports, env_vars, volumes, ram, cpu):
+    """Show a clean summary BEFORE creating the container."""
+    ip = _get_server_ip()
+    panel_lines = []
+    if name:
+        panel_lines.append(f"[bold]Name:[/bold] {escape(name)}")
+    if ram:
+        panel_lines.append(f"[bold]RAM:[/bold] {escape(ram)}")
+    if cpu:
+        panel_lines.append(f"[bold]CPU:[/bold] {escape(cpu)} cores")
+    for c_port, h_port in (ports or {}).items():
+        proto = c_port.split("/")[1] if "/" in c_port else "tcp"
+        c_num = c_port.split("/")[0]
+        port_str = f"  [cyan]{h_port}:{c_num}/{proto}[/cyan]"
+        if ip and proto == "tcp":
+            port_str += f"  [dim]→ http://{ip}:{h_port}[/dim]"
+        panel_lines.append(f"[bold]Port:[/bold]{port_str}")
+    for h_path, cfg in (volumes or {}).items():
+        panel_lines.append(f"[bold]Volume:[/bold] {escape(h_path)} [dim]→ {cfg['bind']}[/dim]")
+    for k, v in (env_vars or {}).items():
+        if v:
+            panel_lines.append(f"[bold]Env:[/bold] {k}={escape(v)}")
+    console.print()
+    console.print(Panel.fit(
+        "\n".join(panel_lines),
+        title=f"[bold cyan]Summary: {escape(template_key)}[/bold cyan]",
+        border_style="cyan",
+    ))
+
+
 def _show_container_summary(container_name, image, ports, volumes, env_vars, ram, cpu):
     ip = _get_server_ip()
     table = Table(title=f"Container: {container_name}", border_style="cyan", title_justify="left")
@@ -422,7 +453,7 @@ def _show_container_summary(container_name, image, ports, volumes, env_vars, ram
     for k, v in (env_vars or {}).items():
         if v:
             table.add_row("Env", f"{k}={v}")
-    table.add_row("Manage", f"dck logs {container_name} | dck stop {container_name} | dck exec {container_name}")
+    table.add_row("Manage", f"dck logs {container_name} | dck stop {container_name} | dck console {container_name}")
     table.add_row("Launcher", f"./launchers/{container_name}.sh")
     table.add_row("Delete", f"docker rm -f {container_name}")
     console.print()
@@ -547,6 +578,14 @@ def build_and_start(template_key, template, name, ports, env_vars, volumes, ram,
     if template.get("note"):
         console.print(f"\n[cyan]{t('tip')}:[/cyan] {escape(template['note'])}")
 
+    # Offer to enter console after creation
+    try:
+        if container.status == "running" and Confirm.ask(f"\n  Enter game console now?", default=True):
+            from dck.exec import _ptero_console_direct
+            _ptero_console_direct(container_name)
+    except Exception:
+        pass
+
     return container_name
 
 
@@ -601,6 +640,15 @@ def create_interactive(template_name, name, ram, cpu, port, env, volume, list_on
             }
             save_user_template(save_key, save_tpl)
 
+        suggested_name = name or template_key + "-" + os.urandom(4).hex()
+        name = Prompt.ask("  Container name", default=suggested_name)
+
+        _show_creation_summary(template_key, name, ports, env_vars, volumes, ram_cfg, cpu_cfg)
+
+        if not Confirm.ask("\n[bold]Build this container?[/bold]", default=True):
+            console.print("[yellow]Cancelled[/yellow]")
+            return
+
         build_and_start(template_key, tpl, name, ports, env_vars, volumes, ram_cfg, cpu_cfg, startup_cfg=startup_cfg)
         return
 
@@ -645,6 +693,17 @@ def create_interactive(template_name, name, ram, cpu, port, env, volume, list_on
             TEMPLATES_FILE.write_text(json.dumps(user_templates, indent=2))
             console.print(t("template.updated", name=template_key))
 
+    # Smart name suggestion
+    suggested_name = name or template_key + "-" + os.urandom(4).hex()
+    name = Prompt.ask("  Container name", default=suggested_name)
+
+    # Pre-creation summary
+    _show_creation_summary(template_key, name, ports, env_vars, volumes, ram_cfg, cpu_cfg)
+
+    if not Confirm.ask("\n[bold]Build this container?[/bold]", default=True):
+        console.print("[yellow]Cancelled[/yellow]")
+        return
+
     build_and_start(template_key, tpl, name, ports, env_vars, volumes, ram_cfg, cpu_cfg, startup_cfg=startup_cfg)
 
 
@@ -677,5 +736,14 @@ def run_custom(image, name, ram, cpu):
         ram_cfg, cpu_cfg = ask_resources(tpl)
 
     startup_cfg = startup_prompt()
+
+    suggested_name = name or key + "-" + os.urandom(4).hex()
+    name = Prompt.ask("  Container name", default=suggested_name)
+
+    _show_creation_summary(key, name, ports, env_vars, volumes, ram_cfg, cpu_cfg)
+
+    if not Confirm.ask("\n[bold]Build this container?[/bold]", default=True):
+        console.print("[yellow]Cancelled[/yellow]")
+        return
 
     build_and_start(key, tpl, name, ports, env_vars, volumes, ram_cfg, cpu_cfg, startup_cfg=startup_cfg)

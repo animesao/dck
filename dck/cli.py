@@ -289,24 +289,21 @@ def inspect_cmd(container):
 
 @cli.command("console")
 @click.argument("container")
-@click.option("--mode", "-m", type=click.Choice(["auto", "shell", "attach", "logs", "ptero"]),
-              default="auto", help="Console mode (default: auto)")
+@click.option("--logs", "-l", "mode_flag", flag_value="logs", help="Stream live logs")
+@click.option("--shell", "-s", "mode_flag", flag_value="shell", help="Enter interactive shell")
 @click.option("--tail", "-t", type=int, default=20, help="Number of log lines to show")
-@click.option("--stdin", "-s", is_flag=True, help="Pipe commands to container stdin (for game servers like Minecraft)")
-def console_cmd(container, mode, tail, stdin):
-    """Pterodactyl-style console for a container (logs, shell, attach, ptero)
+def console_cmd(container, mode_flag, tail):
+    """Real-time game console for a container.
 
-    Modes:
-      auto   - show info/logs, then choose action
-      shell  - directly enter interactive shell
-      attach - attach to container's main process
-      logs   - stream live logs
-      ptero  - Pterodactyl-style: type commands, see output
-      
-    Use --stdin flag for game servers (Minecraft, Terraria, etc.)
-    so commands like 'pl', 'tps', 'help' are sent to the server console.
+    Connects directly to the container's main process with auto-reconnect.
+
+    \b
+    Examples:
+      dck console minecraft-server   # real-time terminal (default)
+      dck console myapp --logs       # stream logs
+      dck console myapp --shell      # interactive shell
     """
-    console_container(container, mode=mode, tail=tail, stdin=stdin)
+    console_container(container, mode=mode_flag or "attach", tail=tail)
 
 
 @cli.command("attach")
