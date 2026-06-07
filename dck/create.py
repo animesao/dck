@@ -494,6 +494,8 @@ def _show_container_summary(container, container_name, image, ports, volumes, en
 def build_and_start(template_key, template, name, ports, env_vars, volumes, ram, cpu, start_now=True, startup_cfg=None):
     client = get_client()
 
+    is_game_server = template.get("tty", False)
+
     host_cfg = {}
     if ram:
         validated = _validate_memory(ram)
@@ -514,7 +516,7 @@ def build_and_start(template_key, template, name, ports, env_vars, volumes, ram,
             create_kwargs["entrypoint"] = svalue
 
     # Allocate TTY for game servers so console stdin works
-    if template.get("tty"):
+    if is_game_server:
         create_kwargs["tty"] = True
         create_kwargs["stdin_open"] = True
 
@@ -530,13 +532,20 @@ def build_and_start(template_key, template, name, ports, env_vars, volumes, ram,
 
     container_name = name or f"{template_key}-{os.urandom(4).hex()}"
 
+    # For game servers: force CUSTOM type so it works with run.sh
+    container_env = dict(env_vars) if env_vars else {}
+    if is_game_server:
+        container_env["TYPE"] = "CUSTOM"
+        container_env["CUSTOM_SERVER"] = "/data/server.jar"
+        container_env.pop("VERSION", None)
+
     with console.status(t("creating")):
         try:
             container = client.containers.create(
                 image=image,
                 name=container_name,
                 ports=ports or None,
-                environment=env_vars or None,
+                environment=container_env or None,
                 volumes=volumes or None,
                 detach=True,
                 **create_kwargs,
@@ -553,70 +562,63 @@ def build_and_start(template_key, template, name, ports, env_vars, volumes, ram,
     console.print(f"  Name: [bold]{container_name}[/bold]")
     console.print(f"  Image: {escape(image)}")
 
-    if start_now and Confirm.ask(f"  {t('start.now')}", default=True):
-        real_status = None
-        with console.status("Starting..."):
-            try:
-                container.start()
-                time.sleep(1)
-                container.reload()
-                real_status = container.status
-            except APIError as e:
-                console.print(f"[red]{t('error')}:[/red] {e}")
-                return container_name
-
-        if real_status == "running":
-            console.print(f"  {t('status.running')}: [green]{t('container.running')}[/green]")
-            for c_port, h_port in (ports or {}).items():
-                c_num = c_port.split("/")[0]
-                proto = c_port.split("/")[1] if "/" in c_port else "tcp"
-                console.print(f"  {t('port.info')}: [bold]{h_port}:{c_num}/{proto}[/bold]")
-        else:
-            logs = container.logs(tail=30).decode("utf-8", errors="replace").strip()
-            console.print(f"  [red]{t('container.exited')}[/red] (status: {real_status})")
-            if logs:
-                console.print(f"  [dim]{logs.split(chr(10))[-1]}[/dim]")
-            if not Confirm.ask(f"  {t('start.anyway')}", default=False):
-                return container_name
-
-    # Ask to open ports in firewall
-    open_container_ports(container_name, ports)
-
-    # Offer to save launcher script
-    docker_run = _gen_docker_run(template_key, template, name, ports, env_vars, volumes, ram, cpu)
-    _save_launcher_script(container_name, docker_run)
-
-    # For game servers: always create editable run.sh in data directory
-    if template.get("tty") and volumes:
+    # For game servers: don't start, just create launcher
+    if is_game_server and volumes:
         vol_path = list(volumes.keys())[0]
         _create_data_launcher(container_name, template_key, template, vol_path, ports, env_vars, ram, cpu)
+        container.stop()
+        container.reload()
         console.print(f"  [green]✓[/green] Launcher: [bold]{vol_path}/run.sh[/bold]")
-
-        # Stop container so user can edit files
-        if container.status == "running":
-            with console.status("  Stopping container for editing..."):
-                container.stop()
-                container.reload()
-
         console.print(f"  [dim]Server folder: [bold]{vol_path}[/bold][/dim]")
         console.print(f"  [dim]1. Put your [bold]server.jar[/bold] in that folder[/dim]")
         console.print(f"  [dim]2. Edit [bold]run.sh[/bold] if needed[/dim]")
         console.print(f"  [dim]3. Run: [bold]{vol_path}/run.sh[/bold][/dim]")
+        open_container_ports(container_name, ports)
+    else:
+        # Non-game servers: normal start flow
+        if start_now and Confirm.ask(f"  {t('start.now')}", default=True):
+            with console.status("Starting..."):
+                try:
+                    container.start()
+                    time.sleep(1)
+                    container.reload()
+                except APIError as e:
+                    console.print(f"[red]{t('error')}:[/red] {e}")
+                    return container_name
+
+            if container.status == "running":
+                console.print(f"  {t('status.running')}: [green]{t('container.running')}[/green]")
+                for c_port, h_port in (ports or {}).items():
+                    c_num = c_port.split("/")[0]
+                    proto = c_port.split("/")[1] if "/" in c_port else "tcp"
+                    console.print(f"  {t('port.info')}: [bold]{h_port}:{c_num}/{proto}[/bold]")
+            else:
+                logs = container.logs(tail=30).decode("utf-8", errors="replace").strip()
+                console.print(f"  [red]{t('container.exited')}[/red] (status: {container.status})")
+                if logs:
+                    console.print(f"  [dim]{logs.split(chr(10))[-1]}[/dim]")
+                if not Confirm.ask(f"  {t('start.anyway')}", default=False):
+                    return container_name
+
+        # Ask to open ports in firewall
+        open_container_ports(container_name, ports)
+
+        # Offer to save launcher script
+        docker_run = _gen_docker_run(template_key, template, name, ports, env_vars, volumes, ram, cpu)
+        _save_launcher_script(container_name, docker_run)
 
     # Show comprehensive summary
-    _show_container_summary(container, container_name, image, ports, volumes, env_vars, ram, cpu)
+    _show_container_summary(container, container_name, image, ports, volumes, container_env, ram, cpu)
 
     console.print(f"\n[dim]{t('manage.hint')}: dck ps | dck logs {container_name} | dck stop {container_name}[/dim]")
     if template.get("note"):
         console.print(f"\n[cyan]{t('tip')}:[/cyan] {escape(template['note'])}")
 
-    # Offer to enter console after creation
-    try:
-        if container.status == "running" and Confirm.ask(f"\n  Enter game console now?", default=True):
+    # Offer to enter console (only for non-game or if running)
+    if container.status == "running" and not is_game_server:
+        if Confirm.ask(f"\n  Enter console?", default=True):
             from dck.exec import _ptero_console_direct
             _ptero_console_direct(container_name)
-    except Exception:
-        pass
 
     return container_name
 
