@@ -58,7 +58,6 @@ def _ufw_allow_ssh():
 
 
 def _ensure_ufw():
-    from rich.prompt import Confirm
     if not _ufw_installed():
         if Confirm.ask("  UFW is not installed. Install it now?", default=True):
             if not _install_ufw():
@@ -106,7 +105,6 @@ def _open_ufw(port, proto="tcp"):
 
 
 def open_container_ports(container_name, ports, ask_confirm=True):
-    from rich.prompt import Confirm
     if ask_confirm and Confirm.ask("  Open these ports in firewall (UFW)?", default=True):
         if not _ensure_ufw():
             return

@@ -25,10 +25,11 @@ def _check_kernel_ok():
 
 def _check_overlayfs():
     try:
-        r = subprocess.run(["mount", "-t", "overlay"], capture_output=True, text=True, timeout=3)
-        return r.returncode == 0
+        with open("/proc/filesystems") as f:
+            return "overlay\n" in f.read()
     except Exception:
-        return False
+        r = subprocess.run(["mount", "-t", "overlay"], capture_output=True, text=True, timeout=3)
+        return r.returncode == 0 if r.returncode == 0 else False
 
 
 def _check_cgroup_v2():
