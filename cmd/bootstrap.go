@@ -89,9 +89,8 @@ WantedBy=multi-user.target
 
 	exec.Command("systemctl", "daemon-reload").Run()
 	exec.Command("systemctl", "enable", "dck-bootstrap").Run()
-	exec.Command("systemctl", "start", "dck-bootstrap").Run()
 
-	fmt.Println("Systemd service installed and started: dck-bootstrap")
+	fmt.Println("Systemd service installed. Enabled for next boot.")
 }
 
 func removeSystemdService() {
