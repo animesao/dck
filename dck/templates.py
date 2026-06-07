@@ -16,7 +16,7 @@ TEMPLATES = {
     },
     "minecraft": {
         "name": "Minecraft Server (Java Edition)",
-        "desc": "Minecraft Java Edition dedicated server (Paper 1.21 by default)",
+            "desc": "Minecraft Java Edition dedicated server (Paper, latest stable by default)",
         "image": "itzg/minecraft-server",
         "ports": [{"host": 25565, "container": 25565, "proto": "tcp"}],
         "ram": "2g",
@@ -29,7 +29,7 @@ TEMPLATES = {
         "env": [
             {"key": "EULA", "default": "TRUE", "desc": "Accept EULA (must be TRUE)"},
             {"key": "TYPE", "default": "PAPER", "desc": "Server type: VANILLA | PAPER | SPIGOT | FABRIC | FORGE"},
-            {"key": "VERSION", "default": "1.21", "desc": "Minecraft version (e.g. 1.21, 1.20.4, LATEST)"},
+            {"key": "VERSION", "default": "", "desc": "Minecraft version (e.g. 1.21, 1.20.4, LATEST). Leave empty for latest stable."},
             {"key": "OVERRIDE_SERVER_PROPERTIES", "default": "true", "desc": "Force overwrite server.properties on start"},
             {"key": "REMOVE_OLD_MODS_DIR", "default": "true", "desc": "Clean old mods when switching server types"},
             {"key": "DIFFICULTY", "default": "easy", "desc": "peaceful | easy | normal | hard"},
