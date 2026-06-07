@@ -257,7 +257,7 @@ class Container:
         else:
             return self._start_normal(rootfs, command, env, volumes, log_file, needs_net, container_ip)
 
-    def _run_child(self, rootfs, command, env, volumes, log_file, needs_net, container_ip, master_fd=None):
+    def _run_child(self, rootfs, command, env, volumes, log_file, needs_net, container_ip, master_fd=None, ready_fd=None):
         import ctypes
 
         libc = ctypes.CDLL("libc.so.6")
@@ -320,7 +320,10 @@ class Container:
             except Exception:
                 pass
         except Exception as e:
-            self._write_log(log_file, f"Mount setup error: {e}\n")
+            msg = f"Mount setup error: {e}\n"
+            if isinstance(e, OSError) and e.errno == 12:
+                msg += "  ENOMEM — try: sysctl -w kernel.keys.root_maxkeys=1000000; sysctl -w kernel.keys.root_maxbytes=25000000\n"
+            self._write_log(log_file, msg)
             raise
 
         # Bind mount volumes
@@ -391,6 +394,14 @@ class Container:
                     os.setuid(uid)
                 except Exception:
                     pass
+
+        # Signal readiness before exec (for detach mode)
+        if ready_fd is not None:
+            try:
+                os.write(ready_fd, b"1")
+                os.close(ready_fd)
+            except OSError:
+                pass
 
         try:
             os.execvpe(cmd[0], cmd, env_list)
@@ -501,15 +512,35 @@ class Container:
         return pid
 
     def _start_detach(self, rootfs, command, env, volumes, log_file, needs_net, container_ip):
+        sync_r, sync_w = os.pipe()
         pid = os.fork()
         if pid == 0:
+            os.close(sync_r)
             try:
                 self._run_child(rootfs, command, env, volumes, log_file,
-                               needs_net, container_ip)
+                               needs_net, container_ip, ready_fd=sync_w)
             except Exception as e:
                 self._write_log(log_file, f"Detached start failed: {e}\n")
                 os._exit(1)
         else:
+            os.close(sync_w)
+            import select
+            ready, _, _ = select.select([sync_r], [], [], 5)
+            data = None
+            if ready:
+                try:
+                    data = os.read(sync_r, 1)
+                except OSError:
+                    pass
+            os.close(sync_r)
+
+            if not ready or not data:
+                try:
+                    os.waitpid(pid, 0)
+                except OSError:
+                    pass
+                raise RuntimeError("Container failed during startup (check logs with: dck logs)")
+
             self.config["pid"] = pid
             self.config["status"] = "running"
             self.save_state()

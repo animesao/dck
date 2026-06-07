@@ -54,6 +54,25 @@ def doctor():
     overlay = _check_overlayfs()
     cgroup2 = _check_cgroup_v2()
 
+    # Check kernel keyring limits (common cause of ENOMEM on pivot_root)
+    key_maxkeys = key_maxbytes = ""
+    try:
+        with open("/proc/sys/kernel/keys/root_maxkeys") as f:
+            v = int(f.read().strip())
+            key_maxkeys = str(v)
+            if v < 1000000:
+                key_maxkeys += " [yellow](low — may cause ENOMEM)[/yellow]"
+    except Exception:
+        key_maxkeys = "?"
+    try:
+        with open("/proc/sys/kernel/keys/root_maxbytes") as f:
+            v = int(f.read().strip())
+            key_maxbytes = str(v)
+            if v < 25000000:
+                key_maxbytes += " [yellow](low — may cause ENOMEM)[/yellow]"
+    except Exception:
+        key_maxbytes = "?"
+
     table.add_row("Platform", Text("✓", style="green") if is_linux else Text("✗", style="red"), kernel)
     table.add_row("Root", Text("✓", style="green") if is_root else Text("✗", style="red"), "required for namespaces")
     table.add_row("Namespaces", Text("✓", style="green") if has_ns else Text("✗", style="red"), "/proc/self/ns")
@@ -64,6 +83,8 @@ def doctor():
     table.add_row("nsenter", Text("✓", style="green") if has_nsenter else Text("✗", style="red"), "exec into container")
     table.add_row("OverlayFS", Text("✓", style="green") if overlay else Text("~", style="yellow"), "container layers")
     table.add_row("cgroups v2", Text("✓", style="green") if cgroup2 else Text("~", style="yellow"), "resource limits")
+    table.add_row("keyring maxkeys", Text("✓", style="green") if not "low" in key_maxkeys else Text("~", style="yellow"), key_maxkeys)
+    table.add_row("keyring maxbytes", Text("✓", style="green") if not "low" in key_maxbytes else Text("~", style="yellow"), key_maxbytes)
 
     all_ok = all([is_linux, is_root, has_ns, has_mount, has_umount, has_ip, has_iptables, has_nsenter])
 
@@ -73,6 +94,8 @@ def doctor():
 
     if all_ok:
         console.print("[green]✓ All checks passed — native runtime ready[/green]")
+        if "low" in key_maxkeys or "low" in key_maxbytes:
+            console.print("[yellow]  ⚠ Increase keyring limits: sysctl -w kernel.keys.root_maxkeys=1000000 kernel.keys.root_maxbytes=25000000[/yellow]")
     else:
         missing = []
         if not is_linux: missing.append("Linux OS")

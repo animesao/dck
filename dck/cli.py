@@ -205,7 +205,20 @@ def run_cmd(image, cmd, name, tag, port, volume, env, env_file,
     container = Container(name=name, config=container_config)
     container.create()
     console.print(f"[green]✓[/green] Created [bold]{container.name}[/bold]")
-    container.start()
+    try:
+        container.start()
+    except RuntimeError as e:
+        console.print(f"[red]{e}[/red]")
+        log_file = container.config.get("log_file", "")
+        if log_file and Path(log_file).exists():
+            try:
+                logs = Path(log_file).read_text()
+                for line in logs.strip().split("\n")[-3:]:
+                    console.print(f"  [dim]{line}[/dim]")
+            except Exception:
+                pass
+        container.remove()
+        raise SystemExit(1)
 
     if container.config.get("status") == "running":
         pid = container.config.get("pid")
