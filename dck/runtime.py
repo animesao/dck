@@ -1,13 +1,19 @@
 import ctypes
+import fcntl
+import hashlib
 import json
 import os
 import select
 import shutil
 import signal
 import subprocess
+import tarfile
 import time
 import uuid
 from pathlib import Path
+from urllib.parse import urljoin
+
+import requests
 
 DCK_DIR = Path.home() / ".dck"
 IMAGES_DIR = DCK_DIR / "images"
@@ -15,28 +21,314 @@ CONTAINERS_DIR = DCK_DIR / "containers"
 LOGS_DIR = DCK_DIR / "logs"
 OVERLAY_DIR = DCK_DIR / "overlay"
 CGROUP_DIR = Path("/sys/fs/cgroup/dck")
+EGGS_DIR = DCK_DIR / "eggs"
 NET_IPS_FILE = DCK_DIR / "network_ips.json"
 BRIDGE_NAME = "dck0"
 BRIDGE_SUBNET = "10.0.0.0/24"
 BRIDGE_GATEWAY = "10.0.0.1"
+CGROUP_ENABLED = Path("/sys/fs/cgroup/cgroup.controllers").exists()
+
+NS = {
+    "mnt": 0x00020000, "pid": 0x20000000, "net": 0x40000000,
+    "uts": 0x04000000, "ipc": 0x08000000, "cgroup": 0x02000000,
+}
 
 
 def _ensure(p):
     Path(p).mkdir(parents=True, exist_ok=True)
 
 
-# ── images ───────────────────────────────────────────────────────────
+def _log(lf, msg):
+    if lf:
+        try:
+            with open(lf, "a") as f:
+                f.write(msg + "\n")
+        except Exception:
+            pass
+
+
+# ── PRESETS ────────────────────────────────────────────────────────────
+
+PRESETS = {
+    "paper": {
+        "image": "itzg/minecraft-server:latest",
+        "ports": ["25565:25565/udp", "25565:25565"],
+        "env": {
+            "EULA": "TRUE", "TYPE": "PAPER",
+            "MAX_PLAYERS": "{max_players or 20}",
+            "DIFFICULTY": "{difficulty or normal}",
+            "MODE": "{mode or survival}",
+            "MEMORY": "{ram}",
+            "VIEW_DISTANCE": "10",
+            "ONLINE_MODE": "true",
+            "PVP": "true",
+            "ALLOW_FLIGHT": "false",
+            "GENERATE_STRUCTURES": "true",
+            "SPAWN_ANIMALS": "true",
+            "SPAWN_MONSTERS": "true",
+            "SPAWN_NPCS": "true",
+            "LEVEL_TYPE": "default",
+            "ENABLE_RCON": "false",
+            "MAX_TICK_TIME": "-1",
+        },
+        "volumes": ["{volume or server_data}:/data"],
+        "restart": "unless-stopped",
+    },
+    "purpur": {
+        "image": "itzg/minecraft-server:latest",
+        "ports": ["25565:25565/udp", "25565:25565"],
+        "env": {
+            "EULA": "TRUE", "TYPE": "PURPUR",
+            "MAX_PLAYERS": "{max_players or 20}",
+            "DIFFICULTY": "{difficulty or normal}",
+            "MODE": "{mode or survival}",
+            "MEMORY": "{ram}",
+            "VIEW_DISTANCE": "10",
+            "ONLINE_MODE": "true",
+        },
+        "volumes": ["{volume or server_data}:/data"],
+        "restart": "unless-stopped",
+    },
+    "forge": {
+        "image": "itzg/minecraft-server:latest",
+        "ports": ["25565:25565/udp", "25565:25565"],
+        "env": {
+            "EULA": "TRUE", "TYPE": "FORGE",
+            "VERSION": "{version or latest}",
+            "MEMORY": "{ram}",
+        },
+        "volumes": ["{volume or server_data}:/data"],
+        "restart": "unless-stopped",
+    },
+    "spigot": {
+        "image": "itzg/minecraft-server:latest",
+        "ports": ["25565:25565/udp", "25565:25565"],
+        "env": {"EULA": "TRUE", "TYPE": "SPIGOT", "MEMORY": "{ram}"},
+        "volumes": ["{volume or server_data}:/data"],
+        "restart": "unless-stopped",
+    },
+    "nginx": {
+        "image": "nginx:alpine",
+        "env": {"NGINX_HOST": "{host or localhost}"},
+    },
+    "apache": {
+        "image": "httpd:alpine",
+    },
+    "mariadb": {
+        "image": "mariadb:10",
+        "env": {
+            "MYSQL_ROOT_PASSWORD": "{root_password}",
+            "MYSQL_DATABASE": "{database or myapp}",
+        },
+        "volumes": ["{volume or db_data}:/var/lib/mysql"],
+    },
+    "postgres": {
+        "image": "postgres:alpine",
+        "env": {"POSTGRES_PASSWORD": "{password}", "POSTGRES_DB": "{database or myapp}"},
+        "volumes": ["{volume or db_data}:/var/lib/postgresql/data"],
+    },
+    "redis": {
+        "image": "redis:alpine",
+        "env": {"REDIS_PASSWORD": "{password}"},
+    },
+    "node": {
+        "image": "node:alpine",
+        "workdir": "/app",
+        "volumes": ["{volume or app_data}:/app"],
+    },
+    "python": {
+        "image": "python:alpine",
+        "workdir": "/app",
+        "volumes": ["{volume or app_data}:/app"],
+    },
+    "golang": {
+        "image": "golang:alpine",
+        "workdir": "/app",
+        "volumes": ["{volume or app_data}:/app"],
+    },
+    "lamp": {
+        "image": "lamp:latest",
+        "ports": ["80:80", "443:443"],
+        "volumes": ["{volume or www_data}:/var/www/html"],
+    },
+    "rust": {
+        "image": "didstopia/rust-server:latest",
+        "ports": ["28015:28015/udp", "28016:28016"],
+        "env": {"SERVER_NAME": "{server_name or Rust}", "MAX_PLAYERS": "{max_players or 50}"},
+        "volumes": ["{volume or rust_data}:/steamcmd/rust"],
+    },
+    "factorio": {
+        "image": "factoriotools/factorio:stable",
+        "ports": ["34197:34197/udp"],
+        "env": {"GAME_PASSWORD": "{game_password}"},
+        "volumes": ["{volume or factorio_data}:/factorio"],
+    },
+    "terraria": {
+        "image": "beardedio/terraria:latest",
+        "ports": ["7777:7777/tcp", "7777:7777/udp"],
+        "env": {"WORLD_NAME": "{world_name or Terraria}", "MAX_PLAYERS": "{max_players or 8}"},
+        "volumes": ["{volume or terraria_data}:/root/.local/share/Terraria"],
+    },
+}
+
+
+def resolve_preset(name, params=None):
+    if name not in PRESETS:
+        raise RuntimeError(f"Unknown preset: {name}. Available: {', '.join(PRESETS)}")
+    base = json.loads(json.dumps(PRESETS[name]))
+    if not params:
+        params = {}
+    def fill(v):
+        if isinstance(v, str) and "{" in v:
+            import re
+            return re.sub(r"\{(\w+)\s+or\s+([^}]+)\}", lambda m: str(params.get(m.group(1), m.group(2))), v)
+        return v
+    for k in ("env",):
+        if k in base:
+            base[k] = {k2: fill(v2) for k2, v2 in base[k].items()}
+    for k in ("ports", "volumes"):
+        if k in base:
+            base[k] = [fill(v) for v in base[k]]
+    return base
+
+
+# ── EGG (Pterodactyl-style) ───────────────────────────────────────────
+
+def validate_egg(data):
+    errors = []
+    if "startup" not in data:
+        errors.append("Missing 'startup'")
+    if "image" not in data:
+        errors.append("Missing 'image'")
+    for var in data.get("variables", []):
+        rules = var.get("rules", "")
+        if "required" in rules and "default_value" not in var:
+            errors.append(f"Variable '{var.get('env_variable')}' is required but has no default")
+    return errors
+
+
+def apply_egg(egg_data, user_env):
+    startup = egg_data["startup"]
+    env = dict(egg_data.get("environment", {}))
+    env.update(user_env)
+    for var in egg_data.get("variables", []):
+        e = var["env_variable"]
+        default = var.get("default_value", "")
+        val = user_env.get(e, default)
+        env[e] = val
+        startup = startup.replace(f"{{{e}}}", str(val))
+    image = egg_data.get("image", "alpine:latest")
+    ports = egg_data.get("ports", [])
+    volumes = {}
+    for k, v in egg_data.get("volumes", {}).items():
+        volumes[k] = v
+    return {
+        "image": image,
+        "command": ["/bin/sh", "-c", startup],
+        "env": env,
+        "ports": ports,
+        "volumes": volumes,
+    }
+
+
+def builtin_eggs():
+    return {
+        "paper": {
+            "meta": {"author": "dck", "version": "1.0", "description": "Paper Minecraft server"},
+            "startup": "java -Xms{MEMORY}M -Xmx{MEMORY}M -jar server.jar --nogui",
+            "stop": "stop",
+            "image": "itzg/minecraft-server:latest",
+            "environment": {"MEMORY": "1024", "MAX_PLAYERS": "20", "DIFFICULTY": "normal"},
+            "variables": [
+                {"name": "Memory", "env_variable": "MEMORY", "default_value": "1024",
+                 "rules": "required|integer|min:512|max:65536"},
+                {"name": "Max Players", "env_variable": "MAX_PLAYERS", "default_value": "20",
+                 "rules": "required|integer|min:1|max:100"},
+                {"name": "Difficulty", "env_variable": "DIFFICULTY", "default_value": "normal",
+                 "rules": "required|string|in:peaceful,easy,normal,hard"},
+            ],
+            "volumes": {"server_data": "/data"},
+        },
+        "nginx": {
+            "meta": {"author": "dck", "version": "1.0", "description": "Nginx web server"},
+            "startup": "nginx -g 'daemon off;'",
+            "stop": "quit",
+            "image": "nginx:alpine",
+            "environment": {"NGINX_HOST": "localhost"},
+            "variables": [
+                {"name": "Server Name", "env_variable": "NGINX_HOST", "default_value": "localhost",
+                 "rules": "required|string"},
+            ],
+            "volumes": {"html": "/usr/share/nginx/html"},
+        },
+        "mariadb": {
+            "meta": {"author": "dck", "version": "1.0", "description": "MariaDB database"},
+            "startup": "mysqld",
+            "stop": "shutdown",
+            "image": "mariadb:10",
+            "environment": {"MYSQL_ROOT_PASSWORD": "root", "MYSQL_DATABASE": "myapp"},
+            "variables": [
+                {"name": "Root Password", "env_variable": "MYSQL_ROOT_PASSWORD", "default_value": "root",
+                 "rules": "required|string"},
+                {"name": "Database", "env_variable": "MYSQL_DATABASE", "default_value": "myapp",
+                 "rules": "required|string"},
+            ],
+            "volumes": {"db_data": "/var/lib/mysql"},
+        },
+    }
+
+
+def load_egg(name_or_path):
+    p = Path(name_or_path)
+    if p.exists():
+        return json.loads(p.read_text())
+    eggs = builtin_eggs()
+    if name_or_path in eggs:
+        return eggs[name_or_path]
+    # check ~/.dck/eggs/
+    for ext in (".json", ".toml"):
+        ep = EGGS_DIR / name_or_path / f"egg{ext}"
+        if ep.exists():
+            return _load_config(ep)
+    raise RuntimeError(f"Egg not found: {name_or_path}")
+
+
+# ── CONFIG LOADER (json/toml/yaml) ────────────────────────────────────
+
+def _load_config(path):
+    text = Path(path).read_text()
+    ext = Path(path).suffix.lower()
+    if ext == ".json":
+        return json.loads(text)
+    elif ext in (".yaml", ".yml"):
+        import yaml
+        return yaml.safe_load(text)
+    elif ext == ".toml":
+        import tomllib
+        return tomllib.loads(text)
+    raise RuntimeError(f"Unsupported config format: {ext}")
+
+
+def _write_config(data, path):
+    ext = Path(path).suffix.lower()
+    if ext == ".json":
+        Path(path).write_text(json.dumps(data, indent=2))
+    elif ext in (".yaml", ".yml"):
+        import yaml
+        Path(path).write_text(yaml.dump(data, default_flow_style=False))
+    elif ext == ".toml":
+        import tomli_w
+        Path(path).write_text(tomli_w.dumps(data))
+    else:
+        raise RuntimeError(f"Unsupported format: {ext}")
+
+
+# ── IMAGE PULL (OCI from Docker Hub) ──────────────────────────────────
 
 def pull_image(image, tag="latest", progress=None):
-    import base64
-    import hashlib
-    import requests
-    from urllib.parse import urljoin
-
     image = image.replace("docker.io/", "").replace("library/", "")
     if "/" not in image:
         image = f"library/{image}"
-
     img_dir = IMAGES_DIR / image.replace("/", "_") / tag
     layers_dir = img_dir / "layers"
     rootfs_dir = img_dir / "rootfs"
@@ -91,12 +383,10 @@ def pull_image(image, tag="latest", progress=None):
     if progress:
         progress("Authenticating...")
     token = auth()
-
     if progress:
         progress("Fetching manifest...")
     r, token = req("GET", f"manifests/{tag}", token)
     manifest = r.json()
-
     if manifest.get("mediaType") in (
         "application/vnd.docker.distribution.manifest.list.v2+json",
         "application/vnd.oci.image.index.v1+json",
@@ -106,17 +396,14 @@ def pull_image(image, tag="latest", progress=None):
             raise RuntimeError("No amd64 image in manifest list")
         r, token = req("GET", f"manifests/{amd[0]['digest']}", token)
         manifest = r.json()
-
     if progress:
         progress("Downloading config...")
     cd = manifest["config"]["digest"]
     stream(cd, token, layers_dir / cd.replace(":", "_"))
     config = json.loads((layers_dir / cd.replace(":", "_")).read_bytes())
-
     (img_dir / ".image-name").write_text(image)
     (img_dir / "manifest.json").write_text(json.dumps(manifest, indent=2))
     (img_dir / "config.json").write_text(json.dumps(config, indent=2))
-
     layers = manifest.get("layers", [])
     for i, layer in enumerate(layers):
         digest = layer["digest"]
@@ -129,17 +416,14 @@ def pull_image(image, tag="latest", progress=None):
         if layer.get("mediaType", "").endswith("tar.gzip") or layer.get("mediaType", "").endswith("gzip"):
             if progress:
                 progress(f"Extracting layer {i+1}/{len(layers)}: {short}...")
-            import tarfile
             with tarfile.open(str(lf), "r:gz") as tar:
                 for m in tar.getmembers():
                     p = Path(m.name)
                     if p.is_absolute() or ".." in p.parts:
                         continue
                     tar.extract(m, path=str(rootfs_dir))
-
     if progress:
         progress("Done")
-
     return {"name": image, "tag": tag, "rootfs": str(rootfs_dir)}
 
 
@@ -180,7 +464,22 @@ def remove_image(image, tag="latest"):
     return False
 
 
-# ── networking ───────────────────────────────────────────────────────
+def save_image(image, tag, output_path):
+    d = IMAGES_DIR / image.replace("/", "_") / tag
+    if not d.exists():
+        raise RuntimeError(f"Image {image}:{tag} not found")
+    with tarfile.open(str(output_path), "w:gz") as tar:
+        tar.add(str(d), arcname=f"{image.replace('/', '_')}_{tag}")
+    return True
+
+
+def load_image(input_path):
+    with tarfile.open(str(input_path), "r:gz") as tar:
+        tar.extractall(path=str(IMAGES_DIR))
+    return True
+
+
+# ── NETWORKING ────────────────────────────────────────────────────────
 
 def _ip(cmd, check=True, timeout=10):
     r = subprocess.run(["ip"] + cmd, check=False, capture_output=True, text=True, timeout=timeout)
@@ -216,7 +515,6 @@ def ensure_bridge():
 
 
 def alloc_ip():
-    import fcntl
     _ensure(NET_IPS_FILE.parent)
     fd = os.open(str(NET_IPS_FILE), os.O_RDWR | os.O_CREAT, 0o644)
     fcntl.flock(fd, fcntl.LOCK_EX)
@@ -238,7 +536,6 @@ def alloc_ip():
 
 
 def free_ip(ip):
-    import fcntl
     if not NET_IPS_FILE.exists():
         return
     fd = os.open(str(NET_IPS_FILE), os.O_RDWR, 0o644)
@@ -288,7 +585,7 @@ def unforward_port(hp, cip, cp, proto="tcp"):
     _ipt(["-D", "FORWARD", "-p", proto, "--dport", str(cp), "-d", cip, "-j", "ACCEPT"], check=False)
 
 
-# ── container ────────────────────────────────────────────────────────
+# ── CONTAINER ─────────────────────────────────────────────────────────
 
 class Container:
     def __init__(self, name=None, config=None):
@@ -329,13 +626,11 @@ class Container:
     def load(self):
         if self.state_file.exists():
             d = json.loads(self.state_file.read_text())
-            for k, v in d.items():
-                setattr(self, k, v) if hasattr(self, k) else None
-            self.cfg = d
+            self.cfg.update(d)
             return d
         return None
 
-    def create(self):
+    def create(self, image_cfg=None):
         rootfs = self.cfg.get("rootfs", "")
         if not rootfs or not Path(rootfs).exists():
             raise RuntimeError(f"Rootfs not found: {rootfs}")
@@ -351,15 +646,16 @@ class Container:
         self.cfg["merged"] = merged
 
         # cgroup
-        cg = CGROUP_DIR / self.id
-        _ensure(str(cg))
-        ram = self.cfg.get("ram")
-        if ram:
-            self._set_cg_limit(cg / "memory.max", self._parse_mem(ram))
-        cpu = self.cfg.get("cpu")
-        if cpu:
-            self._set_cg_limit(cg / "cpu.max", f"{int(float(cpu) * 100000)} 100000")
-        self.cfg["cgroup"] = str(cg)
+        if CGROUP_ENABLED:
+            cg = CGROUP_DIR / self.id
+            _ensure(str(cg))
+            ram = self.cfg.get("ram")
+            if ram:
+                self._set_cg(cg / "memory.max", self._parse_mem(ram))
+            cpu = self.cfg.get("cpu")
+            if cpu:
+                self._set_cg(cg / "cpu.max", f"{int(float(cpu) * 100000)} 100000")
+            self.cfg["cgroup"] = str(cg)
 
         # log
         lf = LOGS_DIR / f"{self.id}.log"
@@ -370,7 +666,7 @@ class Container:
         self.save()
         return self
 
-    def _set_cg_limit(self, p, val):
+    def _set_cg(self, p, val):
         try:
             p.write_text(str(val))
         except Exception:
@@ -419,41 +715,26 @@ class Container:
 
     def _child(self, merged, cmd, env, vols, logf, needs_net, cip, ready_fd=None, pty_fd=None):
         libc = ctypes.CDLL("libc.so.6")
-        NS = {
-            "mnt": 0x00020000, "pid": 0x20000000, "net": 0x40000000,
-            "uts": 0x04000000, "ipc": 0x08000000,
-        }
         flags = NS["mnt"] | NS["pid"] | NS["net"] | NS["uts"] | NS["ipc"]
+        if CGROUP_ENABLED:
+            flags |= NS["cgroup"]
 
         ret = libc.unshare(flags)
         if ret != 0:
             e = ctypes.get_errno()
             msg = f"unshare: {os.strerror(e)}"
-            if e == 12:
-                msg += "\n  ENOMEM: sysctl -w kernel.keys.root_maxkeys=1000000 kernel.keys.root_maxbytes=25000000"
-            self._log(logf, msg)
+            _log(logf, msg)
             os._exit(1)
 
-        # hostname
         hn = (self.cfg.get("hostname") or self.name)[:64]
         libc.sethostname(hn.encode(), len(hn))
-
-        # lo
         subprocess.run(["ip", "link", "set", "lo", "up"], check=False, capture_output=True, timeout=5)
 
-        # mounts
         try:
             os.chdir(merged)
             subprocess.run(["mount", "--make-rprivate", "/"], check=True, capture_output=True, timeout=5)
-
-            old = Path(merged) / ".old_root"
-            old.mkdir(exist_ok=True)
-
-            ret = libc.pivot_root(merged.encode(), str(old).encode())
-            if ret != 0:
-                raise OSError(ctypes.get_errno(), os.strerror(ctypes.get_errno()))
-            os.chdir("/")
             os.chroot(".")
+            os.chdir("/")
 
             subs = [("proc", "/proc", "proc"), ("sysfs", "/sys", "sysfs"),
                     ("tmpfs", "/tmp", "tmpfs"), ("devtmpfs", "/dev", "devtmpfs"),
@@ -462,22 +743,16 @@ class Container:
                 r = subprocess.run(["mount", "-t", fstype, fs, target], check=False,
                                    capture_output=True, timeout=5)
                 if r.returncode != 0:
-                    self._log(logf, f"mount {target}: {r.stderr.decode().strip()}\n")
-
-            shutil.rmtree("/.old_root", ignore_errors=True)
+                    _log(logf, f"mount {target}: {r.stderr.decode().strip()}")
         except Exception as e:
-            msg = f"mount: {e}"
-            if isinstance(e, OSError) and e.errno == 12:
-                msg += "\n  ENOMEM: sysctl -w kernel.keys.root_maxkeys=1000000 kernel.keys.root_maxbytes=25000000"
-            self._log(logf, msg)
+            _log(logf, f"mount: {e}")
             os._exit(1)
 
-        # bind volumes
         for hp, cp in vols.items():
             Path(cp).mkdir(parents=True, exist_ok=True)
             subprocess.run(["mount", "--bind", str(hp), str(cp)], check=False, capture_output=True, timeout=5)
 
-        # environment
+        # environment — clean
         env_list = {}
         for k, v in os.environ.items():
             if any(k.startswith(p) for p in ("XDG_", "DBUS_", "SYSTEMD_", "LC_", "LD_")) or \
@@ -489,7 +764,6 @@ class Container:
         env_list.setdefault("HOME", "/root")
         env_list.setdefault("TERM", "xterm")
 
-        # workdir
         wd = self.cfg.get("workdir", "")
         if wd:
             try:
@@ -497,14 +771,12 @@ class Container:
             except Exception:
                 pass
 
-        # build command
         ep = self.cfg.get("entrypoint", "")
         if isinstance(cmd, str):
             cmd = cmd.split()
         if ep:
             cmd = (ep.split() if isinstance(ep, str) else list(ep)) + cmd
 
-        # redirect output
         if pty_fd is None and logf:
             fd = os.open(logf, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
             os.dup2(fd, 1)
@@ -512,7 +784,6 @@ class Container:
             if fd > 2:
                 os.close(fd)
 
-        # ready signal
         if ready_fd is not None:
             try:
                 os.write(ready_fd, b"1")
@@ -523,16 +794,8 @@ class Container:
         try:
             os.execvpe(cmd[0], cmd, env_list)
         except Exception as e:
-            self._log(logf, f"exec: {e}")
+            _log(logf, f"exec: {e}")
             os._exit(1)
-
-    def _log(self, lf, msg):
-        if lf:
-            try:
-                with open(lf, "a") as f:
-                    f.write(msg + "\n")
-            except Exception:
-                pass
 
     def _run_normal(self, merged, cmd, env, vols, logf, needs_net, cip):
         return self._run_detach(merged, cmd, env, vols, logf, needs_net, cip)
@@ -562,10 +825,8 @@ class Container:
             self.cfg["status"] = "running"
             self.save()
             self._add_cg(pid)
-
             if needs_net and cip:
                 self._setup_net(pid, cip)
-
             return pid
 
     def _run_pty(self, merged, cmd, env, vols, logf, needs_net, cip):
@@ -602,17 +863,14 @@ class Container:
             self.cfg["status"] = "running"
             self.save()
             self._add_cg(pid)
-
             if needs_net and cip:
                 self._setup_net(pid, cip)
 
-            # terminal I/O
-            import termios
-            import tty
+            import termios, tty as tty_mod
             old = None
             try:
                 old = termios.tcgetattr(0)
-                tty.setraw(0)
+                tty_mod.setraw(0)
             except Exception:
                 pass
             sig_old = signal.signal(signal.SIGWINCH, signal.SIG_DFL)
@@ -641,11 +899,9 @@ class Container:
                 os.close(mfd)
                 os.waitpid(pid, 0)
                 self._cleanup()
-
             return pid
 
     def _setup_net(self, pid, cip):
-        import time as _time
         for _ in range(50):
             try:
                 ino = os.stat(f"/proc/{pid}/ns/net").st_ino
@@ -653,24 +909,23 @@ class Container:
                     break
             except OSError:
                 pass
-            _time.sleep(0.1)
+            time.sleep(0.1)
         else:
-            self._log(self.cfg.get("log", ""), "netns timeout\n")
+            _log(self.cfg.get("log", ""), "netns timeout")
             return
         try:
             veth = setup_veth(pid, cip)
             self.cfg["veth"] = veth
             self.save()
         except Exception as e:
-            self._log(self.cfg.get("log", ""), f"veth: {e}\n")
-
+            _log(self.cfg.get("log", ""), f"veth: {e}")
         for cp, hp in self.cfg.get("ports", {}).items():
             cn = cp.split("/")[0]
             proto = cp.split("/")[1] if "/" in cp else "tcp"
             try:
                 forward_port(hp, cip, cn, proto)
             except Exception as e:
-                self._log(self.cfg.get("log", ""), f"port {hp}:{cn}: {e}\n")
+                _log(self.cfg.get("log", ""), f"port {hp}:{cn}: {e}")
 
     def _add_cg(self, pid):
         cg = self.cfg.get("cgroup", "")
@@ -684,21 +939,17 @@ class Container:
         self.cfg["status"] = "stopped"
         self.cfg["pid"] = None
         self.save()
-
         net = self.cfg.get("network", {})
         cip = net.get("ip")
         if cip:
             free_ip(cip)
-
         veth = self.cfg.get("veth")
         if veth:
             del_veth(veth)
-
         for cp, hp in self.cfg.get("ports", {}).items():
             cn = cp.split("/")[0]
             proto = cp.split("/")[1] if "/" in cp else "tcp"
             unforward_port(hp, cip or "", cn, proto)
-
         if self.cfg.get("rm"):
             try:
                 self.remove()
@@ -729,25 +980,37 @@ class Container:
     def remove(self):
         if self.cfg.get("status") == "running":
             self.stop()
-
-        # teardown overlay
         merged = self.cfg.get("merged", "")
         if merged:
             subprocess.run(["umount", merged], check=False, capture_output=True, timeout=5)
             shutil.rmtree(str(OVERLAY_DIR / self.id), ignore_errors=True)
-
-        # teardown cgroup
         cg = self.cfg.get("cgroup", "")
         if cg:
             shutil.rmtree(cg, ignore_errors=True)
-
-        # cleanup dangling veth
         veth = self.cfg.get("veth")
         if veth:
             del_veth(veth)
-
         if self.state_file.exists():
             self.state_file.unlink()
+
+    def commit(self, new_image, tag="latest"):
+        merged = self.cfg.get("merged", "")
+        if not merged:
+            raise RuntimeError("Container has no merged rootfs")
+        img_dir = IMAGES_DIR / new_image.replace("/", "_") / tag
+        rootfs_dir = img_dir / "rootfs"
+        _ensure(rootfs_dir)
+        for item in Path(merged).iterdir():
+            if item.name != ".old_root":
+                dst = rootfs_dir / item.name
+                if item.is_dir():
+                    shutil.copytree(str(item), str(dst), symlinks=True, ignore_dangling_symlinks=True)
+                else:
+                    shutil.copy2(str(item), str(dst))
+        cfg = {"config": {"Cmd": self.cfg.get("cmd", []), "Env": []}}
+        (img_dir / "config.json").write_text(json.dumps(cfg, indent=2))
+        (img_dir / ".image-name").write_text(new_image)
+        return new_image
 
     def status(self):
         pid = self.cfg.get("pid")
@@ -792,7 +1055,7 @@ class Container:
             return r.returncode, r.stdout, r.stderr
 
 
-# ── helpers ──────────────────────────────────────────────────────────
+# ── HELPERS ───────────────────────────────────────────────────────────
 
 def list_containers(all_=False):
     result = []
@@ -824,46 +1087,61 @@ def get_container(name_or_id):
             if d.get("id") == name_or_id or d.get("name") == name_or_id:
                 c = Container(config=d)
                 c.state_file = f
+                c.name = d.get("name", c.name)
                 return c
         except Exception:
             pass
     return None
 
 
+def system_prune(all_=False):
+    removed = {"containers": 0, "images": 0, "overlay": 0}
+    for f in list(CONTAINERS_DIR.iterdir()) if CONTAINERS_DIR.exists() else []:
+        if f.name.endswith(".json"):
+            try:
+                d = json.loads(f.read_text())
+                c = Container(config=d)
+                c.remove()
+                removed["containers"] += 1
+            except Exception:
+                pass
+    if all_:
+        for d in list(IMAGES_DIR.iterdir()) if IMAGES_DIR.exists() else []:
+            if d.is_dir():
+                shutil.rmtree(str(d), ignore_errors=True)
+                removed["images"] += 1
+    for d in list(OVERLAY_DIR.iterdir()) if OVERLAY_DIR.exists() else []:
+        if d.is_dir() and d.name != ".gitkeep":
+            shutil.rmtree(str(d), ignore_errors=True)
+            removed["overlay"] += 1
+    for f in [LOGS_DIR, OVERLAY_DIR, NET_IPS_FILE]:
+        p = Path(f)
+        if p.is_dir():
+            shutil.rmtree(str(p), ignore_errors=True)
+        elif p.exists():
+            p.unlink()
+    return removed
+
+
+# ── DOCTOR ────────────────────────────────────────────────────────────
+
 def doctor():
     ok = True
-    import sys
     def check(cond, msg):
         nonlocal ok
-        if cond:
-            print(f"  ✓ {msg}")
-        else:
-            print(f"  ✗ {msg}")
+        print(f"  {'✓' if cond else '✗'} {msg}")
+        if not cond:
             ok = False
     def warn(cond, msg):
-        if cond:
+        if not cond:
             print(f"  ⚠ {msg}")
-    print("dck doctor — system check")
-    print()
+    print("dck doctor — system check\n")
     check(os.geteuid() == 0, "root")
     check(os.path.exists("/proc/self/ns"), "namespaces")
-    check(Path("/sys/fs/cgroup/cgroup.controllers").exists(), "cgroups v2")
+    check(CGROUP_ENABLED, "cgroups v2")
     check(Path("/proc/filesystems").read_text().find("overlay") >= 0, "overlayfs")
-    check(subprocess.run(["which", "ip", "iptables", "nsenter"], capture_output=True).returncode == 0, "ip + iptables + nsenter")
-    try:
-        kf = Path("/proc/sys/kernel/keys/root_maxkeys")
-        bf = Path("/proc/sys/kernel/keys/root_maxbytes")
-        if kf.exists() and bf.exists():
-            kv, bv = int(kf.read_text()), int(bf.read_text())
-            check(kv >= 1000000, f"keyring maxkeys ({kv}) >= 1M")
-            check(bv >= 25000000, f"keyring maxbytes ({bv}) >= 25M")
-            warn(kv < 1000000 or bv < 25000000,
-                 "low keyring limits cause ENOMEM — run: sysctl -w kernel.keys.root_maxkeys=1000000 kernel.keys.root_maxbytes=25000000")
-    except Exception:
-        pass
+    r = subprocess.run(["which", "ip", "iptables", "nsenter"], capture_output=True)
+    check(r.returncode == 0, "ip + iptables + nsenter")
     print()
-    if ok:
-        print("System ready")
-    else:
-        print("Some checks failed")
+    print("System ready" if ok else "Some checks failed")
     return ok

@@ -5,7 +5,7 @@ A lightweight container runtime that pulls OCI images directly from Docker Hub a
 ## Quick Install
 
 ```bash
-curl -sSL https://gitlab.com/animesao/dck/-/raw/main/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/animesao/dck/main/install.sh | bash
 ```
 
 Or via pip:
@@ -35,6 +35,9 @@ dck doctor
 dck pull nginx:alpine       # pull from Docker Hub
 dck images                  # list pulled images
 dck rmi nginx:alpine        # remove image
+dck save nginx:alpine nginx.tar.gz   # save image to archive
+dck load nginx.tar.gz                # load image from archive
+dck commit mycontainer myimage:tag   # commit container to new image
 ```
 
 ### Run Containers
@@ -63,30 +66,93 @@ dck rm -f mycontainer # force remove (stop + remove)
 ### Connect & Debug
 
 ```bash
-dck exec -it mycontainer /bin/sh      # run command
-dck ssh mycontainer                    # alias for exec -it /bin/sh
-dck logs mycontainer                   # show logs (last 50 lines)
-dck logs -f mycontainer                # follow logs
-dck inspect mycontainer                # show full config
+dck exec -it mycontainer /bin/sh      # run command in running container
+dck ssh mycontainer                   # interactive shell
+dck logs mycontainer                  # show logs (last 50 lines)
+dck logs -f mycontainer               # follow logs
+dck inspect mycontainer               # show full config
 ```
 
-### Interactive Create (with Paper Minecraft)
+### Config File (up/down)
 
-```bash
-dck create --paper
-# interactive prompts: version, ports, volumes, resources
-# generates run.sh launcher for game servers
+Define services in `dck.json`, `dck.toml`, or `dck.yaml`:
+
+```json
+{
+  "services": {
+    "web": {
+      "image": "nginx:alpine",
+      "ports": {"80/tcp": 8080},
+      "volumes": {"./html": "/usr/share/nginx/html"},
+      "restart": "always"
+    },
+    "db": {
+      "image": "mariadb:10",
+      "env": {"MYSQL_ROOT_PASSWORD": "secret"},
+      "volumes": {"db_data": "/var/lib/mysql"}
+    }
+  }
+}
 ```
 
-### Minecraft Paper Server
+```bash
+dck up        # start all services from config
+dck down      # stop all services from config
+dck up -f myconfig.json   # use specific config file
+```
+
+### Presets
+
+Built-in one-command presets for common applications:
 
 ```bash
-dck create --paper
-# 1. select version
-# 2. set port 25565
-# 3. set volume /data/mc
-# 4. run generated launcher:
-cd /data/mc && ./run.sh
+dck preset list                  # list all presets
+dck preset info paper            # show preset details
+dck preset apply -d paper       # run Paper Minecraft server
+```
+
+Available presets: `paper`, `purpur`, `forge`, `spigot`, `nginx`, `apache`, `mariadb`, `postgres`, `redis`, `node`, `python`, `golang`, `lamp`, `rust`, `factorio`, `terraria`.
+
+Preset parameters use `{param or default}` syntax:
+
+```bash
+dck preset apply -d paper -P ram=4096 -P max_players=50 -P difficulty=hard
+```
+
+### Pterodactyl Eggs
+
+Create and apply Pterodactyl-compatible server eggs:
+
+```bash
+dck egg list                        # list available eggs
+dck egg validate egg.json           # validate an egg file
+dck egg create myegg -f egg.json    # save an egg
+dck egg install myegg mycontainer   # apply egg to container
+```
+
+Egg format (JSON/TOML):
+
+```json
+{
+  "meta": {"author": "dck", "version": "1.0", "description": "Paper server"},
+  "startup": "java -Xms{MEMORY}M -Xmx{MEMORY}M -jar server.jar --nogui",
+  "stop": "stop",
+  "image": "itzg/minecraft-server:latest",
+  "environment": {"MEMORY": "1024"},
+  "variables": [
+    {"name": "Memory", "env_variable": "MEMORY", "default_value": "1024",
+     "rules": "required|integer|min:512|max:65536"}
+  ],
+  "volumes": {"server_data": "/data"}
+}
+```
+
+### System
+
+```bash
+dck system prune          # remove stopped containers, overlays, logs
+dck system prune -a       # also remove all images
+dck doctor                # system readiness check
 ```
 
 ## Run Options
@@ -105,16 +171,11 @@ cd /data/mc && ./run.sh
 | `--rm` | Auto-remove on exit |
 | `--ram` | Memory limit (`512m`, `2g`) |
 | `--cpu` | CPU limit (`0.5`, `2`) |
-| `--pids-limit` | PID limit (default: 1000) |
 | `-w, --workdir` | Working directory |
-| `-u, --user` | Username or UID |
-| `--read-only` | Read-only root filesystem |
 | `-h, --hostname` | Container hostname |
 | `--entrypoint` | Override entrypoint |
 | `--restart` | Restart policy (`no`, `always`, `on-failure`) |
-| `--cap-add` | Add Linux capability |
-| `--cap-drop` | Drop Linux capability |
-| `--privileged` | Extended privileges |
+| `--external-ip` | External IP for port URL display |
 
 ## Architecture
 
@@ -123,7 +184,7 @@ dck pull nginx          dck run -p 8080:80 nginx
       │                        │
       ▼                        ▼
   ┌──────────┐           ┌──────────┐
-  │  oci.py  │           │ cli.py   │
+  │runtime.py│           │ cli.py   │
   │ pull     │           │ run cmd  │
   └────┬─────┘           └────┬─────┘
        │                      │
@@ -140,14 +201,9 @@ dck pull nginx          dck run -p 8080:80 nginx
        └── alpine/            │
            ├── config.json    ├── overlayfs (upper/work/merged)
            ├── manifest.json  ├── cgroups v2  (memory.max, cpu.max)
-           └── rootfs/        ├── namespaces (NS/NET/PID/UTS/IPC)
-                              ├── veth pair + bridge + iptables
-                              └── ~/.dck/containers/{id}.json
-
-  network.py ─── dck0 bridge (10.0.0.0/24)
-         ├── allocate_ip / release_ip
-         ├── setup_veth (veth pair + nsenter)
-         └── forward_port (iptables DNAT)
+           └── rootfs/        ├── namespaces (mnt/pid/net/uts/ipc/cgroup)
+                               ├── veth pair + dck0 bridge + iptables
+                               └── ~/.dck/containers/{id}.json
 ```
 
 ## Storage
@@ -166,27 +222,9 @@ All data stored in `~/.dck/`:
 ├── containers/      # container state files (*.json)
 ├── overlay/         # overlayfs upper/work/merged per container
 ├── logs/            # container stdout/stderr logs
+├── eggs/            # user-defined Pterodactyl eggs
 └── network_ips.json # allocated IP pool
 ```
-
-## System Commands
-
-```bash
-dck doctor     # check native runtime readiness
-dck update     # update dck to latest version
-dck uninstall  # remove dck completely
-```
-
-## Remote Access
-
-dck does not include SSH server functionality. To access a container:
-
-```bash
-dck exec -it mycontainer /bin/sh   # interactive shell
-dck ssh mycontainer                 # same thing
-```
-
-For persistent remote access, run an SSH server inside the container or use the host's SSH to manage containers.
 
 ## License
 

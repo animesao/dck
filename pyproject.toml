@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dck"
-version = "0.5.0"
-description = "Native Linux container runtime - OCI pulls, namespaces, cgroups v2, overlayfs"
+version = "0.6.0"
+description = "Native Linux container runtime — OCI pulls, namespaces, cgroups v2, overlayfs"
 readme = "README.md"
 authors = [
     {name = "dck"}
@@ -16,6 +16,9 @@ dependencies = [
     "click>=8.1",
     "rich>=13.0",
     "requests>=2.28",
+    "pyyaml>=6.0",
+    "tomli>=2.0",
+    "tomli-w>=1.0",
 ]
 
 [project.scripts]
