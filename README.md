@@ -27,7 +27,7 @@ curl http://localhost:8080
 - `iptables`
 - `pgrep` (procps)
 - `mount` / `umount`
-- Kernel: namespaces, overlayfs, cgroups v2
+- Kernel: namespaces, overlayfs
 
 The installer will detect your distro and install all dependencies automatically.
 
@@ -58,7 +58,7 @@ powershell -c "iwr -useb https://gitlab.com/animesao/dck/-/raw/main/install.ps1 
 
 ### Build from source
 ```bash
-git clone <repo> && cd dck
+git clone https://gitlab.com/animesao/dck.git && cd dck
 go build -o dck .
 sudo install dck /usr/local/bin/
 ```
@@ -70,6 +70,7 @@ sudo install dck /usr/local/bin/
 dck pull alpine              # Pull latest Alpine
 dck pull nginx:alpine        # Pull with tag
 dck pull postgres:16         # Pull specific version
+dck pull python:3.11-slim    # Pull Python slim image
 dck images                   # List local images
 dck rmi nginx:alpine         # Remove image
 ```
@@ -95,7 +96,7 @@ dck run -d --name pg -p 5432:5432 \
 # With volume mounts
 dck run -d --name data -v /host/data:/container/data alpine sleep infinity
 
-# With resource names and restart
+# With restart policy
 dck run -d --restart always --name app -p 3000:3000 node:20 npm start
 
 # Custom hostname
@@ -107,8 +108,6 @@ dck run -h myserver --rm alpine hostname
 dck ps                 # Running containers
 dck ps -a              # All containers
 dck stop web           # Stop (SIGTERM + 10s + SIGKILL)
-dck start web          # Start stopped container
-dck restart web        # Restart container
 dck rm web             # Remove stopped
 dck rm -f web          # Force remove running
 ```
@@ -150,8 +149,6 @@ dck run -d -p 3000:3000 node:20
 | `--rm` | Auto-remove on exit | `false` |
 | `--restart` | Restart policy | `no` |
 | `-h` | Container hostname | container ID |
-| `--entrypoint` | Override entrypoint | from image |
-| `--tag` | Image tag | `latest` |
 
 ### Restart Policies
 | Policy | Behavior |
@@ -160,48 +157,28 @@ dck run -d -p 3000:3000 node:20
 | `always` | Always restart, even after manual stop |
 | `on-failure` | Restart only if exit code != 0 |
 
-## Use Cases
+## Examples
 
-### Minecraft Server
+### Web Server (Nginx)
 ```bash
-# Pull the image
-dck pull itzg/minecraft-server
-
-# Run the server
-dck run -d --restart always \
-  --name mc \
-  -p 25565:25565 \
-  -v mc_data:/data \
-  -e EULA=TRUE \
-  -e MEMORY=2G \
-  -e DIFFICULTY=hard \
-  -e MAX_PLAYERS=20 \
-  itzg/minecraft-server
-
-# Open server console
-dck console mc
-
-# Check logs
-dck logs -f mc
+dck pull nginx:alpine
+dck run -d --name web -p 80:80 nginx:alpine
+curl localhost
+dck logs -f web
+dck stop web && dck rm web
 ```
 
-### PostgreSQL Database
+### PostgreSQL with Persistent Data
 ```bash
-# Run PostgreSQL
 dck run -d --restart always \
   --name pg \
   -p 5432:5432 \
   -v pg_data:/var/lib/postgresql/data \
   -e POSTGRES_PASSWORD=strongpass \
   -e POSTGRES_DB=myapp \
-  -e POSTGRES_USER=appuser \
   postgres:16
 
-# Connect from host
-psql -h localhost -U appuser -d myapp
-
-# Backup database
-dck exec pg pg_dump -U appuser myapp > backup.sql
+psql -h localhost -U postgres -d myapp
 ```
 
 ### MariaDB / MySQL
@@ -222,42 +199,129 @@ dck run -d --restart always \
   -p 6379:6379 \
   -v redis_data:/data \
   redis:7 --appendonly yes
+
+# Test connection
+redis-cli -h localhost ping
 ```
 
-### Node.js Bot / Web App
+### Node.js App
 ```bash
-# Build your app
-cat > app.js << 'EOF'
+# Create a simple HTTP server
+mkdir myapp && cd myapp
+cat > index.js << 'EOF'
 const http = require('http');
-http.createServer((req, res) => {
-  res.end('Hello from dck!');
-}).listen(3000);
+const server = http.createServer((req, res) => {
+  res.end('Hello from dck!\n');
+});
+server.listen(3000);
 EOF
 
-# Run with mounted code
+# Build and run
 dck run -d --restart always \
   --name myapp \
   -p 3000:3000 \
   -v $(pwd):/app \
-  -w /app \
-  node:20 node app.js
+  node:20 node /app/index.js
 
-# Or with env config
-dck run -d --restart always \
-  --name bot \
-  -e BOT_TOKEN=xxx \
-  -e DATABASE_URL=postgres://... \
-  node:20 npm start
+curl http://localhost:3000
 ```
 
-### Python Web App
+### Python Flask App
 ```bash
+# Create Flask app
+cat > app.py << 'EOF'
+from flask import Flask
+app = Flask(__name__)
+@app.route('/')
+def hello():
+    return 'Hello from dck!'
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)
+EOF
+
+# Install dependencies and run
+cat > requirements.txt << 'EOF'
+flask==3.0.0
+EOF
+
 dck run -d --restart always \
   --name flask \
   -p 5000:5000 \
   -v $(pwd):/app \
-  -w /app \
-  python:3.11 python app.py
+  python:3.11-slim sh -c "\
+    pip install -r /app/requirements.txt && \
+    python /app/app.py"
+
+curl http://localhost:5000
+```
+
+### Minecraft Server
+```bash
+dck pull itzg/minecraft-server
+dck run -d --restart always \
+  --name mc \
+  -p 25565:25565 \
+  -v mc_data:/data \
+  -e EULA=TRUE \
+  -e MEMORY=2G \
+  -e DIFFICULTY=hard \
+  itzg/minecraft-server
+
+dck console mc   # Open server console
+dck logs -f mc   # Follow server logs
+```
+
+### Multi-Container Setup (App + DB)
+```bash
+# Run PostgreSQL
+dck run -d --restart always \
+  --name db \
+  -p 5432:5432 \
+  -e POSTGRES_DB=myapp \
+  -e POSTGRES_PASSWORD=secret \
+  postgres:16
+
+# Run your app (connects via host IP)
+dck run -d --restart always \
+  --name app \
+  -p 8080:80 \
+  -e DATABASE_URL=postgres://postgres:secret@HOST_IP:5432/myapp \
+  nginx:alpine
+```
+
+### Cron Jobs (Scheduled Tasks)
+```bash
+# Run a backup every day via systemd/cron + dck
+dck run --rm \
+  -v pg_data:/var/lib/postgresql/data \
+  postgres:16 tar czf /backup/pg-$(date +%Y%m%d).tar.gz /var/lib/postgresql/data
+```
+
+### Data-only Container
+```bash
+# Create a data volume container
+dck run -d --name data \
+  -v /backup:/data \
+  alpine sleep infinity
+
+# Copy data into it
+dck exec data sh -c "echo 'my data' > /data/file.txt"
+
+# Another container reads it
+dck run --rm -v /backup:/data alpine cat /data/file.txt
+```
+
+### Rust / Go Builder
+```bash
+# Rust
+dck run --rm \
+  -v $(pwd):/app \
+  rust:latest sh -c "cd /app && cargo build --release"
+
+# Go
+dck run --rm \
+  -v $(pwd):/app \
+  golang:latest sh -c "cd /app && go build -o app ."
 ```
 
 ### Nginx Reverse Proxy
@@ -267,7 +331,6 @@ dck run -d --restart always \
   -p 80:80 -p 443:443 \
   -v nginx_conf:/etc/nginx/conf.d \
   -v nginx_html:/usr/share/nginx/html \
-  -v nginx_certs:/etc/nginx/ssl \
   nginx:alpine
 ```
 
@@ -280,27 +343,18 @@ dck run -d --restart always \
   nocodb/nocodb:latest
 ```
 
-### Rust / Go Builder
+### Nginx + PHP (LAMP-Style)
 ```bash
-# Rust builder
-dck run --rm -v $(pwd):/app -w /app rust:latest cargo build --release
-
-# Go builder
-dck run --rm -v $(pwd):/app -w /app golang:latest go build -o app .
-```
-
-### Full LAMP Stack
-```bash
-# Network for inter-container communication
+# Database
 dck run -d --restart always --name db \
+  -v db_data:/var/lib/mysql \
   -e MARIADB_ROOT_PASSWORD=root \
   mariadb:10
 
+# PHP app with nginx frontend
 dck run -d --restart always --name app \
   -p 8080:80 \
   -v html:/var/www/html \
-  -e DB_HOST=db \
-  --link db \
   php:8-apache
 ```
 
@@ -345,8 +399,8 @@ dck pull nginx              dck run -p 8080:80 nginx
        │                   │  veth pair       │
        ▼                   │  iptables DNAT   │
   ~/.dck/images/           └────────┬─────────┘
-                                    │
-                               ~/.dck/containers/
+                                     │
+                                ~/.dck/containers/
 ```
 
 ### Network Architecture
@@ -413,8 +467,7 @@ dck logs <container-id>
 # Check if image exists
 dck images
 
-# Verify system
-dck doctor 2>/dev/null || echo "doctor not available, check manually:"
+# Verify system tools
 unshare --version
 nsenter --version
 ip link help
@@ -447,8 +500,6 @@ rm -rf ~/.dck
 | `run` | Create and start a container |
 | `ps` | List containers |
 | `stop` | Stop a running container |
-| `start` | Restart a stopped container |
-| `restart` | Restart a container |
 | `rm` | Remove a container |
 | `exec` | Execute a command in a container |
 | `console` | Open an interactive shell |
