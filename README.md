@@ -695,6 +695,7 @@ rm -rf ~/.dck
 | `logs` | Show or follow container logs |
 | `images` | List local images |
 | `rmi` | Remove a local image |
+| `version` | Show dck version |
 | `update` | Check for updates and self-update |
 
 ## Updates

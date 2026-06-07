@@ -46,7 +46,7 @@ func Execute() {
 		Update(args)
 	case "--help", "-h", "help":
 		printUsage()
-	case "--version", "-v":
+	case "version", "--version", "-v":
 		fmt.Println("dck version", version)
 		fmt.Printf("Run 'dck update --check' to check for newer versions.\n")
 	default:
@@ -74,7 +74,7 @@ Usage:
   dck rmi <image>[:tag]        Remove image
   dck update [--check]         Check for updates and self-update
   dck --help                   Show this help
-  dck --version                Show version
+  dck version, --version       Show version
 
 Run options:
   -d          Detach (background)
