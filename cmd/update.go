@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"net/http"
@@ -9,6 +10,15 @@ import (
 	"strings"
 	"time"
 )
+
+var baseURL = getBaseURL()
+
+func getBaseURL() string {
+	if m := os.Getenv("DCK_UPDATE_MIRROR"); m != "" {
+		return strings.TrimRight(m, "/")
+	}
+	return repoURL
+}
 
 func Update(args []string) {
 	checkOnly := false
@@ -48,33 +58,14 @@ func Update(args []string) {
 	}
 
 	fmt.Println("Downloading update...")
-	installURLs := []string{
-		repoURL + "/-/raw/main/install.sh",
-		"http://gitlab.com/animesao/dck/-/raw/main/install.sh",
-	}
-
-	var installBody []byte
-	for _, url := range installURLs {
-		resp, err := http.Get(url)
-		if err != nil {
-			continue
-		}
-		if resp.StatusCode != 200 {
-			resp.Body.Close()
-			continue
-		}
-		installBody, _ = io.ReadAll(resp.Body)
-		resp.Body.Close()
-		break
-	}
-
-	if installBody == nil {
-		fmt.Fprintf(os.Stderr, "Failed to fetch installer from any URL\n")
+	body, err := fetchURL(baseURL + "/-/raw/main/install.sh")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to fetch installer: %v\n", err)
 		os.Exit(1)
 	}
 
 	tmpFile := "/tmp/dck-install.sh"
-	if err := os.WriteFile(tmpFile, installBody, 0755); err != nil {
+	if err := os.WriteFile(tmpFile, []byte(body), 0755); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to create temp file: %v\n", err)
 		os.Exit(1)
 	}
@@ -93,6 +84,22 @@ func Update(args []string) {
 }
 
 func fetchURL(url string) (string, error) {
+	body, err := fetchURLGo(url)
+	if err == nil {
+		return body, nil
+	}
+	body, err = fetchURLWithCurl(url)
+	if err == nil {
+		return body, nil
+	}
+	body, err = fetchURLWithWget(url)
+	if err == nil {
+		return body, nil
+	}
+	return "", fmt.Errorf("all methods failed")
+}
+
+func fetchURLGo(url string) (string, error) {
 	client := &http.Client{
 		Timeout: 10 * time.Second,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -116,29 +123,95 @@ func fetchURL(url string) (string, error) {
 	return strings.TrimSpace(string(body)), err
 }
 
+func fetchURLWithCurl(url string) (string, error) {
+	var stderr bytes.Buffer
+	cmd := exec.Command("curl", "-sL", url)
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("curl failed: %v (stderr: %s)", err, strings.TrimSpace(stderr.String()))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+func fetchURLWithWget(url string) (string, error) {
+	var stderr bytes.Buffer
+	cmd := exec.Command("wget", "-qO-", url)
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("wget failed: %v (stderr: %s)", err, strings.TrimSpace(stderr.String()))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
 func fetchLatestVersion() (string, error) {
-	urls := []string{
-		repoURL + "/-/raw/main/VERSION",
-		"http://gitlab.com/animesao/dck/-/raw/main/VERSION",
+	url := baseURL + "/-/raw/main/VERSION"
+	v, err := fetchURL(url)
+	if err == nil {
+		return v, nil
 	}
-	var errs []string
-	for _, url := range urls {
-		v, err := fetchURL(url)
-		if err == nil {
-			return v, nil
+	// Last resort: try git ls-remote over SSH
+	if v, err := fetchVersionViaGit(); err == nil {
+		return v, nil
+	}
+	return "", err
+}
+
+func fetchVersionViaGit() (string, error) {
+	var stderr bytes.Buffer
+	cmd := exec.Command("git", "ls-remote", "--tags", "git@gitlab.com:animesao/dck.git")
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("git ls-remote failed: %v (stderr: %s)", err, strings.TrimSpace(stderr.String()))
+	}
+	// Parse the last tag matching v*.*.*
+	latest := ""
+	for _, line := range strings.Split(string(out), "\n") {
+		parts := strings.SplitN(line, "\t", 2)
+		if len(parts) < 2 {
+			continue
 		}
-		errs = append(errs, fmt.Sprintf("%s: %v", url, err))
+		ref := parts[1]
+		if strings.HasPrefix(ref, "refs/tags/v") {
+			tag := strings.TrimPrefix(ref, "refs/tags/")
+			if compareVersions(tag, latest) > 0 {
+				latest = tag
+			}
+		}
 	}
-	return "", fmt.Errorf("all attempts failed:\n  %s", strings.Join(errs, "\n  "))
+	if latest == "" {
+		return "", fmt.Errorf("no version tags found")
+	}
+	return latest, nil
 }
 
 func compareVersions(a, b string) int {
+	if a == "" && b == "" {
+		return 0
+	}
+	if a == "" {
+		return -1
+	}
+	if b == "" {
+		return 1
+	}
+
 	ap := strings.Split(strings.TrimLeft(a, "v"), ".")
 	bp := strings.Split(strings.TrimLeft(b, "v"), ".")
-	for i := 0; i < 3; i++ {
+	max := len(ap)
+	if len(bp) > max {
+		max = len(bp)
+	}
+	for i := 0; i < max; i++ {
 		var ai, bi int
-		fmt.Sscanf(ap[i], "%d", &ai)
-		fmt.Sscanf(bp[i], "%d", &bi)
+		if i < len(ap) {
+			fmt.Sscanf(ap[i], "%d", &ai)
+		}
+		if i < len(bp) {
+			fmt.Sscanf(bp[i], "%d", &bi)
+		}
 		if ai < bi {
 			return -1
 		}
