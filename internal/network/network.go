@@ -139,6 +139,17 @@ func AddPortForwarding(containerIP string, hostPort, containerPort int, protocol
 		return fmt.Errorf("DNAT: %w", err)
 	}
 
+	output := []string{
+		"-t", "nat", "-A", "OUTPUT",
+		"-p", protocol, "--dport", fmt.Sprintf("%d", hostPort),
+		"-j", "DNAT", "--to-destination", fmt.Sprintf("%s:%d", containerIP, containerPort),
+	}
+	if err := exec.Command("iptables", output...).Run(); err != nil {
+		rollback := append([]string{"-t", "nat", "-D"}, dnat[3:]...)
+		exec.Command("iptables", rollback...).Run()
+		return fmt.Errorf("OUTPUT DNAT: %w", err)
+	}
+
 	fwd := []string{
 		"-A", "FORWARD",
 		"-p", protocol, "-d", containerIP, "--dport", fmt.Sprintf("%d", containerPort),
@@ -147,6 +158,8 @@ func AddPortForwarding(containerIP string, hostPort, containerPort int, protocol
 	if err := exec.Command("iptables", fwd...).Run(); err != nil {
 		rollback := append([]string{"-t", "nat", "-D"}, dnat[3:]...)
 		exec.Command("iptables", rollback...).Run()
+		rollback2 := append([]string{"-t", "nat", "-D"}, output[3:]...)
+		exec.Command("iptables", rollback2...).Run()
 		return fmt.Errorf("FORWARD: %w", err)
 	}
 
@@ -155,6 +168,10 @@ func AddPortForwarding(containerIP string, hostPort, containerPort int, protocol
 
 func RemovePortForwarding(containerIP string, hostPort, containerPort int, protocol string) {
 	exec.Command("iptables", "-t", "nat", "-D", "PREROUTING",
+		"-p", protocol, "--dport", fmt.Sprintf("%d", hostPort),
+		"-j", "DNAT", "--to-destination", fmt.Sprintf("%s:%d", containerIP, containerPort)).Run()
+
+	exec.Command("iptables", "-t", "nat", "-D", "OUTPUT",
 		"-p", protocol, "--dport", fmt.Sprintf("%d", hostPort),
 		"-j", "DNAT", "--to-destination", fmt.Sprintf("%s:%d", containerIP, containerPort)).Run()
 
