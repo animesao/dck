@@ -317,49 +317,78 @@ def _parse_cpu(cpu_str):
 
 
 def _create_data_launcher(container_name, template_key, template, vol_path, ports, env_vars, ram, cpu):
-    """Create editable run.sh launcher in the server data directory."""
+    """Create editable run.sh launcher in the server data directory.
+
+    The launcher is the PRIMARY way to start the server. Container is created
+    with TYPE=CUSTOM and stopped immediately so user can:
+    1. Put their own server.jar in the data directory
+    2. Edit run.sh to configure Java flags, jar path, etc.
+    3. Run ./run.sh to start
+    """
     image = template["image"]
 
-    cmd_parts = [
-        "#!/usr/bin/env bash",
-        "# Minecraft Server Launcher — сгенерировано dck",
-        "# Редактируй этот файл под себя",
-        "#",
-        "# Как использовать своё ядро:",
-        "#   1. Останови сервер: docker stop " + container_name,
-        "#   2. Скопируй своё ядро в " + vol_path + "/server.jar",
-        f'#   3. Раскомментируй строки TYPE=CUSTOM и CUSTOM_SERVER ниже',
-        "#   4. Запусти: ./run.sh",
-        "",
-        f'CONTAINER="{container_name}"',
-        f'MEMORY="{ram}"',
-        '# TYPE=CUSTOM',
-        '# CUSTOM_SERVER=/data/server.jar',
-        "",
-        "docker start $CONTAINER 2>/dev/null || \\",
-        "docker run -d \\",
-        f'  --name "$CONTAINER" \\',
-        '  --restart unless-stopped \\',
-    ]
-    for c_port, h_port in (ports or {}).items():
-        cmd_parts.append(f'  -p "{h_port}:{c_port}" \\')
-    for k, v in (env_vars or {}).items():
-        if v:
-            cmd_parts.append(f'  -e "{k}={v}" \\')
-    cmd_parts.append(f'  --memory $MEMORY \\')
-    if cpu:
-        cmd_parts.append(f'  --cpus="{cpu}" \\')
-    cmd_parts.append(f'  -v "{vol_path}:/data" \\')
-    cmd_parts.append(f'  {image}')
-    cmd_parts.append("")
-    cmd_parts.append("# Attach to server console")
-    cmd_parts.append("docker attach $CONTAINER")
-    cmd_parts.append("")
+    # Force CUSTOM type so user can supply their own jar
+    custom_env = dict(env_vars) if env_vars else {}
+    custom_env["TYPE"] = "CUSTOM"
+    custom_env["CUSTOM_SERVER"] = "/data/server.jar"
+    custom_env.pop("VERSION", None)
+
+    port_lines = "\n".join(
+        f'  -p "{h_port}:{c_port}" \\'
+        for c_port, h_port in (ports or {}).items()
+    )
+
+    env_lines = "\n".join(
+        f'  -e "{k}={v}" \\'
+        for k, v in custom_env.items() if v
+    )
+
+    script = f"""#!/usr/bin/env bash
+# ──────────────────────────────────────────────
+# Minecraft Server Launcher — сгенерировано dck
+# ──────────────────────────────────────────────
+#
+# КАК ИСПОЛЬЗОВАТЬ:
+#   1. Положи свой server.jar в эту папку
+#   2. Если jar называется иначе — поправь JAR= ниже
+#   3. Настрой память в MEMORY=
+#   4. Запусти: ./run.sh
+#
+# Скрипт удаляет старый контейнер и создаёт новый
+# с TYPE=CUSTOM и CUSTOM_SERVER=/data/$JAR.
+# ──────────────────────────────────────────────
+
+# ====== НАСТРОЙКИ ======
+CONTAINER="{container_name}"
+MEMORY="{ram}"
+CPU="{cpu}"
+JAR="server.jar"
+
+# ====== УДАЛИТЬ СТАРЫЙ КОНТЕЙНЕР ======
+docker rm -f $CONTAINER 2>/dev/null
+
+# ====== СОЗДАТЬ И ЗАПУСТИТЬ ======
+docker run -d \\
+  --name "$CONTAINER" \\
+  --restart unless-stopped \\
+{port_lines}
+{env_lines}
+  --memory $MEMORY \\
+  --cpus="$CPU" \\
+  -v "$(pwd):/data" \\
+  {image}
+
+# Подождать запуска
+sleep 2
+
+# Подключиться к консоли
+docker attach $CONTAINER
+"""
 
     vol_dir = Path(vol_path)
     vol_dir.mkdir(parents=True, exist_ok=True)
     script_path = vol_dir / "run.sh"
-    script_path.write_text("\n".join(cmd_parts) + "\n")
+    script_path.write_text(script)
     script_path.chmod(script_path.stat().st_mode | 0o111)
 
 
@@ -429,13 +458,15 @@ def _show_creation_summary(template_key, name, ports, env_vars, volumes, ram, cp
     ))
 
 
-def _show_container_summary(container_name, image, ports, volumes, env_vars, ram, cpu):
+def _show_container_summary(container, container_name, image, ports, volumes, env_vars, ram, cpu):
     ip = _get_server_ip()
+    status = container.status if container else "unknown"
+    status_style = "green" if status == "running" else "yellow"
     table = Table(title=f"Container: {container_name}", border_style="cyan", title_justify="left")
     table.add_column("Key", style="bold")
     table.add_column("Value")
     table.add_row("Image", image)
-    table.add_row("Status", "[green]running[/green]")
+    table.add_row("Status", f"[{status_style}]{status}[/{status_style}]")
     if ram:
         table.add_row("RAM", ram)
     if cpu:
@@ -555,24 +586,25 @@ def build_and_start(template_key, template, name, ports, env_vars, volumes, ram,
     docker_run = _gen_docker_run(template_key, template, name, ports, env_vars, volumes, ram, cpu)
     _save_launcher_script(container_name, docker_run)
 
-    # For game servers: offer editable launcher in data directory
+    # For game servers: always create editable run.sh in data directory
     if template.get("tty") and volumes:
         vol_path = list(volumes.keys())[0]
-        if Confirm.ask("  Create editable launcher in server data directory?", default=False):
-            _create_data_launcher(container_name, template_key, template, vol_path, ports, env_vars, ram, cpu)
-            console.print(f"  [dim]Launcher: [bold]{vol_path}/run.sh[/bold][/dim]")
+        _create_data_launcher(container_name, template_key, template, vol_path, ports, env_vars, ram, cpu)
+        console.print(f"  [green]✓[/green] Launcher: [bold]{vol_path}/run.sh[/bold]")
 
-            if container.status == "running":
-                if Confirm.ask("  Stop container now to edit server files?", default=True):
-                    with console.status("Stopping..."):
-                        container.stop()
-                        container.reload()
-                    console.print("  [green]✓[/green] Container stopped")
-                    console.print(f"  [dim]Server folder: [bold]{vol_path}[/bold][/dim]")
-                    console.print(f"  [dim]Edit [bold]{vol_path}/run.sh[/bold] and run it[/dim]")
+        # Stop container so user can edit files
+        if container.status == "running":
+            with console.status("  Stopping container for editing..."):
+                container.stop()
+                container.reload()
+
+        console.print(f"  [dim]Server folder: [bold]{vol_path}[/bold][/dim]")
+        console.print(f"  [dim]1. Put your [bold]server.jar[/bold] in that folder[/dim]")
+        console.print(f"  [dim]2. Edit [bold]run.sh[/bold] if needed[/dim]")
+        console.print(f"  [dim]3. Run: [bold]{vol_path}/run.sh[/bold][/dim]")
 
     # Show comprehensive summary
-    _show_container_summary(container_name, image, ports, volumes, env_vars, ram, cpu)
+    _show_container_summary(container, container_name, image, ports, volumes, env_vars, ram, cpu)
 
     console.print(f"\n[dim]{t('manage.hint')}: dck ps | dck logs {container_name} | dck stop {container_name}[/dim]")
     if template.get("note"):
