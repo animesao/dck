@@ -418,6 +418,18 @@ def rm_cmd(container_id, force):
 @click.option("--detach", "-d", is_flag=True)
 def exec_cmd(container_id, cmd, interactive, tty, detach):
     """Execute a command in a running container"""
+
+
+@cli.command("ssh")
+@click.argument("container_id")
+@click.argument("shell", nargs=-1)
+@click.option("--user", "-u", default="root")
+def ssh_cmd(container_id, shell, user):
+    """SSH into a container (alias for exec -it)"""
+    cmd = list(shell) if shell else ["/bin/sh", "-c", f"exec su - {user} 2>/dev/null || exec /bin/sh"]
+    ctx = click.get_current_context()
+    ctx.invoke(exec_cmd, container_id=container_id, cmd=tuple(cmd), interactive=True, tty=True, detach=False)
+    """Execute a command in a running container"""
     _check_native()
 
     from dck.runtime import get_container

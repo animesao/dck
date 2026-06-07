@@ -32,16 +32,28 @@ def _iptables(cmd, check=True, timeout=10):
         return e
 
 
+def _rule_exists(cmd):
+    """Check if an iptables rule exists."""
+    r = _iptables(cmd + ["-C"], check=False)
+    return r.returncode == 0
+
+
 def ensure_bridge():
-    """Create docker bridge if not exists."""
+    """Create dck0 bridge if not exists. Idempotent — won't duplicate iptables rules."""
     r = _ip(["link", "show", DCK_BRIDGE], check=False)
     if r.returncode != 0:
         _ip(["link", "add", DCK_BRIDGE, "type", "bridge"])
         _ip(["addr", "add", f"{DCK_GATEWAY}/24", "dev", DCK_BRIDGE])
         _ip(["link", "set", DCK_BRIDGE, "up"])
-        _iptables(["-t", "nat", "-A", "POSTROUTING", "-s", DCK_SUBNET, "!", "-o", DCK_BRIDGE, "-j", "MASQUERADE"])
-        _iptables(["-A", "FORWARD", "-i", DCK_BRIDGE, "-j", "ACCEPT"])
-        _iptables(["-A", "FORWARD", "-o", DCK_BRIDGE, "-j", "ACCEPT"])
+
+    rules = [
+        ["-t", "nat", "-A", "POSTROUTING", "-s", DCK_SUBNET, "!", "-o", DCK_BRIDGE, "-j", "MASQUERADE"],
+        ["-A", "FORWARD", "-i", DCK_BRIDGE, "-j", "ACCEPT"],
+        ["-A", "FORWARD", "-o", DCK_BRIDGE, "-j", "ACCEPT"],
+    ]
+    for rule in rules:
+        if not _rule_exists(rule):
+            _iptables(rule)
 
 
 def allocate_ip():
