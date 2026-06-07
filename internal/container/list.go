@@ -3,11 +3,20 @@ package container
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 
 	"dck/internal/state"
 )
+
+func pidAlive(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	_, err := os.Stat("/proc/" + strconv.Itoa(pid))
+	return err == nil
+}
 
 func List(all bool) ([]*Container, error) {
 	entries, err := os.ReadDir(state.ContainersDir())

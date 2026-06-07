@@ -63,6 +63,9 @@ func Load(id string) (*Container, error) {
 		if err := state.ReadJSON(path, &c); err != nil {
 			return nil, err
 		}
+		if c.Status == Running && !pidAlive(c.PID) {
+			c.Status = Stopped
+		}
 		return &c, nil
 	}
 
@@ -76,6 +79,9 @@ func Load(id string) (*Container, error) {
 			var c Container
 			if err := state.ReadJSON(filepath.Join(state.ContainersDir(), e.Name()), &c); err != nil {
 				return nil, err
+			}
+			if c.Status == Running && !pidAlive(c.PID) {
+				c.Status = Stopped
 			}
 			return &c, nil
 		}

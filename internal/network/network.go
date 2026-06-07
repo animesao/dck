@@ -159,7 +159,30 @@ type PortRule struct {
 	ContainerIP   string `json:"container_ip"`
 }
 
+func removeExistingDNAT(chain string, hostPort int, protocol string) {
+	out, err := exec.Command("iptables-save", "-t", "nat").Output()
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		if !strings.HasPrefix(line, "-A "+chain) {
+			continue
+		}
+		if !strings.Contains(line, fmt.Sprintf("--dport %d", hostPort)) {
+			continue
+		}
+		if !strings.Contains(line, "-j DNAT") {
+			continue
+		}
+		del := strings.Replace(line, "-A", "-D", 1)
+		exec.Command("iptables", append([]string{"-t", "nat"}, strings.Fields(del)...)...).Run()
+	}
+}
+
 func AddPortForwarding(containerIP string, hostPort, containerPort int, protocol string) error {
+	removeExistingDNAT("PREROUTING", hostPort, protocol)
+	removeExistingDNAT("OUTPUT", hostPort, protocol)
+
 	dnat := []string{
 		"-t", "nat", "-A", "PREROUTING",
 		"-p", protocol, "--dport", fmt.Sprintf("%d", hostPort),

@@ -70,6 +70,7 @@ After=network.target
 
 [Service]
 Type=oneshot
+KillMode=process
 ExecStart=%s bootstrap
 
 [Install]
