@@ -304,43 +304,6 @@ dck run -d --restart always --name app \
   php:8-apache
 ```
 
-## Configuration File (dck.json / dck.yaml)
-
-Define multi-service environments with config files:
-
-```json
-{
-  "services": {
-    "web": {
-      "image": "nginx:alpine",
-      "ports": {"80/tcp": 8080},
-      "volumes": {"./html": "/usr/share/nginx/html"},
-      "restart": "always"
-    },
-    "db": {
-      "image": "mariadb:10",
-      "env": {"MYSQL_ROOT_PASSWORD": "secret"},
-      "volumes": {"db_data": "/var/lib/mysql"},
-      "restart": "always"
-    },
-    "app": {
-      "image": "node:20",
-      "command": ["npm", "start"],
-      "ports": {"3000/tcp": 3000},
-      "env": {"DB_HOST": "db"},
-      "depends_on": ["db"],
-      "restart": "always"
-    }
-  }
-}
-```
-
-```bash
-dck up          # Start all services
-dck up -f myapp.json  # Use custom config
-dck down        # Stop all services
-```
-
 ## Storage
 
 All data stored in `~/.dck/`:
@@ -493,8 +456,20 @@ rm -rf ~/.dck
 | `logs` | Show or follow container logs |
 | `images` | List local images |
 | `rmi` | Remove a local image |
-| `up` | Start services from config |
-| `down` | Stop services from config |
+| `update` | Check for updates and self-update |
+
+## Updates
+
+```bash
+# Check if a newer version is available
+dck update --check
+
+# Download and install the latest version
+dck update
+```
+
+The update command fetches the latest version from the GitLab repository and
+runs the installer to upgrade if a newer version is found.
 
 ## Comparison
 
@@ -511,7 +486,6 @@ rm -rf ~/.dck
 | Restart policy | always, on-failure | always, on-failure, unless-stopped |
 | Volume mounts | Yes | Yes |
 | Environment | Yes | Yes |
-| Multi-service | dck.json/dck.yaml | docker-compose.yml |
 | Rootless | No | Experimental |
 
 ## License

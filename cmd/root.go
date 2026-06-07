@@ -5,7 +5,8 @@ import (
 	"os"
 )
 
-var version = "0.2.0"
+var version = "1.0.0"
+var repoURL = "https://gitlab.com/animesao/dck"
 
 func Execute() {
 	if len(os.Args) < 2 {
@@ -41,10 +42,13 @@ func Execute() {
 		Images(args)
 	case "rmi":
 		Rmi(args)
+	case "update":
+		Update(args)
 	case "--help", "-h", "help":
 		printUsage()
 	case "--version", "-v":
 		fmt.Println("dck version", version)
+		fmt.Printf("Run 'dck update --check' to check for newer versions.\n")
 	default:
 		fmt.Printf("unknown command: %s\n", command)
 		printUsage()
@@ -68,6 +72,7 @@ Usage:
   dck attach <container>       Attach to container's main process
   dck images                   List images
   dck rmi <image>[:tag]        Remove image
+  dck update [--check]         Check for updates and self-update
   dck --help                   Show this help
   dck --version                Show version
 
