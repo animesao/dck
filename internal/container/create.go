@@ -1,0 +1,78 @@
+package container
+
+import (
+	"crypto/rand"
+	"encoding/hex"
+	"fmt"
+	"os"
+	"time"
+
+	"dck/internal/image"
+	"dck/internal/state"
+)
+
+func New(img *image.Image, opts CreateOpts) *Container {
+	id := generateID()
+	hostname := opts.Hostname
+	if hostname == "" {
+		hostname = id[:12]
+	}
+	name := opts.Name
+	if name == "" {
+		name = id[:12]
+	}
+	cmd := opts.Cmd
+	if len(cmd) == 0 {
+		if cfg, err := image.ReadConfig(img.Name, img.Tag); err == nil {
+			cmd = cfg.Config.Cmd
+			if len(cfg.Config.Entrypoint) > 0 {
+				cmd = append(cfg.Config.Entrypoint, cmd...)
+			}
+		}
+		if len(cmd) == 0 {
+			cmd = []string{"/bin/sh"}
+		}
+	}
+
+	return &Container{
+		ID:        id,
+		Name:      name,
+		ImageName: img.Name,
+		ImageTag:  img.Tag,
+		Status:    Created,
+		Cmd:       cmd,
+		CreatedAt: time.Now(),
+		Ports:     opts.Ports,
+		Volumes:   opts.Volumes,
+		Env:       opts.Env,
+		Hostname:  hostname,
+		Restart:   opts.Restart,
+	}
+}
+
+func Load(id string) (*Container, error) {
+	path := state.ContainerPath(id)
+	if !state.FileExists(path) {
+		return nil, fmt.Errorf("container %s not found", id)
+	}
+	var c Container
+	if err := state.ReadJSON(path, &c); err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
+func generateID() string {
+	b := make([]byte, 16)
+	rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+func SetupOverlay(rootfs, upper, work, merged string) error {
+	for _, d := range []string{upper, work, merged} {
+		if err := os.MkdirAll(d, 0755); err != nil {
+			return err
+		}
+	}
+	return mountOverlay(rootfs, upper, work, merged)
+}

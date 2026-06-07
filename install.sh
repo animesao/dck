@@ -1,116 +1,209 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/bin/sh
+set -e
 
-APP="dck"
-REPO="https://gitlab.com/animesao/dck.git"
-INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
-[ "$(id -u)" -eq 0 ] && INSTALL_DIR="/usr/local/bin"
+BOLD=$(tput bold 2>/dev/null || echo "")
+RESET=$(tput sgr0 2>/dev/null || echo "")
+GREEN=$(tput setaf 2 2>/dev/null || echo "")
+YELLOW=$(tput setaf 3 2>/dev/null || echo "")
+RED=$(tput setaf 1 2>/dev/null || echo "")
 
-BOLD='\033[1m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
-RED='\033[0;31m'; CYAN='\033[0;36m'; NC='\033[0m'
-info()  { printf "${CYAN}%s${NC}\n" "$*"; }
-ok()    { printf "${GREEN}✓ %s${NC}\n" "$*"; }
-warn()  { printf "${YELLOW}⚠ %s${NC}\n" "$*"; }
-err()   { printf "${RED}✗ %s${NC}\n" "$*"; exit 1; }
+info()  { echo "${BOLD}${GREEN}[dck]${RESET} $*"; }
+warn()  { echo "${BOLD}${YELLOW}[dck]${RESET} $*"; }
+err()   { echo "${BOLD}${RED}[dck]${RESET} $*" >&2; }
 
-OS="$(uname -s)"
-ARCH="$(uname -m)"
-info "${OS} ${ARCH}"
+DCK_BIN="/usr/local/bin/dck"
+DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# ── package manager ──────────────────────────────────────────────
-PKG_MGR=""
-SUDO=""
-if [ "$OS" = "Linux" ]; then
-    command -v apt-get  &>/dev/null && PKG_MGR="apt"  || true
-    command -v dnf      &>/dev/null && PKG_MGR="dnf"  || true
-    command -v pacman   &>/dev/null && PKG_MGR="pacman" || true
-    command -v zypper   &>/dev/null && PKG_MGR="zypper" || true
-fi
-[ "$OS" = "Darwin" ] && PKG_MGR="brew"
-[ "$(id -u)" -ne 0 ] && command -v sudo &>/dev/null && SUDO="sudo"
-
-pkg()  { case "$PKG_MGR" in
-    apt)    $SUDO apt-get install --no-install-recommends -y "$@" ;;
-    dnf)    $SUDO dnf install -y "$@" ;;
-    pacman) $SUDO pacman -S --noconfirm "$@" ;;
-    zypper) $SUDO zypper install -y "$@" ;;
-    brew)   brew install "$@" ;;
-esac; }
-
-pkg_try() {
-    for pkg_name in "$@"; do
-        pkg "$pkg_name" 2>/dev/null && return 0 || true
-    done
-    return 1
+detect_os() {
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        OS=$ID
+        OS_LIKE=$ID_LIKE
+    elif command -v lsb_release >/dev/null 2>&1; then
+        OS=$(lsb_release -si | tr '[:upper:]' '[:lower:]')
+    else
+        OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+    fi
+    echo "$OS"
 }
 
-# ── Python ────────────────────────────────────────────────────────
-PYTHON=""
-for cmd in python3 python; do
-    if command -v "$cmd" &>/dev/null; then
-        ver=$($cmd -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null)
-        major="${ver%.*}"; minor="${ver#*.}"
-        if [ "$major" -ge 3 ] && [ "$minor" -ge 10 ]; then
-            PYTHON="$cmd"
-            break
-        fi
-    fi
-done
-
-if [ -z "$PYTHON" ]; then
-    warn "Python 3.10+ not found — installing"
-    case "$PKG_MGR" in
-        apt|dnf|zypper) pkg python3 python3-pip python3-venv 2>/dev/null || true ;;
-        pacman) pkg python python-pip 2>/dev/null || true ;;
-        brew)   pkg python@3.12 2>/dev/null || true ;;
+install_pkg() {
+    case "$1" in
+        debian|ubuntu|linuxmint|pop)
+            apt-get update -qq
+            apt-get install -y -qq "$2"
+            ;;
+        rhel|centos|fedora|rocky|almalinux)
+            if command -v dnf >/dev/null 2>&1; then
+                dnf install -y -q "$2"
+            else
+                yum install -y -q "$2"
+            fi
+            ;;
+        arch|manjaro|endeavouros)
+            pacman -S --noconfirm "$2"
+            ;;
+        alpine)
+            apk add "$2"
+            ;;
+        suse|opensuse*)
+            zypper install -y "$2"
+            ;;
+        *)
+            warn "Unknown OS: $1. Please install $2 manually."
+            return 1
+            ;;
     esac
-    PYTHON="python3"
-fi
-ok "$($PYTHON --version 2>&1)"
+}
 
-# ── runtime deps ──────────────────────────────────────────────────
-for cmd in ip iptables nsenter; do
-    if ! command -v "$cmd" &>/dev/null; then
-        case "$cmd" in
-            ip)       pkg_try iproute2 iproute || true ;;
-            iptables) pkg_try iptables iptables-legacy || true ;;
-            nsenter)  pkg_try util-linux coreutils || true ;;
-        esac
+ensure_go() {
+    if command -v go >/dev/null 2>&1; then
+        info "Go found: $(go version)"
+        return 0
     fi
-    command -v "$cmd" &>/dev/null && ok "$cmd" || warn "missing: $cmd"
-done
+    warn "Go not found. Installing..."
+    case "$1" in
+        debian|ubuntu|linuxmint|pop)
+            install_pkg "$1" "golang-go"
+            ;;
+        fedora|rhel|centos)
+            install_pkg "$1" "golang"
+            ;;
+        arch|manjaro)
+            install_pkg "$1" "go"
+            ;;
+        alpine)
+            install_pkg "$1" "go"
+            ;;
+        *)
+            err "Please install Go manually from https://go.dev/dl/"
+            exit 1
+            ;;
+    esac
+}
 
-# ── overlay + cgroups check ───────────────────────────────────────
-if [ "$OS" = "Linux" ] && [ "$(id -u)" -eq 0 ]; then
-    grep -q overlay /proc/filesystems 2>/dev/null || { modprobe overlay 2>/dev/null && ok "overlayfs"; }
-    [ -f /sys/fs/cgroup/cgroup.controllers ] && ok "cgroups v2" || warn "cgroups v2 not active"
-fi
+ensure_packages() {
+    info "Checking required packages..."
+    case "$1" in
+        debian|ubuntu|linuxmint|pop)
+            install_pkg "$1" "util-linux iproute2 iptables procps curl ufw"
+            ;;
+        fedora|rhel|centos|rocky|almalinux)
+            install_pkg "$1" "util-linux iproute iptables procps-ng curl ufw"
+            ;;
+        arch|manjaro|endeavouros)
+            install_pkg "$1" "util-linux iproute2 iptables procps-ng curl ufw"
+            ;;
+        alpine)
+            install_pkg "$1" "util-linux iproute2 iptables procps curl"
+            warn "UFW not available on Alpine (use iptables directly)"
+            ;;
+        suse|opensuse*)
+            install_pkg "$1" "util-linux iproute2 iptables procps curl ufw"
+            ;;
+        *)
+            warn "Unknown OS. Ensure these are installed:"
+            warn "  util-linux, iproute2, iptables, procps, curl"
+            ;;
+    esac
+}
 
-# ── install via pip ───────────────────────────────────────────────
-$PYTHON -m pip install --quiet --upgrade pip 2>/dev/null || true
+setup_ufw() {
+    if command -v ufw >/dev/null 2>&1; then
+        info "Configuring UFW..."
+        ufw_was_enabled=false
+        if ufw status | grep -q "Status: active"; then
+            ufw_was_enabled=true
+        fi
 
-if $PYTHON -m pip install --quiet "git+${REPO}" 2>/dev/null; then
-    ok "installed from git"
-elif $PYTHON -m pip install --quiet --no-build-isolation "git+${REPO}" 2>/dev/null; then
-    ok "installed from git (no build isolation)"
-else
-    TMP=$(mktemp -d)
-    git clone --depth 1 "$REPO" "$TMP/$APP"
-    $PYTHON -m pip install "$TMP/$APP" || $PYTHON -m pip install --no-build-isolation "$TMP/$APP"
-    rm -rf "$TMP"
-fi
+        ufw allow 22/tcp >/dev/null 2>&1 && info "  Port 22/tcp opened (SSH)"
 
-# ── symlink ───────────────────────────────────────────────────────
-CLI_PATH=$(command -v "$APP" 2>/dev/null) || true
-if [ -n "$CLI_PATH" ]; then
-    mkdir -p "$INSTALL_DIR"
-    ln -sf "$CLI_PATH" "${INSTALL_DIR}/${APP}" 2>/dev/null || true
-    ok "linked to ${INSTALL_DIR}/${APP}"
-fi
+        if ! $ufw_was_enabled; then
+            ufw --force enable >/dev/null 2>&1 || true
+            info "  UFW enabled"
+        fi
+    else
+        warn "UFW not found. Install it for firewall management."
+    fi
+}
 
-if [[ ":$PATH:" != *":${INSTALL_DIR}:"* ]]; then
-    warn "add to PATH: echo 'export PATH=\"\$PATH:${INSTALL_DIR}\"' >> ~/.bashrc"
-fi
+setup_system() {
+    info "Configuring system..."
 
-ok "${APP} installed!"
-info "${APP} --help"
+    if [ -f /proc/sys/net/ipv4/ip_forward ]; then
+        echo 1 > /proc/sys/net/ipv4/ip_forward
+        if [ -f /etc/sysctl.conf ]; then
+            grep -q "net.ipv4.ip_forward=1" /etc/sysctl.conf 2>/dev/null || \
+                echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf
+        fi
+        info "  IP forwarding enabled"
+    fi
+
+    if [ -d /sys/fs/cgroup ] && [ -f /sys/fs/cgroup/cgroup.controllers ]; then
+        info "  cgroups v2 detected"
+    fi
+}
+
+install_dck() {
+    info "Building dck..."
+    cd "$DIR"
+    go build -ldflags="-s -w" -o dck .
+    install -d "$(dirname "$DCK_BIN")"
+    install -m 755 dck "$DCK_BIN"
+    rm -f dck
+    info "Installed to $DCK_BIN"
+}
+
+verify() {
+    info "Verifying installation..."
+    if command -v dck >/dev/null 2>&1; then
+        info "  dck: $(dck --version)"
+    fi
+    for cmd in unshare nsenter ip iptables pgrep mount umount; do
+        if command -v "$cmd" >/dev/null 2>&1; then
+            info "  $cmd: available"
+        else
+            warn "  $cmd: NOT FOUND"
+        fi
+    done
+}
+
+main() {
+    echo ""
+    info "${BOLD}dck - Simple Container Runtime Installer${RESET}"
+    echo ""
+
+    if [ "$(id -u)" != "0" ]; then
+        err "This installer must be run as root (or with sudo)."
+        exit 1
+    fi
+
+    OS=$(detect_os)
+    info "Detected OS: $OS"
+
+    case "$OS" in
+        debian|ubuntu|linuxmint|pop|rhel|centos|fedora|rocky|almalinux|arch|manjaro|endeavouros|alpine|suse|opensuse*)
+            ;;
+        *)
+            warn "Untested OS: $OS. Proceeding anyway..."
+            ;;
+    esac
+
+    ensure_go "$OS"
+    ensure_packages "$OS"
+    setup_ufw
+    setup_system
+    install_dck
+    verify
+
+    echo ""
+    info "${BOLD}Installation complete!${RESET}"
+    echo ""
+    info "Quick start:"
+    info "  dck pull alpine"
+    info "  dck run --rm alpine echo hello"
+    info "  dck --help"
+    echo ""
+}
+
+main
