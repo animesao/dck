@@ -55,17 +55,11 @@ pip install .
 
 **`dck console -m ptero`** (default mode) — commands are executed inside the container via `docker exec`. Works for: web servers (nginx, apache), databases (postgres, mysql), applications (python, node), scripts (`ls`, `ps`, `cat`, `npm install`, `python manage.py`).
 
-**`dck console -m ptero -s`** (stdin mode) — commands are sent to the game server's console. dck auto-detects the best method:
+**`dck console -m ptero -s`** (stdin mode, Pterodactyl-like) — dck opens a **Docker attach socket** directly to the container's main process (PID 1). This is the same mechanism Pterodactyl uses: commands are written to the server's stdin, and all output (logs + command responses) appears in a **single stream** — no RCON noise, no separate command output.
 
-| Detection | Method | Example containers |
-|-----------|--------|-------------------|
-| `rcon-cli` found → | **RCON** protocol | itzg/minecraft-server (Minecraft) |
-| Java/server PID found → | Write to **server PID stdin** | Custom game servers |
-| Fallback → | Write to **PID 1 stdin** | Simple containers |
+For **Minecraft** (`itzg/minecraft-server`): commands like `tps`, `pl`, `list`, `say Hello`, `give`, `stop` go directly to the server console via the attach socket. The server's response appears in the same log stream — exactly like Pterodactyl panel.
 
-For **Minecraft** (`itzg/minecraft-server`): commands like `tps`, `pl`, `list`, `say Hello`, `give`, `stop` are sent via RCON and the server's response appears inline — just like Pterodactyl.
-
-If you forget to use `--stdin` with a game server command, dck shows `exit code 127` and suggests the correct mode.
+If the attach socket is unavailable, dck falls back to `docker exec` mode (with a hint to use `--stdin` for game servers).
 
 ## Eggs — Pterodactyl-Style (v0.4.0)
 

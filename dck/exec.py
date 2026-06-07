@@ -3,6 +3,7 @@ import sys
 import os
 import threading
 import time
+import select as select_module
 
 from rich.console import Console
 from rich.table import Table
@@ -10,6 +11,7 @@ from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
 from rich.markup import escape
 from docker.errors import NotFound
+from docker.utils import socket as docker_socket
 
 from dck.client import get_client
 from dck.i18n import t
@@ -239,130 +241,11 @@ def _live_log_stream(container_name, stop_event, log_queue):
             if stop_event.is_set():
                 break
             text = line.decode("utf-8", errors="replace").rstrip()
-            dedup_key = text[-80:] if len(text) > 80 else text
-            if dedup_key not in seen:
-                seen.add(dedup_key)
             log_queue.append(text)
             if len(log_queue) > 200:
                 log_queue[:100] = []
-            if len(seen) > 500:
-                seen = set(list(seen)[-250:])
     except Exception:
         pass
-
-
-def _detect_console_method(container_name):
-    """Detect the best way to send commands to the container's main process.
-
-    Returns one of: 'rcon-cli', 'mcrcon', 'procin', 'stdin'
-    """
-    try:
-        r = subprocess.run(
-            ["docker", "exec", container_name, "sh", "-c",
-             "command -v rcon-cli 2>/dev/null && echo found"],
-            capture_output=True, text=True, timeout=5,
-        )
-        if "found" in r.stdout:
-            return "rcon-cli"
-    except Exception:
-        pass
-
-    try:
-        r = subprocess.run(
-            ["docker", "exec", container_name, "sh", "-c",
-             "command -v mcrcon 2>/dev/null && echo found"],
-            capture_output=True, text=True, timeout=5,
-        )
-        if "found" in r.stdout:
-            return "mcrcon"
-    except Exception:
-        pass
-
-    try:
-        r = subprocess.run(
-            ["docker", "exec", container_name, "sh", "-c",
-             "for p in /proc/[0-9]*/cmdline; do "
-             "  c=$(cat \"$p\" 2>/dev/null | tr '\\0' ' '); "
-             "  case \"$c\" in *java*|*Minecraft*|*server*|*Server*|*dedicated*) "
-             "    echo \"$(basename $(dirname $p))\"; exit 0;; "
-             "  esac; "
-             "done; echo ''"],
-            capture_output=True, text=True, timeout=5,
-        )
-        server_pid = r.stdout.strip()
-        if server_pid and server_pid != '':
-            return "procin"
-    except Exception:
-        pass
-
-    return "stdin"
-
-
-def _rcon_send(container_name, cmd):
-    """Send a command via RCON and print output inline."""
-    try:
-        r = subprocess.run(
-            ["docker", "exec", container_name, "rcon-cli", cmd],
-            capture_output=True, text=True, timeout=15,
-        )
-        if r.stdout:
-            for line in r.stdout.rstrip().split("\n"):
-                console.print(f"  [cyan]{line}[/cyan]")
-        if r.stderr:
-            for line in r.stderr.rstrip().split("\n"):
-                if line:
-                    console.print(f"  [yellow]{line}[/yellow]")
-    except subprocess.TimeoutExpired:
-        console.print("[red]RCON command timed out[/red]")
-    except Exception as e:
-        console.print(f"[red]RCON error: {e}[/red]")
-
-
-def _procin_send(container_name, cmd, log_queue):
-    """Send command to the actual server process's stdin, then flush logs."""
-    escaped = cmd.replace("'", "'\\''")
-    try:
-        r = subprocess.run(
-            ["docker", "exec", container_name, "sh", "-c",
-             "server_pid=\"\"; "
-             "for p in /proc/[0-9]*/cmdline; do "
-             "  c=$(cat \"$p\" 2>/dev/null | tr '\\0' ' '); "
-             "  case \"$c\" in *java*|*Minecraft*|*server*|*Server*|*dedicated*) "
-             "    server_pid=$(basename $(dirname $p)); break;; "
-             "  esac; "
-             "done; "
-             "echo \"${server_pid:-1}\""],
-            capture_output=True, text=True, timeout=5,
-        )
-        target_pid = r.stdout.strip()
-    except Exception:
-        target_pid = "1"
-
-    try:
-        subprocess.run(
-            ["docker", "exec", "-i", container_name,
-             "sh", "-c", f"echo '{escaped}' > /proc/{target_pid}/fd/0"],
-            capture_output=True, text=True, timeout=10,
-        )
-        time.sleep(0.5)
-        _drain_logs(log_queue)
-    except Exception as e:
-        console.print(f"[dim]Error: {e}[/dim]")
-
-
-def _stdin_send(container_name, cmd, log_queue):
-    """Fallback: send command to PID 1 stdin and flush logs."""
-    escaped = cmd.replace("'", "'\\''")
-    try:
-        subprocess.run(
-            ["docker", "exec", "-i", container_name,
-             "sh", "-c", f"echo '{escaped}' > /proc/1/fd/0"],
-            capture_output=True, text=True, timeout=10,
-        )
-        time.sleep(0.5)
-        _drain_logs(log_queue)
-    except Exception as e:
-        console.print(f"[dim]Error: {e}[/dim]")
 
 
 def _drain_logs(log_queue):
@@ -370,7 +253,7 @@ def _drain_logs(log_queue):
     try:
         while log_queue:
             line = log_queue.pop(0)
-            console.print(f"  [dim]{escape(line)}[/dim]")
+            console.print(f"  {escape(line)}")
     except Exception:
         pass
 
@@ -390,28 +273,24 @@ def _exec_command(container_name, cmd):
         if r.returncode != 0 and r.returncode != 127:
             console.print(f"[dim]Exit code: {r.returncode}[/dim]")
         elif r.returncode == 127:
-            _show_exec_fallback_hint()
+            hint = ("Command not found (exit 127). "
+                    "Try [bold]dck console CONTAINER -m ptero -s[/bold] "
+                    "for game server stdin mode")
+            console.print(f"[dim]{hint}[/dim]")
     except subprocess.TimeoutExpired:
         console.print("[red]Command timed out[/red]")
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
 
 
-def _show_exec_fallback_hint():
-    hint = ("Command not found inside container (exit 127). "
-            "Try:\n"
-            "  [bold]dck console CONTAINER -m ptero -s[/bold]  — for game server stdin\n"
-            "  [bold]dck attach CONTAINER[/bold]                — for direct attach")
-    console.print(f"[dim]{hint}[/dim]")
-
-
 def _ptero_console(container, container_name, tail=30, use_stdin=False):
     """Pterodactyl-style real-time console with log streaming + command input.
 
-    In stdin mode, auto-detects the best method:
-      rcon-cli → for containers with RCON (Minecraft itzg, etc.)
-      procin   → writes to the actual server process's stdin
-      stdin    → writes to PID 1's stdin (fallback)
+    stdin mode: uses Docker attach socket for true bidirectional
+    communication with PID 1 — exactly like Pterodactyl panel.
+
+    exec mode: uses docker exec for containers without a long-running
+    process (web apps, DBs, scripts).
     """
     import shlex
 
@@ -419,73 +298,134 @@ def _ptero_console(container, container_name, tail=30, use_stdin=False):
         console.print("[yellow]Container must be running for Pterodactyl console.[/yellow]")
         return
 
-    method = None
+    ws = None
+    attach_mode = False
+
     if use_stdin:
-        method = _detect_console_method(container_name)
-        method_names = {
-            "rcon-cli": "RCON",
-            "mcrcon": "mcrcon",
-            "procin": "server stdin",
-            "stdin": "PID1 stdin",
-        }
-        method_label = method_names.get(method, method)
-        mode_label = f"stdin ({method_label})"
-        console.print(f"\n[bold cyan]══ Pterodactyl Console: {container_name} ({mode_label}) ══[/bold cyan]")
-        console.print("[dim]Logs stream in real-time. Type [bold]exit[/bold]/[bold]quit[/bold] or Ctrl+C to leave[/dim]")
-        console.print(f"[dim]Commands sent via [bold]{method_label}[/bold]")
+        console.print()
+        console.print(Panel.fit(
+            "[bold cyan]Pterodactyl Console[/bold cyan] — real-time server console\n"
+            "Logs and command output appear in the same stream.\n"
+            "Type [bold]exit[/bold]/[bold]quit[/bold] or Ctrl+C to leave",
+            border_style="cyan",
+        ))
+        # Try to establish Docker attach socket (Pterodactyl-like)
+        try:
+            api = container.client.api
+            sock = api.attach_socket(
+                container_name,
+                params={'stdin': 1, 'stdout': 1, 'stderr': 1, 'stream': 1}
+            )
+            raw = getattr(sock, '_sock', sock)
+            raw.setblocking(False)
+            ws = raw
+            attach_mode = True
+            console.print("[dim]Connected to container console (attach socket)[/dim]")
+        except Exception as e:
+            console.print(f"[yellow]Attach socket unavailable, falling back to logs+exec mode[/yellow]")
     else:
-        mode_label = "docker exec (apps)"
-        console.print(f"\n[bold cyan]══ Pterodactyl Console: {container_name} ({mode_label}) ══[/bold cyan]")
-        console.print("[dim]Logs stream in real-time. Type [bold]exit[/bold]/[bold]quit[/bold] or Ctrl+C to leave[/dim]")
-        console.print("[dim]Commands are executed via [bold]docker exec[/bold][/dim]")
+        console.print(f"\n[bold cyan]══ Pterodactyl Console: {container_name} (docker exec) ══[/bold cyan]")
+        console.print("[dim]Logs stream in real-time. Commands via [bold]docker exec[/bold][/dim]")
+        console.print("[dim]Type [bold]exit[/bold]/[bold]quit[/bold] or Ctrl+C to leave[/dim]")
 
-    log_queue = []
-    stop_event = threading.Event()
-    log_thread = threading.Thread(
-        target=_live_log_stream,
-        args=(container_name, stop_event, log_queue),
-        daemon=True,
-        name="log-stream",
-    )
-    log_thread.start()
-
+    # Show recent logs
     try:
         logs = container.logs(tail=tail).decode("utf-8", errors="replace").strip()
         if logs:
-            recent = logs.split("\n")[-10:]
             console.print()
-            for line in recent:
-                console.print(f"  [dim]{escape(line)}[/dim]")
+            for line in logs.split("\n")[-15:]:
+                console.print(f"  {escape(line)}")
     except Exception:
         pass
 
-    while True:
-        _drain_logs(log_queue)
+    if attach_mode:
+        log_queue = []
+        stop_event = threading.Event()
 
+        # Thread: read from attach socket and push to log queue
+        def _attach_reader():
+            buf = b""
+            try:
+                while not stop_event.is_set():
+                    r, _, _ = select_module.select([ws], [], [], 0.05)
+                    if not r:
+                        continue
+                    chunk = docker_socket.read(ws)
+                    if not chunk:
+                        break
+                    buf += chunk
+                    while b"\n" in buf:
+                        line, buf = buf.split(b"\n", 1)
+                        text = line.decode("utf-8", errors="replace").rstrip("\r")
+                        if text:
+                            log_queue.append(text)
+            except Exception:
+                pass
+            finally:
+                if buf:
+                    text = buf.decode("utf-8", errors="replace").rstrip("\r")
+                    if text:
+                        log_queue.append(text)
+
+        reader = threading.Thread(target=_attach_reader, daemon=True, name="attach-reader")
+        reader.start()
+
+        while True:
+            _drain_logs(log_queue)
+
+            try:
+                cmd = input("\n▶ ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                break
+
+            if not cmd:
+                continue
+            if cmd.lower() in ("exit", "quit"):
+                break
+
+            try:
+                ws.sendall((cmd + "\n").encode("utf-8"))
+            except Exception as e:
+                console.print(f"[dim]Send error: {e}[/dim]")
+
+        stop_event.set()
+        reader.join(timeout=2)
         try:
-            cmd = input("\n▶ ").strip()
-        except (EOFError, KeyboardInterrupt):
-            print()
-            break
+            ws.close()
+        except Exception:
+            pass
+    else:
+        log_queue = []
+        stop_event = threading.Event()
+        log_thread = threading.Thread(
+            target=_live_log_stream,
+            args=(container_name, stop_event, log_queue),
+            daemon=True,
+            name="log-stream",
+        )
+        log_thread.start()
 
-        if not cmd:
-            continue
-        if cmd.lower() in ("exit", "quit"):
-            break
+        while True:
+            _drain_logs(log_queue)
 
-        if use_stdin:
-            if method == "rcon-cli" or method == "mcrcon":
-                _rcon_send(container_name, cmd)
-            elif method == "procin":
-                _procin_send(container_name, cmd, log_queue)
-            else:
-                _stdin_send(container_name, cmd, log_queue)
-        else:
+            try:
+                cmd = input("\n▶ ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                break
+
+            if not cmd:
+                continue
+            if cmd.lower() in ("exit", "quit"):
+                break
+
             _exec_command(container_name, cmd)
 
-    stop_event.set()
-    log_thread.join(timeout=2)
-    console.print(f"\n[bold yellow]── Pterodactyl console session ended ──[/bold yellow]")
+        stop_event.set()
+        log_thread.join(timeout=2)
+
+    console.print(f"\n[bold yellow]── Console session ended ──[/bold yellow]")
 
 
 def console_container(container_name, mode="auto", tail=20, stdin=False):
