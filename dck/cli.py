@@ -111,6 +111,9 @@ def run_cmd(image, cmd, name, tag, port, volume, env, env_file,
     """Run a container using native Linux runtime"""
     _check_native()
 
+    if ":" in image:
+        image, tag = image.split(":", 1)
+
     if env_file:
         file_env = _parse_env_file(env_file)
         env = list(env or []) + [f"{k}={v}" for k, v in file_env.items()]
