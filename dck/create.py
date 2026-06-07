@@ -13,9 +13,112 @@ from rich.markup import escape
 
 from dck.oci import pull_image as oci_pull, list_images as oci_list
 from dck.i18n import t
-from dck.port import open_container_ports
 
 console = Console()
+
+
+# ── Firewall helpers (UFW) ──────────────────────────────────────────
+
+
+def _ufw_installed():
+    try:
+        r = subprocess.run(["ufw", "--version"], capture_output=True, text=True, timeout=5)
+        return r.returncode == 0
+    except FileNotFoundError:
+        return False
+
+
+def _install_ufw():
+    console.print("[yellow]UFW not found. Installing...[/yellow]")
+    try:
+        r = subprocess.run(["apt-get", "install", "-y", "ufw"], capture_output=True, text=True, timeout=60)
+        if r.returncode == 0:
+            console.print("[green]✓[/green] UFW installed")
+            return True
+        console.print(f"[red]Error installing UFW:[/red] {r.stderr.strip()}")
+        return False
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        console.print("[red]Error:[/red] Could not install UFW.")
+        return False
+
+
+def _check_ufw():
+    try:
+        r = subprocess.run(["ufw", "status"], capture_output=True, text=True, timeout=5)
+        return "active" in r.stdout.lower() if r.returncode == 0 else False
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+
+
+def _ufw_allow_ssh():
+    try:
+        r = subprocess.run(["ufw", "allow", "22/tcp"], capture_output=True, text=True, timeout=10)
+    except Exception:
+        pass
+
+
+def _ensure_ufw():
+    from rich.prompt import Confirm
+    if not _ufw_installed():
+        if Confirm.ask("  UFW is not installed. Install it now?", default=True):
+            if not _install_ufw():
+                return False
+            _ufw_allow_ssh()
+            try:
+                subprocess.run(["ufw", "--force", "enable"], capture_output=True, text=True, timeout=10)
+            except Exception:
+                pass
+        else:
+            return False
+    if not _check_ufw():
+        if Confirm.ask("  UFW is inactive. Enable it now?", default=True):
+            _ufw_allow_ssh()
+            try:
+                subprocess.run(["ufw", "--force", "enable"], capture_output=True, text=True, timeout=10)
+            except Exception:
+                return False
+    return True
+
+
+def _list_ufw_rules():
+    try:
+        r = subprocess.run(["ufw", "status", "numbered"], capture_output=True, text=True, timeout=5)
+        if r.returncode != 0:
+            return []
+        rules = []
+        for line in r.stdout.strip().split("\n"):
+            if "ALLOW" in line and "/" in line:
+                for p in line.strip().split():
+                    if "/" in p and p.replace("/", "").replace(".", "").isdigit():
+                        port, proto = p.split("/")
+                        rules.append({"port": port, "proto": proto})
+        return rules
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return []
+
+
+def _open_ufw(port, proto="tcp"):
+    try:
+        r = subprocess.run(["ufw", "allow", f"{port}/{proto}"], capture_output=True, text=True, timeout=10)
+        return r.returncode == 0
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+
+
+def open_container_ports(container_name, ports, ask_confirm=True):
+    from rich.prompt import Confirm
+    if ask_confirm and Confirm.ask("  Open these ports in firewall (UFW)?", default=True):
+        if not _ensure_ufw():
+            return
+    else:
+        return
+    for c_port, h_port in (ports or {}).items():
+        proto = c_port.split("/")[1] if "/" in c_port else "tcp"
+        ok = _open_ufw(h_port, proto)
+        if ok:
+            console.print(f"  [green]Firewall:[/green] opened {h_port}/{proto}")
+        else:
+            console.print(f"  [yellow]Firewall:[/yellow] failed to open {h_port}/{proto}")
 PAPER_VERSIONS_FILE = Path(__file__).parent / "paper_versions.json"
 
 
