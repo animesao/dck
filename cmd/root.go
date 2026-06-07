@@ -5,7 +5,7 @@ import (
 	"os"
 )
 
-var version = "1.0.0"
+var version = "1.1.0"
 var repoURL = "https://gitlab.com/animesao/dck"
 
 func Execute() {
@@ -44,6 +44,8 @@ func Execute() {
 		Rmi(args)
 	case "update":
 		Update(args)
+	case "bootstrap":
+		Bootstrap(args)
 	case "--help", "-h", "help":
 		printUsage()
 	case "version", "--version", "-v":
@@ -72,6 +74,7 @@ Usage:
   dck attach <container>       Attach to container's main process
   dck images                   List images
   dck rmi <image>[:tag]        Remove image
+  dck bootstrap                Start all containers with --restart always
   dck update [--check]         Check for updates and self-update
   dck --help                   Show this help
   dck version, --version       Show version

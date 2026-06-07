@@ -724,8 +724,61 @@ rm -rf ~/.dck
 | `logs` | Show or follow container logs |
 | `images` | List local images |
 | `rmi` | Remove a local image |
+| `bootstrap` | Start all containers with `--restart always` (автостарт при boot) |
 | `version` | Show dck version |
 | `update` | Check for updates and self-update |
+
+## Auto-start (systemd + bootstrap)
+
+`dck` не имеет демона. Чтобы контейнеры автоматически запускались при загрузке
+сервера — используй `dck bootstrap` через systemd:
+
+```bash
+# Создать systemd сервис
+cat > /etc/systemd/system/dck-bootstrap.service << 'EOF'
+[Unit]
+Description=dck containers bootstrap
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/dck bootstrap
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable --now dck-bootstrap
+```
+
+`dck bootstrap` находит все контейнеры с `--restart always` и запускает их.
+При следующей перезагрузке сервера systemd вызовет `dck bootstrap`,
+и контейнеры поднимутся автоматически.
+
+Если нужен перезапуск при падении — можно создать отдельный systemd unit
+на конкретный контейнер:
+
+```bash
+cat > /etc/systemd/system/dck-web.service << 'EOF'
+[Unit]
+Description=dck web container
+After=network.target
+
+[Service]
+Type=exec
+ExecStart=/usr/local/bin/dck run --rm -p 443:80 nginx:alpine
+Restart=always
+RestartSec=5
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl enable --now dck-web
+```
 
 ## Updates
 
