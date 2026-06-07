@@ -7,8 +7,18 @@ import (
 )
 
 func DataDir() string {
+	if os.Getuid() == 0 {
+		return "/root/.dck"
+	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".dck")
+}
+
+func init() {
+	// Ensure Home is set for root when running under systemd
+	if os.Getuid() == 0 {
+		os.Setenv("HOME", "/root")
+	}
 }
 
 func ImagesDir() string {
