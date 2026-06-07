@@ -318,10 +318,10 @@ def _ptero_console(container, container_name, tail=30):
     except Exception:
         pass
 
-    print()
+    console.print()
     for line in log_buffer[-10:]:
-        print(f"  [dim]{line}[/dim]")
-    print()
+        console.print(f"  [dim]{escape(line)}[/dim]")
+    console.print()
 
     while True:
         try:
@@ -341,15 +341,15 @@ def _ptero_console(container, container_name, tail=30):
                 capture_output=True, text=True, timeout=30,
             )
             if r.stdout:
-                print(r.stdout.rstrip())
+                console.print(r.stdout.rstrip())
             if r.stderr:
-                print(f"[red]{r.stderr.rstrip()}[/red]")
+                console.print(f"[red]{escape(r.stderr.rstrip())}[/red]")
             if r.returncode != 0:
-                print(f"[dim]Exit code: {r.returncode}[/dim]")
+                console.print(f"[dim]Exit code: {r.returncode}[/dim]")
         except subprocess.TimeoutExpired:
-            print("[red]Command timed out[/red]")
+            console.print("[red]Command timed out[/red]")
         except Exception as e:
-            print(f"[red]Error: {e}[/red]")
+            console.print(f"[red]Error: {e}[/red]")
 
     console.print(f"\n[bold yellow]── Pterodactyl console session ended ──[/bold yellow]")
     console.print(f"[dim]dck logs {container_name} -f  |  dck exec {container_name}[/dim]")
