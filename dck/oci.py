@@ -1,21 +1,42 @@
 import hashlib
 import json
 import os
+import socket
 import time
 from pathlib import Path
 from urllib.parse import urljoin
 
 import requests
+import requests.packages.urllib3.util.connection as urllib3_cn
+
+# Force IPv4 to avoid IPv6 DNS timeout issues on some servers
+urllib3_cn.allowed_gai_family = lambda: socket.AF_INET
 
 DCK_DIR = Path.home() / ".dck"
 IMAGES_DIR = DCK_DIR / "images"
 REGISTRY_URL = "https://registry-1.docker.io/v2"
 
+_session = None
+
+
+def _get_session():
+    global _session
+    if _session is None:
+        _session = requests.Session()
+        adapter = requests.adapters.HTTPAdapter(
+            pool_connections=4,
+            pool_maxsize=8,
+            max_retries=2,
+        )
+        _session.mount("https://", adapter)
+        _session.mount("http://", adapter)
+    return _session
+
 
 def _get_auth_token(image, scope="pull"):
     url = f"https://auth.docker.io/token?service=registry.docker.io&scope=repository:{image}:{scope}"
     try:
-        r = requests.get(url, timeout=15)
+        r = _get_session().get(url, timeout=15)
         r.raise_for_status()
         return r.json()["token"]
     except Exception as e:
@@ -32,11 +53,11 @@ def _registry_request(method, path, image, token, headers=None, stream=False, ti
     }
     if headers:
         req_headers.update(headers)
-    r = requests.request(method, url, headers=req_headers, stream=stream, timeout=timeout)
+    r = _get_session().request(method, url, headers=req_headers, stream=stream, timeout=timeout)
     if r.status_code == 401:
         token = _get_auth_token(image)
         req_headers["Authorization"] = f"Bearer {token}"
-        r = requests.request(method, url, headers=req_headers, stream=stream, timeout=timeout)
+        r = _get_session().request(method, url, headers=req_headers, stream=stream, timeout=timeout)
     r.raise_for_status()
     return r, token
 
@@ -44,11 +65,12 @@ def _registry_request(method, path, image, token, headers=None, stream=False, ti
 def _stream_blob(image, digest, token, dest_path, progress_callback=None):
     url = urljoin(REGISTRY_URL + "/", f"{image}/blobs/{digest}")
     headers = {"Authorization": f"Bearer {token}"}
-    r = requests.get(url, headers=headers, stream=True, timeout=60)
+    sess = _get_session()
+    r = sess.get(url, headers=headers, stream=True, timeout=(10, 120))
     if r.status_code == 401:
         token = _get_auth_token(image)
         headers["Authorization"] = f"Bearer {token}"
-        r = requests.get(url, headers=headers, stream=True, timeout=60)
+        r = sess.get(url, headers=headers, stream=True, timeout=(10, 120))
     r.raise_for_status()
 
     total = int(r.headers.get("Content-Length", 0))
