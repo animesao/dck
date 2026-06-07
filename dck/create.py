@@ -73,13 +73,6 @@ def _validate_memory(mem_str):
     return int(num_part) * multipliers[unit]
 
 
-def _parse_cpu(cpu_str):
-    try:
-        return int(float(cpu_str) * 1e9)
-    except (ValueError, TypeError):
-        return None
-
-
 def _load_paper_versions():
     try:
         data = json.loads(PAPER_VERSIONS_FILE.read_text())
@@ -466,7 +459,6 @@ def build_and_start(image, name, ports, env_vars, volumes, ram, cpu, start_now=T
     if start_now:
         with console.status("Starting..."):
             container.start()
-            time.sleep(0.5)
 
         if container.get_status() == "running":
             ip = _get_server_ip()

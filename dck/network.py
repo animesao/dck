@@ -1,5 +1,8 @@
 """Container networking: bridge, veth pairs, iptables port forwarding, UFW management."""
 
+import fcntl
+import json
+import os
 import subprocess
 import time
 from pathlib import Path
@@ -57,48 +60,65 @@ def ensure_bridge():
             _iptables(rule)
 
 
+def _lock_ip_file(ip_file):
+    ip_file.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(str(ip_file), os.O_RDWR | os.O_CREAT, 0o644)
+    fcntl.flock(fd, fcntl.LOCK_EX)
+    return fd
+
+
+def _unlock_ip_file(fd):
+    fcntl.flock(fd, fcntl.LOCK_UN)
+    os.close(fd)
+
+
+def _read_ips(fd):
+    try:
+        os.lseek(fd, 0, os.SEEK_SET)
+        data = os.read(fd, 65536)
+        return set(json.loads(data)) if data else set()
+    except Exception:
+        return set()
+
+
+def _write_ips(fd, ips):
+    os.ftruncate(fd, 0)
+    os.lseek(fd, 0, os.SEEK_SET)
+    os.write(fd, json.dumps(list(ips)).encode())
+
+
 def allocate_ip():
     """Allocate next available IP on the bridge."""
-    import json
-    from pathlib import Path
-
-    DCK_DIR = Path.home() / ".dck"
-    ip_file = DCK_DIR / "network_ips.json"
-    used = set()
-
-    if ip_file.exists():
-        try:
-            used = set(json.loads(ip_file.read_text()))
-        except Exception:
-            pass
-
-    for i in range(DCK_IP_START, DCK_IP_END + 1):
-        ip = f"10.0.0.{i}"
-        if ip not in used:
-            used.add(ip)
-            ip_file.parent.mkdir(parents=True, exist_ok=True)
-            ip_file.write_text(json.dumps(list(used)))
-            return ip
-
-    raise RuntimeError("No available IP addresses")
+    ip_file = Path.home() / ".dck" / "network_ips.json"
+    fd = _lock_ip_file(ip_file)
+    try:
+        used = _read_ips(fd)
+        for i in range(DCK_IP_START, DCK_IP_END + 1):
+            ip = f"10.0.0.{i}"
+            if ip not in used:
+                used.add(ip)
+                _write_ips(fd, used)
+                return ip
+        raise RuntimeError("No available IP addresses")
+    finally:
+        _unlock_ip_file(fd)
 
 
 def release_ip(ip):
     """Release an IP address back to the pool."""
-    import json
-    from pathlib import Path
-
-    DCK_DIR = Path.home() / ".dck"
-    ip_file = DCK_DIR / "network_ips.json"
+    import os
+    ip_file = Path.home() / ".dck" / "network_ips.json"
     if not ip_file.exists():
         return
-
+    fd = _lock_ip_file(ip_file)
     try:
-        used = set(json.loads(ip_file.read_text()))
+        used = _read_ips(fd)
         used.discard(ip)
-        ip_file.write_text(json.dumps(list(used)))
+        _write_ips(fd, used)
     except Exception:
         pass
+    finally:
+        _unlock_ip_file(fd)
 
 
 def setup_veth(pid, container_ip, bridge=DCK_BRIDGE):
@@ -125,19 +145,26 @@ def teardown_veth(veth_host):
     _ip(["link", "delete", veth_host], check=False, timeout=5)
 
 
-def forward_port(host_port, container_ip, container_port, proto="tcp"):
+def forward_port(host_port, container_ip, container_port, proto="tcp", check_exists=False):
     """Add iptables DNAT rule for port forwarding."""
-    _iptables([
+    dnat_rule = [
         "-t", "nat", "-A", "PREROUTING",
         "-p", proto, "--dport", str(host_port),
         "-j", "DNAT", "--to-destination", f"{container_ip}:{container_port}",
-    ])
-    _iptables([
+    ]
+    fwd_rule = [
         "-A", "FORWARD",
         "-p", proto, "--dport", str(container_port),
         "-d", container_ip,
         "-j", "ACCEPT",
-    ])
+    ]
+    if check_exists:
+        if _rule_exists(dnat_rule):
+            return
+        if _rule_exists(fwd_rule):
+            return
+    _iptables(dnat_rule)
+    _iptables(fwd_rule)
 
 
 def remove_port_forward(host_port, container_ip, container_port, proto="tcp"):
@@ -179,14 +206,6 @@ def _check_ufw_active():
         r = subprocess.run(["ufw", "status"], capture_output=True, text=True, timeout=5)
         return "active" in r.stdout.lower() if r.returncode == 0 else False
     except (FileNotFoundError, subprocess.TimeoutExpired):
-        return False
-
-
-def _ufw_enable():
-    try:
-        subprocess.run(["ufw", "--force", "enable"], capture_output=True, text=True, timeout=10)
-        return True
-    except Exception:
         return False
 
 

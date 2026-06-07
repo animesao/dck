@@ -158,7 +158,6 @@ class Container:
         self.name = name or f"dck-{self.id}"
         self.config = config or {}
         self.state_file = CONTAINERS_DIR / f"{self.id}.json"
-        self.mounts = []
 
     def save_state(self):
         _ensure_dir(str(CONTAINERS_DIR))
@@ -273,7 +272,11 @@ class Container:
         try:
             ret = libc.unshare(flags)
             if ret != 0:
-                raise RuntimeError(f"unshare failed: {os.strerror(ctypes.get_errno())}")
+                errno_val = ctypes.get_errno()
+                msg = f"unshare failed: {os.strerror(errno_val)}"
+                if errno_val == 12:
+                    msg += "\n  ENOMEM — try: sysctl -w kernel.keys.root_maxkeys=1000000 kernel.keys.root_maxbytes=25000000"
+                raise RuntimeError(msg)
         except Exception as e:
             raise RuntimeError(f"Namespace setup failed: {e}")
 
@@ -300,20 +303,25 @@ class Container:
             old_root = Path(rootfs) / ".old_root"
             old_root.mkdir(exist_ok=True)
 
-            libc.pivot_root(rootfs.encode(), str(old_root).encode())
+            ret = libc.pivot_root(rootfs.encode(), str(old_root).encode())
+            if ret != 0:
+                errno_val = ctypes.get_errno()
+                raise OSError(errno_val, os.strerror(errno_val))
             os.chdir("/")
             os.chroot(".")
 
-            subprocess.run(["mount", "-t", "proc", "proc", "/proc"],
-                           check=False, capture_output=True, timeout=5)
-            subprocess.run(["mount", "-t", "sysfs", "sys", "/sys"],
-                           check=False, capture_output=True, timeout=5)
-            subprocess.run(["mount", "-t", "tmpfs", "tmpfs", "/tmp"],
-                           check=False, capture_output=True, timeout=5)
-            subprocess.run(["mount", "-t", "devtmpfs", "dev", "/dev"],
-                           check=False, capture_output=True, timeout=5)
-            subprocess.run(["mount", "-t", "devpts", "devpts", "/dev/pts"],
-                           check=False, capture_output=True, timeout=5)
+            for fs, target, fstype in [
+                ("proc", "/proc", "proc"),
+                ("sysfs", "/sys", "sysfs"),
+                ("tmpfs", "/tmp", "tmpfs"),
+                ("devtmpfs", "/dev", "devtmpfs"),
+                ("devpts", "/dev/pts", "devpts"),
+            ]:
+                r = subprocess.run(["mount", "-t", fstype, fs, target],
+                                   check=False, capture_output=True, timeout=5)
+                if r.returncode != 0:
+                    err = r.stderr.decode().strip()
+                    self._write_log(log_file, f"mount {target} failed: {err}\n")
 
             try:
                 shutil.rmtree("/.old_root")
@@ -365,11 +373,27 @@ class Container:
                 entry_cmd = list(entrypoint)
             cmd = entry_cmd + cmd
 
-        # Set up environment
-        env_list = os.environ.copy()
+        # Set up environment — start clean, avoid leaking host vars
+        _HOST_ENV_SKIP = {"PATH", "HOME", "LOGNAME", "USER", "SHELL", "XDG_*", "DBUS_*", "SYSTEMD_*", "LC_*", "LANG", "LANGUAGE", "LD_*"}
+        env_list = {}
+        for k, v in os.environ.items():
+            skip = False
+            for pat in _HOST_ENV_SKIP:
+                if pat.endswith("*"):
+                    if k.startswith(pat[:-1]):
+                        skip = True
+                        break
+                elif k == pat:
+                    skip = True
+                    break
+            if not skip:
+                env_list[k] = v
         for k, v in env.items():
             if v is not None:
                 env_list[k] = str(v)
+        env_list.setdefault("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
+        env_list.setdefault("HOME", "/root")
+        env_list.setdefault("TERM", "xterm")
 
         # Redirect stdout/stderr to log file (only if not TTY/interactive)
         if master_fd is None:
@@ -424,10 +448,12 @@ class Container:
 
     def _start_pty(self, rootfs, command, env, volumes, log_file, needs_net, container_ip):
         master_fd, slave_fd = os.openpty()
+        sync_r, sync_w = os.pipe()
 
         pid = os.fork()
         if pid == 0:
             os.close(master_fd)
+            os.close(sync_r)
             try:
                 os.setsid()
                 os.dup2(slave_fd, 0)
@@ -436,12 +462,30 @@ class Container:
                 if slave_fd > 2:
                     os.close(slave_fd)
                 self._run_child(rootfs, command, env, volumes, log_file,
-                               needs_net, container_ip, master_fd=slave_fd)
+                               needs_net, container_ip, master_fd=slave_fd, ready_fd=sync_w)
             except Exception as e:
                 self._write_log(log_file, f"PTY child init failed: {e}\n")
                 os._exit(1)
         else:
             os.close(slave_fd)
+            os.close(sync_w)
+            import select
+            ready, _, _ = select.select([sync_r], [], [], 5)
+            data = None
+            if ready:
+                try:
+                    data = os.read(sync_r, 1)
+                except OSError:
+                    pass
+            os.close(sync_r)
+
+            if not ready or not data:
+                try:
+                    os.waitpid(pid, 0)
+                except OSError:
+                    pass
+                raise RuntimeError("Container failed during startup (check logs with: dck logs)")
+
             self.config["pid"] = pid
             self.config["status"] = "running"
             self.save_state()
@@ -552,15 +596,35 @@ class Container:
         return pid
 
     def _start_normal(self, rootfs, command, env, volumes, log_file, needs_net, container_ip):
+        sync_r, sync_w = os.pipe()
         pid = os.fork()
         if pid == 0:
+            os.close(sync_r)
             try:
                 self._run_child(rootfs, command, env, volumes, log_file,
-                               needs_net, container_ip)
+                               needs_net, container_ip, ready_fd=sync_w)
             except Exception as e:
                 self._write_log(log_file, f"Start failed: {e}\n")
                 os._exit(1)
         else:
+            os.close(sync_w)
+            import select
+            ready, _, _ = select.select([sync_r], [], [], 5)
+            data = None
+            if ready:
+                try:
+                    data = os.read(sync_r, 1)
+                except OSError:
+                    pass
+            os.close(sync_r)
+
+            if not ready or not data:
+                try:
+                    os.waitpid(pid, 0)
+                except OSError:
+                    pass
+                raise RuntimeError("Container failed during startup (check logs with: dck logs)")
+
             self.config["pid"] = pid
             self.config["status"] = "running"
             self.save_state()
@@ -581,24 +645,27 @@ class Container:
     def _setup_container_net(self, pid, container_ip):
         parent_inode = _netns_inode(os.getpid())
         if not _wait_for_netns(pid, parent_inode, timeout=5):
+            self._write_log(self.config.get("log_file", ""), "Network setup timed out (child netns not ready)\n")
             return
 
         from dck.network import setup_veth
         try:
-            setup_veth(pid, container_ip)
-        except Exception:
-            pass
+            veth_host = setup_veth(pid, container_ip)
+            self.config["veth_host"] = veth_host
+            self.save_state()
+        except Exception as e:
+            self._write_log(self.config.get("log_file", ""), f"Veth setup failed: {e}\n")
 
-        # Port forwarding
+        # Port forwarding with duplicate protection
         ports = self.config.get("ports", {})
         for c_port, h_port in ports.items():
             c_num = c_port.split("/")[0]
             proto = c_port.split("/")[1] if "/" in c_port else "tcp"
             from dck.network import forward_port
             try:
-                forward_port(h_port, container_ip, c_num, proto)
-            except Exception:
-                pass
+                forward_port(h_port, container_ip, c_num, proto, check_exists=True)
+            except Exception as e:
+                self._write_log(self.config.get("log_file", ""), f"Port forward failed: {e}\n")
 
     def _add_to_cgroup(self, pid):
         cg_path = self.config.get("cgroup", "")
@@ -621,6 +688,15 @@ class Container:
             from dck.network import release_ip
             try:
                 release_ip(container_ip)
+            except Exception:
+                pass
+
+        # Remove veth interface
+        veth_host = self.config.get("veth_host")
+        if veth_host:
+            from dck.network import teardown_veth
+            try:
+                teardown_veth(veth_host)
             except Exception:
                 pass
 
@@ -676,6 +752,14 @@ class Container:
             except Exception:
                 pass
 
+        veth_host = self.config.get("veth_host")
+        if veth_host:
+            from dck.network import teardown_veth
+            try:
+                teardown_veth(veth_host)
+            except Exception:
+                pass
+
         ports = self.config.get("ports", {})
         for c_port, h_port in ports.items():
             c_num = c_port.split("/")[0]
@@ -691,6 +775,9 @@ class Container:
         status = self.get_status()
         if status == "running":
             return
+
+        _teardown_overlayfs(self.id)
+        _teardown_cgroup(self.id)
 
         rootfs = self.config.get("rootfs", "")
         if not rootfs or not Path(rootfs).exists():
@@ -708,6 +795,7 @@ class Container:
 
         self.config["status"] = "created"
         self.config["pid"] = None
+        self.config["veth_host"] = None
         self.config.pop("network", None)
         self.save_state()
 
@@ -724,6 +812,14 @@ class Container:
                 self.stop()
         except Exception:
             pass
+
+        veth_host = self.config.get("veth_host")
+        if veth_host:
+            from dck.network import teardown_veth
+            try:
+                teardown_veth(veth_host)
+            except Exception:
+                pass
 
         _teardown_overlayfs(self.id)
         _teardown_cgroup(self.id)

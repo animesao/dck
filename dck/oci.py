@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import json
 import os
@@ -102,12 +103,23 @@ def _ensure_dir(path):
     Path(path).mkdir(parents=True, exist_ok=True)
 
 
+def _img_dir(image):
+    return IMAGES_DIR / image.replace("/", "_")
+
+
+def _img_name(img_dir):
+    name_file = img_dir / ".image-name"
+    if name_file.exists():
+        return name_file.read_text().strip()
+    return img_dir.name.replace("_", "/")
+
+
 def pull_image(image, tag="latest", progress_callback=None):
     image = image.replace("docker.io/", "").replace("library/", "")
     if "/" not in image:
         image = f"library/{image}"
 
-    img_dir = IMAGES_DIR / image.replace("/", "_") / tag
+    img_dir = _img_dir(image) / tag
     layers_dir = img_dir / "layers"
     rootfs_dir = img_dir / "rootfs"
     _ensure_dir(layers_dir)
@@ -140,6 +152,7 @@ def pull_image(image, tag="latest", progress_callback=None):
     _stream_blob(image, config_digest, token, cfg_path, progress_callback=None)
     config = json.loads(cfg_path.read_bytes())
 
+    (img_dir / ".image-name").write_text(image)
     (img_dir / "manifest.json").write_text(json.dumps(manifest, indent=2))
     (img_dir / "config.json").write_text(json.dumps(config, indent=2))
 
@@ -161,7 +174,11 @@ def pull_image(image, tag="latest", progress_callback=None):
                 progress_callback(f"Extracting layer {i+1}/{total}: {short_digest}...")
             import tarfile
             with tarfile.open(str(layer_file), "r:gz") as tar:
-                tar.extractall(path=str(rootfs_dir))
+                for member in tar.getmembers():
+                    member_path = Path(member.name)
+                    if member_path.is_absolute() or ".." in member_path.parts:
+                        continue
+                    tar.extract(member, path=str(rootfs_dir))
 
     if progress_callback:
         progress_callback("Done")
@@ -187,6 +204,7 @@ def list_images():
     for img_dir in sorted(IMAGES_DIR.iterdir()):
         if not img_dir.is_dir():
             continue
+        name = _img_name(img_dir)
         for tag_dir in sorted(img_dir.iterdir()):
             if not tag_dir.is_dir():
                 continue
@@ -198,11 +216,11 @@ def list_images():
                 except Exception:
                     pass
             cmd = config.get("config", {}).get("Cmd", [])
-            name = img_dir.name.replace("_", "/")
-            if name.startswith("library/"):
-                name = name[len("library/"):]
+            display_name = name
+            if display_name.startswith("library/"):
+                display_name = display_name[len("library/"):]
             images.append({
-                "name": name,
+                "name": display_name,
                 "tag": tag_dir.name,
                 "cmd": " ".join(cmd) if cmd else "-",
                 "rootfs": str(tag_dir / "rootfs"),
@@ -213,7 +231,7 @@ def list_images():
 def remove_image(image, tag="latest"):
     if "/" not in image:
         image = f"library/{image}"
-    img_dir = IMAGES_DIR / image.replace("/", "_") / tag
+    img_dir = _img_dir(image) / tag
     if not img_dir.exists():
         return False
     import shutil
