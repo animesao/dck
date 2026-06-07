@@ -40,16 +40,26 @@ func ListImages() ([]Image, error) {
 		if !entry.IsDir() {
 			continue
 		}
-		tagDir := filepath.Join(imagesDir, entry.Name())
-		tags, err := os.ReadDir(tagDir)
+		namespace := entry.Name()
+		imgNames, err := os.ReadDir(filepath.Join(imagesDir, namespace))
 		if err != nil {
 			continue
 		}
-		for _, tag := range tags {
-			if tag.IsDir() {
-				img := LoadFromStore(entry.Name(), tag.Name())
-				if img != nil {
-					images = append(images, *img)
+		for _, imgName := range imgNames {
+			if !imgName.IsDir() {
+				continue
+			}
+			fullName := namespace + "/" + imgName.Name()
+			tags, err := os.ReadDir(filepath.Join(imagesDir, namespace, imgName.Name()))
+			if err != nil {
+				continue
+			}
+			for _, tag := range tags {
+				if tag.IsDir() {
+					img := LoadFromStore(fullName, tag.Name())
+					if img != nil {
+						images = append(images, *img)
+					}
 				}
 			}
 		}
