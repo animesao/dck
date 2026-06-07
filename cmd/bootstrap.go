@@ -90,10 +90,9 @@ WantedBy=multi-user.target
 
 	exec.Command("systemctl", "daemon-reload").Run()
 	exec.Command("systemctl", "enable", "dck-bootstrap").Run()
+	exec.Command("systemctl", "start", "dck-bootstrap").Run()
 
-	fmt.Println("Systemd service installed: dck-bootstrap")
-	fmt.Println("  sudo systemctl start dck-bootstrap   # start now")
-	fmt.Println("  sudo systemctl enable dck-bootstrap  # start on boot")
+	fmt.Println("Systemd service installed and started: dck-bootstrap")
 }
 
 func removeSystemdService() {
@@ -104,9 +103,10 @@ func removeSystemdService() {
 		return
 	}
 
+	exec.Command("systemctl", "stop", "dck-bootstrap").Run()
 	exec.Command("systemctl", "disable", "dck-bootstrap").Run()
 	os.Remove(unitPath)
 	exec.Command("systemctl", "daemon-reload").Run()
 
-	fmt.Println("Systemd service removed: dck-bootstrap")
+	fmt.Println("Systemd service stopped and removed: dck-bootstrap")
 }
