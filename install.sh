@@ -151,70 +151,31 @@ if ! command -v git &>/dev/null; then
 fi
 ok "Git $(git --version 2>&1 | grep -oP '\d+\.\d+\.\d+')"
 
-# ── Docker ──────────────────────────────────────────────────────
-header "Docker"
-DOCKER_OK=true
-if ! command -v docker &>/dev/null; then
-    warn "Docker not found."
-    if [ -t 0 ]; then
-        if [ "$LANG_CHOICE" = "ru" ]; then
-            printf "%s" "  Установить Docker сейчас? [Y/n]: "
-        else
-            printf "%s" "  Install Docker now? [Y/n]: "
-        fi
-        read -r docker_choice
-        case "$docker_choice" in
-            n|N|no|NO) DOCKER_OK=false ;;
-            *)         DOCKER_OK=true  ;;
-        esac
-    else
-        DOCKER_OK=true
+# ── Native runtime dependencies ────────────────────────────────
+header "Container runtime dependencies"
+NEEDS_INSTALL=""
+for cmd in ip iptables nsenter mount umount; do
+    if ! command -v "$cmd" &>/dev/null; then
+        NEEDS_INSTALL="$NEEDS_INSTALL $cmd"
     fi
+done
 
-    if [ "$DOCKER_OK" = true ]; then
-        info "Installing Docker..."
-        if command -v curl &>/dev/null; then
-            curl -fsSL https://get.docker.com | sh || {
-                warn "get.docker.com failed — trying package manager..."
-                pkg docker 2>/dev/null || brew install --cask docker 2>/dev/null || true
-            }
-        else
-            pkg docker 2>/dev/null || brew install --cask docker 2>/dev/null || true
-        fi
-    fi
+if [ -n "$NEEDS_INSTALL" ]; then
+    warn "Missing binaries:$NEEDS_INSTALL"
+    case "$PKG_MGR" in
+        apt)    pkg iproute2 iptables util-linux mount 2>/dev/null || true ;;
+        dnf)    pkg iproute iptables util-linux 2>/dev/null || true ;;
+        pacman) pkg iproute2 iptables util-linux 2>/dev/null || true ;;
+        zypper) pkg iproute2 iptables util-linux 2>/dev/null || true ;;
+        brew)   warn "Install missing tools manually: brew install iproute2mac iptables util-linux" ;;
+    esac
 fi
 
-if command -v docker &>/dev/null; then
-    ok "$(docker --version 2>&1 | head -1)"
-
-    # Start and enable Docker daemon (Linux)
-    if [ "$OS" = "Linux" ] && ! docker info &>/dev/null; then
-        info "Starting Docker daemon..."
-        if command -v systemctl &>/dev/null; then
-            $SUDO systemctl enable --now docker 2>/dev/null || true
-        elif command -v service &>/dev/null; then
-            $SUDO service docker start 2>/dev/null || true
-        fi
-        sleep 2
+for cmd in ip iptables nsenter; do
+    if command -v "$cmd" &>/dev/null; then
+        ok "$cmd"
     fi
-
-    # Add user to docker group if not root
-    if [ "$(id -u)" -ne 0 ] && command -v groups &>/dev/null; then
-        if ! groups "$USER" 2>/dev/null | grep -q docker; then
-            warn "Adding user to 'docker' group (you may need to re-login)"
-            $SUDO usermod -aG docker "$USER" 2>/dev/null || true
-        fi
-    fi
-
-    if docker info &>/dev/null; then
-        ok "Docker daemon is running"
-    else
-        warn "Docker daemon is not running — start it manually"
-    fi
-else
-    warn "Docker not installed. Some dck commands will not work."
-    warn "Install Docker manually: https://docs.docker.com/engine/install/"
-fi
+done
 
 # ── Clone / Update ──────────────────────────────────────────────
 header "Getting source"
@@ -324,11 +285,6 @@ if [[ ":$PATH:" != *":${INSTALL_DIR}:"* ]]; then
     warn "Add ${INSTALL_DIR} to your PATH, then reload:"
     echo "  echo 'export PATH=\"\$PATH:${INSTALL_DIR}\"' >> ~/.bashrc"
     echo "  source ~/.bashrc"
-fi
-
-# ── Set language ────────────────────────────────────────────────
-if [ "$LANG_CHOICE" = "ru" ]; then
-    "${INSTALL_DIR}/${APP}" lang ru 2>/dev/null || true
 fi
 
 # ── Done ────────────────────────────────────────────────────────
