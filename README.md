@@ -283,8 +283,9 @@ dck run -d --restart always \
 curl http://localhost:5000
 ```
 
-### Minecraft Server
+### Minecraft Server (Vanilla)
 ```bash
+# Pull and run a vanilla Minecraft server
 dck pull itzg/minecraft-server
 dck run -d --restart always \
   --name mc \
@@ -293,10 +294,67 @@ dck run -d --restart always \
   -e EULA=TRUE \
   -e MEMORY=2G \
   -e DIFFICULTY=hard \
+  -e MAX_PLAYERS=20 \
   itzg/minecraft-server
 
 dck console mc   # Open server console
 dck logs -f mc   # Follow server logs
+```
+
+### Minecraft Server (Paper with Plugins)
+```bash
+dck run -d --restart always \
+  --name mc-paper \
+  -p 25565:25565 \
+  -v mc_paper_data:/data \
+  -e EULA=TRUE \
+  -e TYPE=PAPER \
+  -e VERSION=1.20.4 \
+  -e MEMORY=4G \
+  -e PLUGINS=https://ci.dmulloy2.net/job/ProtocolLib/lastSuccessfulBuild/artifact/target/ProtocolLib.jar \
+  itzg/minecraft-server
+
+# Plugins are auto-downloaded to /data/plugins/
+```
+
+### Minecraft Server (Modded — Forge)
+```bash
+dck run -d --restart always \
+  --name mc-forge \
+  -p 25565:25565 \
+  -v mc_forge_data:/data \
+  -e EULA=TRUE \
+  -e TYPE=FORGE \
+  -e VERSION=1.20.1 \
+  -e MEMORY=6G \
+  itzg/minecraft-server
+
+# Add mods manually:
+# dck exec mc-forge wget -O /data/mods/my-mod.jar https://example.com/mod.jar
+```
+
+### Minecraft Server (Modded — Fabric)
+```bash
+dck run -d --restart always \
+  --name mc-fabric \
+  -p 25565:25565 \
+  -v mc_fabric_data:/data \
+  -e EULA=TRUE \
+  -e TYPE=FABRIC \
+  -e VERSION=1.20.4 \
+  -e MEMORY=4G \
+  -e FABRIC_LOADER_VERSION=0.15.11 \
+  -e FABRIC_INSTALLER_VERSION=1.0.0 \
+  itzg/minecraft-server
+```
+
+### Minecraft — Backup World
+```bash
+# Manual backup
+dck exec mc sh -c "tar czf /data/backups/world-\$(date +%Y%m%d-%H%M).tar.gz /data/world"
+
+# Auto-backup via cron (on host)
+echo "0 */6 * * * root dck exec mc tar czf /data/backups/world-\$(date +%%Y%%m%%d-%%H%%M).tar.gz /data/world" | sudo tee /etc/cron.d/mc-backup
 ```
 
 ### Multi-Container Setup (App + DB)
@@ -369,6 +427,108 @@ dck run -d --restart always \
   -p 8080:8080 \
   -v nocodb_data:/usr/app/data \
   nocodb/nocodb:latest
+```
+
+### Discord Bot (Python — discord.py)
+```bash
+# Create bot
+mkdir discord-bot && cd discord-bot
+cat > bot.py << 'EOF'
+import discord
+from discord.ext import commands
+
+bot = commands.Bot(command_prefix="!", intents=discord.Intents.default())
+
+@bot.event
+async def on_ready():
+    print(f"Logged in as {bot.user}")
+
+@bot.command()
+async def ping(ctx):
+    await ctx.send("Pong!")
+
+bot.run("YOUR_BOT_TOKEN")
+EOF
+
+cat > requirements.txt << 'EOF'
+discord.py==2.3.2
+EOF
+
+# Build and run
+dck run -d --restart always \
+  --name discord-bot-py \
+  -v $(pwd):/bot \
+  python:3.11-slim sh -c "\
+    pip install -r /bot/requirements.txt && \
+    python /bot/bot.py"
+```
+
+### Discord Bot (Node.js — discord.js)
+```bash
+# Create bot
+mkdir discord-js-bot && cd discord-js-bot
+cat > index.js << 'EOF'
+const { Client, GatewayIntentBits } = require('discord.js');
+const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+
+client.on('ready', () => {
+  console.log(`Logged in as ${client.user.tag}`);
+});
+
+client.on('interactionCreate', async (interaction) => {
+  if (!interaction.isChatInputCommand()) return;
+  if (interaction.commandName === 'ping') {
+    await interaction.reply('Pong!');
+  }
+});
+
+client.login(process.env.TOKEN);
+EOF
+
+cat > package.json << 'EOF'
+{
+  "name": "discord-bot",
+  "dependencies": { "discord.js": "^14.14.1" }
+}
+EOF
+
+# Run
+dck run -d --restart always \
+  --name discord-bot-js \
+  -v $(pwd):/bot \
+  -e TOKEN=YOUR_BOT_TOKEN \
+  node:20 sh -c "cd /bot && npm install && node index.js"
+```
+
+### Telegram Bot (Python)
+```bash
+mkdir telegram-bot && cd telegram-bot
+cat > bot.py << 'EOF'
+from telegram import Update
+from telegram.ext import Application, CommandHandler
+
+async def start(update: Update, context):
+    await update.message.reply_text("Hello from dck!")
+
+async def ping(update: Update, context):
+    await update.message.reply_text("Pong!")
+
+app = Application.builder().token("YOUR_BOT_TOKEN").build()
+app.add_handler(CommandHandler("start", start))
+app.add_handler(CommandHandler("ping", ping))
+app.run_polling()
+EOF
+
+cat > requirements.txt << 'EOF'
+python-telegram-bot==20.7
+EOF
+
+dck run -d --restart always \
+  --name tg-bot \
+  -v $(pwd):/bot \
+  python:3.11-slim sh -c "\
+    pip install -r /bot/requirements.txt && \
+    python /bot/bot.py"
 ```
 
 ### Nginx + PHP (LAMP-Style)
