@@ -101,7 +101,12 @@ func (c *Container) Start() error {
 	c.Status = Stopped
 	c.Save()
 
-	if c.Restart == "always" {
+	exitCode := 0
+	if exitErr, ok := err.(*exec.ExitError); ok {
+		exitCode = exitErr.ExitCode()
+	}
+
+	if c.Restart == "always" || (c.Restart == "on-failure" && exitCode != 0) {
 		return c.restart()
 	}
 
@@ -113,7 +118,7 @@ func (c *Container) Start() error {
 }
 
 func (c *Container) NeedsNetwork() bool {
-	return len(c.Ports) > 0
+	return true
 }
 
 func findChildPID(ppid int) int {
@@ -132,8 +137,19 @@ func findChildPID(ppid int) int {
 				}
 			}
 		}
-		time.Sleep(5 * time.Millisecond)
+		time.Sleep(10 * time.Millisecond)
 	}
+
+	data, err := os.ReadFile("/proc/" + strconv.Itoa(ppid) + "/task/" + strconv.Itoa(ppid) + "/children")
+	if err == nil {
+		fields := strings.Fields(string(data))
+		if len(fields) > 0 {
+			if pid, err := strconv.Atoi(fields[0]); err == nil && pid > 0 {
+				return pid
+			}
+		}
+	}
+
 	return 0
 }
 
@@ -168,13 +184,19 @@ func (c *Container) restart() error {
 
 func monitorContainer(c *Container, cmd *exec.Cmd) {
 	go func() {
-		cmd.Wait()
+		err := cmd.Wait()
+		exitCode := 0
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		}
+
 		c.PID = 0
 		c.Status = Stopped
 		c.cleanupNetwork()
 		c.Save()
 
-		if c.Restart == "always" || c.Restart == "on-failure" {
+		shouldRestart := c.Restart == "always" || (c.Restart == "on-failure" && exitCode != 0)
+		if shouldRestart {
 			go func() {
 				time.Sleep(1 * time.Second)
 				c.Status = Created

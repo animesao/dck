@@ -26,7 +26,7 @@ if [ -d "$DCK_DIR" ]; then
     echo ""
     warn "WARNING: This will DELETE all images, containers, and data in ~/.dck"
     printf "Remove ~/.dck? [y/N] "
-    read -r confirm
+    read -r confirm || true
     if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
         rm -rf "$DCK_DIR"
         info "Removed $DCK_DIR"

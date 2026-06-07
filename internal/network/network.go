@@ -81,9 +81,8 @@ func EnsureBridge() error {
 	exec.Command("ip", "addr", "add", fmt.Sprintf("%s/24", BridgeIP), "dev", BridgeName).Run()
 	exec.Command("ip", "link", "set", BridgeName, "up").Run()
 
-	out, _ := exec.Command("iptables", "-t", "nat", "-C", "POSTROUTING",
-		"-s", BridgeCIDR, "!", "-o", BridgeName, "-j", "MASQUERADE").CombinedOutput()
-	if len(out) > 0 {
+	if err := exec.Command("iptables", "-t", "nat", "-C", "POSTROUTING",
+		"-s", BridgeCIDR, "!", "-o", BridgeName, "-j", "MASQUERADE").Run(); err != nil {
 		exec.Command("iptables", "-t", "nat", "-A", "POSTROUTING",
 			"-s", BridgeCIDR, "!", "-o", BridgeName, "-j", "MASQUERADE").Run()
 	}

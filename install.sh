@@ -11,8 +11,8 @@ info()  { echo "${BOLD}${GREEN}[dck]${RESET} $*"; }
 warn()  { echo "${BOLD}${YELLOW}[dck]${RESET} $*"; }
 err()   { echo "${BOLD}${RED}[dck]${RESET} $*" >&2; }
 
-DCK_BIN="/usr/local/bin/dck"
-DIR="$(cd "$(dirname "$0")" && pwd)"
+DCK_BIN="${PREFIX:-/usr/local}/bin/dck"
+DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd || echo ".")"
 
 detect_os() {
     if [ -f /etc/os-release ]; then
@@ -46,7 +46,7 @@ install_pkgs() {
         alpine)
             apk add "$@"
             ;;
-        suse|opensuse*)
+        suse|opensuse*|opensuse-leap|opensuse-tumbleweed)
             zypper install -y "$@"
             ;;
         *)
@@ -71,6 +71,10 @@ ensure_go() {
     }
     if command -v go >/dev/null 2>&1; then
         info "Go installed: $(go version)"
+    else
+        err "Go was installed but not found in PATH."
+        err "Restart your shell or add it to PATH manually."
+        exit 1
     fi
 }
 
@@ -91,7 +95,7 @@ ensure_packages() {
             install_pkgs "$os" util-linux iproute2 iptables procps curl
             warn "UFW not available on Alpine (use iptables directly)"
             ;;
-        suse|opensuse*)
+        suse|opensuse*|opensuse-leap|opensuse-tumbleweed)
             install_pkgs "$os" util-linux iproute2 iptables procps curl ufw
             ;;
         *)
@@ -102,21 +106,21 @@ ensure_packages() {
 }
 
 setup_ufw() {
-    if command -v ufw >/dev/null 2>&1; then
-        info "Configuring UFW..."
-        ufw_was_enabled=false
-        if ufw status | grep -q "Status: active"; then
-            ufw_was_enabled=true
-        fi
-
-        ufw allow 22/tcp >/dev/null 2>&1 && info "  Port 22/tcp opened (SSH)"
-
-        if ! $ufw_was_enabled; then
-            ufw --force enable >/dev/null 2>&1 || true
-            info "  UFW enabled"
-        fi
-    else
+    if ! command -v ufw >/dev/null 2>&1; then
         warn "UFW not found. Install it for firewall management."
+        return
+    fi
+    info "Configuring UFW..."
+    ufw_was_enabled=false
+    if ufw status 2>/dev/null | grep -q "Status: active"; then
+        ufw_was_enabled=true
+    fi
+
+    ufw allow 22/tcp >/dev/null 2>&1 && info "  Port 22/tcp opened (SSH)"
+
+    if ! "$ufw_was_enabled"; then
+        ufw --force enable >/dev/null 2>&1 || true
+        info "  UFW enabled"
     fi
 }
 
@@ -140,19 +144,27 @@ setup_system() {
 build_dck() {
     info "Building dck..."
     cd "$DIR"
+    if ! command -v go >/dev/null 2>&1; then
+        err "Go not found in PATH even after installation."
+        exit 1
+    fi
     go build -ldflags="-s -w" -o dck .
-    install -d "$(dirname "$DCK_BIN")"
-    install -m 755 dck "$DCK_BIN"
+    if command -v install >/dev/null 2>&1; then
+        install -d "$(dirname "$DCK_BIN")"
+        install -m 755 dck "$DCK_BIN"
+    else
+        mkdir -p "$(dirname "$DCK_BIN")"
+        cp dck "$DCK_BIN"
+        chmod 755 "$DCK_BIN"
+    fi
     rm -f dck
     info "Installed to $DCK_BIN"
 }
 
 verify() {
     info "Verifying installation..."
-    if command -v dck >/dev/null 2>&1; then
-        info "  dck: $(dck --version)"
-    fi
-    for cmd in unshare nsenter ip iptables pgrep mount umount; do
+    info "  dck: $(dck --version 2>/dev/null || echo 'NOT FOUND')"
+    for cmd in unshare nsenter ip iptables pgrep mount umount curl; do
         if command -v "$cmd" >/dev/null 2>&1; then
             info "  $cmd: available"
         else
@@ -175,7 +187,7 @@ main() {
     info "Detected OS: $OS"
 
     case "$OS" in
-        debian|ubuntu|linuxmint|pop|rhel|centos|fedora|rocky|almalinux|arch|manjaro|endeavouros|alpine|suse|opensuse*)
+        debian|ubuntu|linuxmint|pop|rhel|centos|fedora|rocky|almalinux|arch|manjaro|endeavouros|alpine|suse|opensuse*|opensuse-leap|opensuse-tumbleweed)
             ;;
         *)
             warn "Untested OS: $OS. Proceeding anyway..."

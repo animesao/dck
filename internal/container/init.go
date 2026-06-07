@@ -50,11 +50,16 @@ func InitContainer(id string) error {
 	if err == nil {
 		var cfg struct {
 			Config struct {
-				Env []string `json:"Env"`
+				Env        []string `json:"Env"`
+				WorkingDir string   `json:"WorkingDir"`
 			} `json:"config"`
 		}
 		if json.Unmarshal(cfgData, &cfg) == nil {
 			c.Env = append(cfg.Config.Env, c.Env...)
+			if cfg.Config.WorkingDir != "" {
+				os.MkdirAll(cfg.Config.WorkingDir, 0755)
+				syscall.Chdir(cfg.Config.WorkingDir)
+			}
 		}
 	}
 

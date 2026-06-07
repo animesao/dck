@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 )
 
 func (c *Container) Logs(follow bool) error {
@@ -30,6 +31,7 @@ func followLogs(r io.ReadSeeker) error {
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			if err == io.EOF {
+				time.Sleep(100 * time.Millisecond)
 				continue
 			}
 			return err
