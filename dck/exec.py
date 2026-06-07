@@ -349,12 +349,15 @@ def _ptero_console(container, container_name, tail=30, use_stdin=False):
 
 
 def _ptero_console_pty(container, container_name, tail=30):
-    """Pterodactyl console via PTY + docker attach (true bidirectional)."""
+    """Pterodactyl console via PTY + docker attach (true bidirectional).
+    Auto-reconnects when container restarts.
+    """
     console.print()
     console.print(Panel.fit(
         "[bold cyan]Pterodactyl Console[/bold cyan] — real-time server console\n"
         "Logs and command output appear in the same stream.\n"
-        "Type [bold]exit[/bold]/[bold]quit[/bold] or Ctrl+C to leave",
+        "Type [bold]exit[/bold]/[bold]quit[/bold] or Ctrl+C to leave.\n"
+        "[dim]Auto-reconnects on container restart.[/dim]",
         border_style="cyan",
     ))
 
@@ -368,36 +371,19 @@ def _ptero_console_pty(container, container_name, tail=30):
     except Exception:
         pass
 
-    master_fd, slave_fd = pty.openpty()
-
-    try:
-        proc = subprocess.Popen(
-            ["docker", "attach", container_name],
-            stdin=slave_fd,
-            stdout=slave_fd,
-            stderr=subprocess.STDOUT,
-            close_fds=True,
-            preexec_fn=lambda: signal.signal(signal.SIGINT, signal.SIG_IGN),
-        )
-    except Exception as e:
-        os.close(master_fd)
-        os.close(slave_fd)
-        console.print(f"[red]Failed to attach: {e}[/red]")
-        return
-
-    os.close(slave_fd)
-
+    docker_cmd = ["docker", "attach", container_name]
+    sent_cmds = {}
     log_queue = []
-    stop_event = threading.Event()
+    exit_requested = False
 
-    def _reader():
+    def _reader(mfd):
         buf = b""
         try:
-            while not stop_event.is_set():
-                r, _, _ = select_module.select([master_fd], [], [], 0.05)
+            while not exit_requested:
+                r, _, _ = select_module.select([mfd], [], [], 0.1)
                 if not r:
                     continue
-                chunk = os.read(master_fd, 65536)
+                chunk = os.read(mfd, 65536)
                 if not chunk:
                     break
                 buf += chunk
@@ -406,6 +392,10 @@ def _ptero_console_pty(container, container_name, tail=30):
                     text = line.decode("utf-8", errors="replace").rstrip("\r")
                     text = ANSI_RE.sub("", text)
                     if text:
+                        stripped = text.strip()
+                        if stripped in sent_cmds and time.time() - sent_cmds[stripped] < 1.0:
+                            del sent_cmds[stripped]
+                            continue
                         log_queue.append(text)
         except Exception:
             pass
@@ -415,46 +405,65 @@ def _ptero_console_pty(container, container_name, tail=30):
                 text = ANSI_RE.sub("", text)
                 if text:
                     log_queue.append(text)
-            try:
-                os.close(master_fd)
-            except Exception:
-                pass
 
-    reader = threading.Thread(target=_reader, daemon=True, name="pty-reader")
-    reader.start()
+    client = get_client()
 
-    try:
-        while True:
-            _drain_logs(log_queue)
+    preexec = None
+    if os.name != "nt":
+        preexec = lambda: signal.signal(signal.SIGINT, signal.SIG_IGN)
 
+    while not exit_requested:
+        will_reconnect = False
+
+        try:
+            mfd, sfd = pty.openpty()
+            proc = subprocess.Popen(
+                docker_cmd,
+                stdin=sfd,
+                stdout=sfd,
+                stderr=subprocess.STDOUT,
+                close_fds=True,
+                preexec_fn=preexec,
+            )
+            os.close(sfd)
+        except Exception as e:
+            console.print(f"[red]Failed to attach: {e}[/red]")
+            return
+
+        reader = threading.Thread(target=_reader, args=(mfd,), daemon=True, name="pty-reader")
+        reader.start()
+
+        _drain_logs(log_queue)
+
+        cmd = None
+        while not exit_requested:
             try:
                 cmd = input("\n▶ ").strip()
             except (EOFError, KeyboardInterrupt):
                 print()
+                exit_requested = True
                 break
 
             if not cmd:
                 continue
             if cmd.lower() in ("exit", "quit"):
+                exit_requested = True
                 break
+
+            sent_cmds[cmd.strip()] = time.time()
 
             try:
-                os.write(master_fd, (cmd + "\n").encode())
+                os.write(mfd, (cmd + "\n").encode())
+                time.sleep(0.3)
+                _drain_logs(log_queue)
             except OSError:
-                console.print("[red]Connection to container lost[/red]")
+                will_reconnect = True
                 break
-            except Exception as e:
-                console.print(f"[red]Error: {e}[/red]")
-                break
-    finally:
-        stop_event.set()
-        reader.join(timeout=2)
 
         try:
-            os.write(master_fd, b"\x03")
+            os.write(mfd, b"\x03")
         except Exception:
             pass
-
         try:
             proc.terminate()
             proc.wait(timeout=3)
@@ -464,11 +473,30 @@ def _ptero_console_pty(container, container_name, tail=30):
                 proc.wait(timeout=2)
             except Exception:
                 pass
-
         try:
-            os.close(master_fd)
+            os.close(mfd)
         except Exception:
             pass
+        reader.join(timeout=3)
+
+        if not will_reconnect:
+            break
+
+        console.print("\n[yellow]Connection lost, waiting for container to restart...[/yellow]")
+        for _ in range(300):
+            try:
+                c = client.containers.get(container_name)
+                if c.status == "running":
+                    break
+            except Exception:
+                pass
+            time.sleep(1)
+        else:
+            console.print("[red]Container did not restart[/red]")
+            break
+        console.print("[green]Reconnected[/green]")
+        log_queue.clear()
+        sent_cmds.clear()
 
     console.print(f"\n[bold yellow]── Console session ended ──[/bold yellow]")
 

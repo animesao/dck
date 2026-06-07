@@ -24,7 +24,7 @@ TEMPLATES = {
         "disk": "~1GB",
         "tty": True,
         "volumes": [
-            {"path": "/data", "label": "World data & config", "default": "./minecraft-data"},
+            {"path": "/data", "label": "World data & config", "default": "./minecraft-data/{name}"},
         ],
         "env": [
             {"key": "EULA", "default": "TRUE", "desc": "Accept EULA (must be TRUE)"},

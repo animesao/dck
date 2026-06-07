@@ -267,14 +267,15 @@ def _ensure_dir(path):
         console.print(f"  [dim]Created directory: {path}[/dim]")
 
 
-def ask_volumes(template):
+def ask_volumes(template, name_hint="container"):
     volumes = {}
     vol_list = template.get("volumes", [])
 
     if vol_list:
         console.print(f"\n[bold]{t('volume.mounts')}[/bold]")
         for vol in vol_list:
-            answer = Prompt.ask(f"  {vol['label']}", default=vol["default"])
+            default = vol["default"].replace("{name}", name_hint)
+            answer = Prompt.ask(f"  {vol['label']}", default=default)
             if answer:
                 abs_path = os.path.abspath(answer)
                 _ensure_dir(abs_path)
@@ -517,7 +518,7 @@ def create_interactive(template_name, name, ram, cpu, port, env, volume, list_on
         }
         ports = ask_ports(tpl)
         env_vars = ask_env(tpl)
-        volumes = ask_volumes(tpl)
+        volumes = ask_volumes(tpl, "custom")
         ram_cfg, cpu_cfg = ask_resources(tpl) if not (ram and cpu) else (ram or "512m", cpu or "1")
 
         startup_cfg = startup_prompt()
@@ -563,7 +564,7 @@ def create_interactive(template_name, name, ram, cpu, port, env, volume, list_on
 
     ports = ask_ports(tpl)
     env_vars = ask_env(tpl)
-    volumes = ask_volumes(tpl)
+    volumes = ask_volumes(tpl, template_key)
     ram_cfg, cpu_cfg = ask_resources(tpl)
 
     startup_cfg = startup_prompt()
@@ -606,12 +607,12 @@ def run_custom(image, name, ram, cpu):
 
     ports = ask_ports(tpl)
     env_vars = ask_env(tpl)
-    volumes = ask_volumes(tpl)
+    key = image.split("/")[-1].split(":")[0]
+    volumes = ask_volumes(tpl, key)
     ram_cfg, cpu_cfg = (ram or "512m", cpu or "1")
     if not (ram and cpu):
         ram_cfg, cpu_cfg = ask_resources(tpl)
 
     startup_cfg = startup_prompt()
 
-    key = image.split("/")[-1].split(":")[0]
     build_and_start(key, tpl, name, ports, env_vars, volumes, ram_cfg, cpu_cfg, startup_cfg=startup_cfg)
