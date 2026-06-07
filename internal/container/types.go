@@ -62,6 +62,7 @@ type CreateOpts struct {
 }
 
 func (c *Container) Save() error {
+	os.MkdirAll(state.ContainersDir(), 0755)
 	return state.WriteJSON(state.ContainerPath(c.ID), c)
 }
 
