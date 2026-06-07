@@ -209,6 +209,7 @@ func AddPortForwarding(containerIP string, hostPort, containerPort int, protocol
 	output := []string{
 		"-t", "nat", "-A", "OUTPUT",
 		"-p", protocol, "--dport", fmt.Sprintf("%d", hostPort),
+		"-m", "addrtype", "--dst-type", "LOCAL",
 		"-j", "DNAT", "--to-destination", fmt.Sprintf("%s:%d", containerIP, containerPort),
 	}
 	if err := exec.Command("iptables", output...).Run(); err != nil {
@@ -242,6 +243,7 @@ func RemovePortForwarding(containerIP string, hostPort, containerPort int, proto
 
 	exec.Command("iptables", "-t", "nat", "-D", "OUTPUT",
 		"-p", protocol, "--dport", fmt.Sprintf("%d", hostPort),
+		"-m", "addrtype", "--dst-type", "LOCAL",
 		"-j", "DNAT", "--to-destination", fmt.Sprintf("%s:%d", containerIP, containerPort)).Run()
 
 	exec.Command("iptables", "-D", "FORWARD",
