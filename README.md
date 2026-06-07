@@ -181,7 +181,7 @@ dck run -d --restart always \
 psql -h localhost -U postgres -d myapp
 ```
 
-### MariaDB / MySQL
+### MariaDB
 ```bash
 dck run -d --restart always \
   --name mariadb \
@@ -190,6 +190,34 @@ dck run -d --restart always \
   -e MYSQL_ROOT_PASSWORD=secret \
   -e MYSQL_DATABASE=wordpress \
   mariadb:10
+
+# Connect
+mysql -h localhost -u root -psecret wordpress
+```
+
+### MySQL 8
+```bash
+dck run -d --restart always \
+  --name mysql \
+  -p 3306:3306 \
+  -v mysql_data:/var/lib/mysql \
+  -e MYSQL_ROOT_PASSWORD=rootpass \
+  -e MYSQL_DATABASE=myapp \
+  -e MYSQL_USER=appuser \
+  -e MYSQL_PASSWORD=apppass \
+  mysql:8
+
+# Connect
+mysql -h localhost -u appuser -papppass myapp
+
+# Or with a custom config
+dck run -d --restart always \
+  --name mysql \
+  -p 3306:3306 \
+  -v mysql_data:/var/lib/mysql \
+  -v /path/to/my.cnf:/etc/mysql/conf.d/custom.cnf \
+  -e MYSQL_ROOT_PASSWORD=rootpass \
+  mysql:8
 ```
 
 ### Redis Cache
