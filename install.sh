@@ -107,8 +107,11 @@ ensure_packages() {
 
 setup_ufw() {
     if ! command -v ufw >/dev/null 2>&1; then
-        warn "UFW not found. Install it for firewall management."
-        return
+        warn "UFW not found. Installing..."
+        install_pkgs "$OS" ufw 2>/dev/null || {
+            warn "Could not install UFW. Firewall rules won't be auto-managed."
+            return
+        }
     fi
     info "Configuring UFW..."
     ufw_was_enabled=false
