@@ -55,9 +55,17 @@ pip install .
 
 **`dck console -m ptero`** (default mode) — commands are executed inside the container via `docker exec`. Works for: web servers (nginx, apache), databases (postgres, mysql), applications (python, node), scripts (`ls`, `ps`, `cat`, `npm install`, `python manage.py`).
 
-**`dck console -m ptero -s`** (stdin mode) — commands are piped directly to the container's **main process stdin** (`/proc/1/fd/0`). Works for game servers: **Minecraft** (`pl`, `tps`, `say Hello`, `give`, `stop`), **Terraria**, **Valheim**, **CS2** — any server where commands must reach the server console, not a shell.
+**`dck console -m ptero -s`** (stdin mode) — commands are sent to the game server's console. dck auto-detects the best method:
 
-If you forget to use `--stdin` with a game server command, dck auto-detects `exit code 127` ("command not found") and suggests switching to stdin mode.
+| Detection | Method | Example containers |
+|-----------|--------|-------------------|
+| `rcon-cli` found → | **RCON** protocol | itzg/minecraft-server (Minecraft) |
+| Java/server PID found → | Write to **server PID stdin** | Custom game servers |
+| Fallback → | Write to **PID 1 stdin** | Simple containers |
+
+For **Minecraft** (`itzg/minecraft-server`): commands like `tps`, `pl`, `list`, `say Hello`, `give`, `stop` are sent via RCON and the server's response appears inline — just like Pterodactyl.
+
+If you forget to use `--stdin` with a game server command, dck shows `exit code 127` and suggests the correct mode.
 
 ## Eggs — Pterodactyl-Style (v0.4.0)
 

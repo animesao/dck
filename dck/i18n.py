@@ -121,6 +121,10 @@ TRANSLATIONS = {
         "console.ptero.mode2": "docker exec (apps)",
         "console.option.ptstdin": "Pterodactyl (stdin mode) for game servers",
         "console.stdin.hint": "Use --stdin for game server commands (pl, tps, help)",
+        "console.method.rcon": "RCON",
+        "console.method.procin": "server stdin",
+        "console.method.stdin": "PID1 stdin",
+        "console.exec.fallback": "Command not found. Try:\n  dck console CONTAINER -m ptero -s  — for game server stdin\n  dck attach CONTAINER                — for direct attach",
     },
     "ru": {
         "lang.name": "Русский",
@@ -236,6 +240,10 @@ TRANSLATIONS = {
         "console.ptero.mode2": "docker exec (приложения)",
         "console.option.ptstdin": "Pterodactyl (stdin) для игровых серверов",
         "console.stdin.hint": "Используйте --stdin для команд игровых серверов (pl, tps, help)",
+        "console.method.rcon": "RCON",
+        "console.method.procin": "stdin сервера",
+        "console.method.stdin": "stdin PID1",
+        "console.exec.fallback": "Команда не найдена. Попробуйте:\n  dck console КОНТЕЙНЕР -m ptero -s  — для игрового сервера\n  dck attach КОНТЕЙНЕР                — для прямого подключения",
     },
 }
 
