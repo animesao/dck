@@ -124,16 +124,25 @@ dck attach web              # Attach to main process
 
 ### Network & Ports
 ```bash
-# Port mapping (host:container)
-dck run -d -p 8080:80 nginx:alpine
-dck run -d -p 25565:25565 itzg/minecraft-server
-dck run -d -p 5432:5432 postgres:16
-dck run -d -p 3000:3000 node:20
+# Port mapping: -p HOST_PORT:CONTAINER_PORT
+#   HOST_PORT       — порт на твоём сервере (через который заходишь)
+#   CONTAINER_PORT  — порт, который слушает приложение ВНУТРИ контейнера
+
+dck run -d -p 8080:80 nginx:alpine       # nginx слушает 80 внутри → открыто на 8080
+dck run -d -p 443:80 nginx:alpine        # nginx слушает 80 внутри → открыто на 443
+dck run -d -p 25565:25565 minecraft      # майнкрафт слушает 25565 внутри → 25565
+dck run -d -p 5432:5432 postgres:16      # postgres слушает 5432 внутри → 5432
 
 # iptables rules are automatically created/removed
 # Bridge network: 10.0.2.0/24
 # Each container gets a unique IP on dck0 bridge
 ```
+
+> **Важно:** Второе число — это порт ВНУТРИ контейнера. Если приложение слушает 80,
+> а ты делаешь `-p 443:443` — трафик уйдёт на 443 внутри контейнера, где ничего нет.
+> Проверить можно через `dck logs <id>` (показывает реальные запросы внутри).
+>
+> Если не работает — проверь UFW: `ufw status` (порт должен быть ALLOW).
 
 ## Run Options Reference
 
@@ -141,7 +150,7 @@ dck run -d -p 3000:3000 node:20
 |------|-------------|---------|
 | `-d` | Detach (run in background) | `false` |
 | `-n, --name` | Container name | auto-generated |
-| `-p` | Port mapping `host:container[/proto]` | - |
+| `-p` | Port mapping `host:container` (`-p 8080:80` = хост:8080 → контейнер:80) | - |
 | `-v` | Volume mount `src:dst` | - |
 | `-e` | Environment variable `KEY=val` | - |
 | `-i` | Interactive (keep STDIN open) | `false` |
@@ -661,6 +670,26 @@ nsenter --version
 ip link help
 mount -V
 ```
+
+### Orphaned containers (detach-убил снаружи)
+Если убить процесс nginx/приложения снаружи (через `kill`), контейнер остаётся
+в статусе `running` в `dck ps`, а iptables правила и IP не очищаются.
+
+```bash
+# Принудительно удалить мёртвый контейнер
+dck rm -f <id>
+
+# Почистить висящие iptables правила
+iptables -t nat -L PREROUTING -n --line-numbers
+iptables -t nat -D PREROUTING <номер>
+
+# Проверить, нет ли дублирующихся правил
+iptables -t nat -L PREROUTING -n
+```
+
+> **Причина:** `dck run -d` завершает процесс сразу после запуска контейнера,
+> монитор умирает вместе с ним. Контейнер живёт сам по себе, и если его убить
+> снаружи — dck не узнает об этом. Всегда используй `dck stop` / `dck rm -f`.
 
 ## Uninstall
 
