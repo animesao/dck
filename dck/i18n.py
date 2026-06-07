@@ -115,6 +115,12 @@ TRANSLATIONS = {
         "console.ptero.hint": "Type exit/quit or Ctrl+C to leave",
         "console.ptero.logs": "Logs stream in real-time",
         "console.ptero.ended": "Pterodactyl console session ended",
+        "console.ptero.stdin": "Commands are sent to the container's main process (for game servers like Minecraft)",
+        "console.ptero.exec": "Commands are executed via docker exec",
+        "console.ptero.mode": "stdin (game server)",
+        "console.ptero.mode2": "docker exec (apps)",
+        "console.option.ptstdin": "Pterodactyl (stdin mode) for game servers",
+        "console.stdin.hint": "Use --stdin for game server commands (pl, tps, help)",
     },
     "ru": {
         "lang.name": "Русский",
@@ -224,6 +230,12 @@ TRANSLATIONS = {
         "console.ptero.hint": "Наберите exit/quit или Ctrl+C чтобы выйти",
         "console.ptero.logs": "Логи стримятся в реальном времени",
         "console.ptero.ended": "Сессия Pterodactyl консоли завершена",
+        "console.ptero.stdin": "Команды отправляются в главный процесс контейнера (для игровых серверов)",
+        "console.ptero.exec": "Команды выполняются через docker exec",
+        "console.ptero.mode": "stdin (игровой сервер)",
+        "console.ptero.mode2": "docker exec (приложения)",
+        "console.option.ptstdin": "Pterodactyl (stdin) для игровых серверов",
+        "console.stdin.hint": "Используйте --stdin для команд игровых серверов (pl, tps, help)",
     },
 }
 

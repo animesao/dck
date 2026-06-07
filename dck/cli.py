@@ -292,7 +292,8 @@ def inspect_cmd(container):
 @click.option("--mode", "-m", type=click.Choice(["auto", "shell", "attach", "logs", "ptero"]),
               default="auto", help="Console mode (default: auto)")
 @click.option("--tail", "-t", type=int, default=20, help="Number of log lines to show")
-def console_cmd(container, mode, tail):
+@click.option("--stdin", "-s", is_flag=True, help="Pipe commands to container stdin (for game servers like Minecraft)")
+def console_cmd(container, mode, tail, stdin):
     """Pterodactyl-style console for a container (logs, shell, attach, ptero)
 
     Modes:
@@ -301,8 +302,11 @@ def console_cmd(container, mode, tail):
       attach - attach to container's main process
       logs   - stream live logs
       ptero  - Pterodactyl-style: type commands, see output
+      
+    Use --stdin flag for game servers (Minecraft, Terraria, etc.)
+    so commands like 'pl', 'tps', 'help' are sent to the server console.
     """
-    console_container(container, mode=mode, tail=tail)
+    console_container(container, mode=mode, tail=tail, stdin=stdin)
 
 
 @cli.command("attach")

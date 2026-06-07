@@ -243,17 +243,26 @@ def _live_log_stream(container_name, stop_event, log_queue):
         pass
 
 
-def _ptero_console(container, container_name, tail=30):
-    """Pterodactyl-style real-time console with log streaming + command input."""
+def _ptero_console(container, container_name, tail=30, use_stdin=False):
+    """Pterodactyl-style real-time console with log streaming + command input.
+
+    Args:
+        use_stdin: If True, pipe commands to container's stdin (for game servers).
+                   If False, execute commands via docker exec (for web apps, DBs).
+    """
     import shlex
 
     if container.status != "running":
         console.print("[yellow]Container must be running for Pterodactyl console.[/yellow]")
         return
 
-    console.print(f"\n[bold cyan]══ Pterodactyl Console: {container_name} ══[/bold cyan]")
-    console.print("[dim]Commands are executed in the container via docker exec[/dim]")
+    mode_label = "stdin (game server)" if use_stdin else "docker exec (apps)"
+    console.print(f"\n[bold cyan]══ Pterodactyl Console: {container_name} ({mode_label}) ══[/bold cyan]")
     console.print("[dim]Logs stream in real-time. Type [bold]exit[/bold]/[bold]quit[/bold] or Ctrl+C to leave[/dim]")
+    if use_stdin:
+        console.print("[dim]Commands are sent to the container's main process (for game servers like Minecraft)[/dim]")
+    else:
+        console.print("[dim]Commands are executed via [bold]docker exec[/bold][/dim]")
 
     log_queue = []
     stop_event = threading.Event()
@@ -274,13 +283,16 @@ def _ptero_console(container, container_name, tail=30):
     except Exception:
         pass
 
-    while True:
+    def _flush_logs():
         try:
             while log_queue:
                 line = log_queue.pop(0)
                 console.print(f"  [dim]{escape(line)}[/dim]")
         except Exception:
             pass
+
+    while True:
+        _flush_logs()
 
         try:
             cmd = input("\n▶ ").strip()
@@ -293,28 +305,56 @@ def _ptero_console(container, container_name, tail=30):
         if cmd.lower() in ("exit", "quit"):
             break
 
-        try:
-            r = subprocess.run(
-                ["docker", "exec", container_name] + shlex.split(cmd),
-                capture_output=True, text=True, timeout=30,
-            )
-            if r.stdout:
-                print(r.stdout.rstrip())
-            if r.stderr:
-                sys.stderr.write(r.stderr.rstrip() + "\n")
-            if r.returncode != 0:
-                console.print(f"[dim]Exit code: {r.returncode}[/dim]")
-        except subprocess.TimeoutExpired:
-            console.print("[red]Command timed out[/red]")
-        except Exception as e:
-            console.print(f"[red]Error: {e}[/red]")
+        if use_stdin:
+            _send_to_stdin(container_name, cmd)
+        else:
+            _exec_command(container_name, cmd)
 
     stop_event.set()
     log_thread.join(timeout=2)
     console.print(f"\n[bold yellow]── Pterodactyl console session ended ──[/bold yellow]")
 
 
-def console_container(container_name, mode="auto", tail=20):
+def _send_to_stdin(container_name, cmd):
+    """Send a command to the container's main process stdin.
+    
+    This is how Pterodactyl sends commands to game servers (Minecraft, etc.).
+    The command goes to PID 1's stdin, and the response appears in the logs.
+    """
+    escaped = cmd.replace("'", "'\\''")
+    try:
+        subprocess.run(
+            ["docker", "exec", "-i", container_name,
+             "sh", "-c", f"echo '{escaped}' > /proc/1/fd/0"],
+            capture_output=True, text=True, timeout=10,
+        )
+    except Exception as e:
+        console.print(f"[dim]Error: {e}[/dim]")
+
+
+def _exec_command(container_name, cmd):
+    """Execute a command inside the container via docker exec."""
+    import shlex
+    try:
+        r = subprocess.run(
+            ["docker", "exec", container_name] + shlex.split(cmd),
+            capture_output=True, text=True, timeout=30,
+        )
+        if r.stdout:
+            print(r.stdout.rstrip())
+        if r.stderr:
+            sys.stderr.write(r.stderr.rstrip() + "\n")
+        if r.returncode != 0 and r.returncode != 127:
+            console.print(f"[dim]Exit code: {r.returncode}[/dim]")
+        elif r.returncode == 127:
+            console.print(f"[dim]Command not found. Switch to 'dck console -m ptero --stdin' for game server commands[/dim]")
+    except subprocess.TimeoutExpired:
+        console.print("[red]Command timed out[/red]")
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+
+
+def console_container(container_name, mode="auto", tail=20, stdin=False):
     """Pterodactyl-style console for a container.
 
     Modes:
@@ -323,6 +363,9 @@ def console_container(container_name, mode="auto", tail=20):
       attach  - attach to container's main process
       logs    - stream live logs
       ptero   - Pterodactyl-style: real-time logs + commands
+
+    Args:
+        stdin: In ptero mode, pipe commands to container's stdin (for game servers).
     """
     client = get_client()
     try:
@@ -352,7 +395,7 @@ def console_container(container_name, mode="auto", tail=20):
         return
 
     if mode == "ptero":
-        _ptero_console(container, container_name, tail)
+        _ptero_console(container, container_name, tail, use_stdin=stdin)
         return
 
     # auto mode
@@ -363,6 +406,7 @@ def console_container(container_name, mode="auto", tail=20):
         console.print("  2. Attach to main process   [dim](docker attach)[/dim]  [green]← for game servers[/green]")
         console.print("  3. Stream live logs         [dim](docker logs -f)[/dim]")
         console.print("  4. Pterodactyl console mode [dim](real-time logs + cmd)[/dim]")
+        console.print("  5. Pterodactyl (stdin mode) [dim]for game servers (Minecraft, etc.)[/dim]")
         choice = Prompt.ask("  Choose", default="1")
         if choice == "1":
             _enter_interactive_shell(container_name)
@@ -371,7 +415,9 @@ def console_container(container_name, mode="auto", tail=20):
         elif choice == "3":
             _follow_logs(container_name, tail)
         elif choice == "4":
-            _ptero_console(container, container_name, tail)
+            _ptero_console(container, container_name, tail, use_stdin=False)
+        elif choice == "5":
+            _ptero_console(container, container_name, tail, use_stdin=True)
     else:
         _start_and_shell(container_name)
 

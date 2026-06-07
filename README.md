@@ -145,6 +145,7 @@ When creating a container with `dck create`, it will ask to auto-open required p
 | `dck console <container> -m attach` | Attach to container's main process (shows logs first) |
 | `dck console <container> -m logs` | Stream live container logs |
 | `dck console <container> -m ptero` | Pterodactyl mode: real-time log streaming + command input |
+| `dck console <container> -m ptero -s` | Pterodactyl mode with stdin piping for game servers |
 | `dck attach <container>` | Attach to main process with recent logs shown |
 
 ### Other
