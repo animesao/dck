@@ -203,7 +203,8 @@ def ensure_ufw():
         if not _install_ufw():
             return False
     if not _check_ufw_active():
-        _ufw_enable()
+        return False
+    _ufw_allow(22, "tcp")
     return True
 
 

@@ -224,16 +224,11 @@ if [ "$OS" = "Linux" ] && [ "$(id -u)" -eq 0 ]; then
         ok "kernel keyring limits increased (persistent)"
     fi
 
-    # UFW: install if missing
+    # UFW: install if missing, but do NOT auto-enable
     if ! command -v ufw &>/dev/null; then
         case "$PKG_MGR" in
             apt|dnf|pacman|zypper) pkg ufw 2>/dev/null || true ;;
         esac
-    fi
-    if command -v ufw &>/dev/null && ! ufw status 2>/dev/null | grep -q "active"; then
-        ufw allow 22/tcp 2>/dev/null || true
-        ufw --force enable 2>/dev/null || true
-        ok "UFW enabled (SSH port 22 allowed)"
     fi
 fi
 
