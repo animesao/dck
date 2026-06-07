@@ -71,7 +71,6 @@ After=network.target
 [Service]
 Type=oneshot
 ExecStart=%s bootstrap
-RemainAfterExit=yes
 
 [Install]
 WantedBy=multi-user.target
