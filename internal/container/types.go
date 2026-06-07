@@ -8,20 +8,24 @@ import (
 )
 
 type Container struct {
-	ID         string        `json:"id"`
-	Name       string        `json:"name"`
-	ImageName  string        `json:"image_name"`
-	ImageTag   string        `json:"image_tag"`
-	PID        int           `json:"pid"`
-	Status     Status        `json:"status"`
-	Cmd        []string      `json:"cmd"`
-	CreatedAt  time.Time     `json:"created_at"`
-	Ports      []PortMap     `json:"ports,omitempty"`
-	Volumes    []VolumeMount `json:"volumes,omitempty"`
-	Env        []string      `json:"env,omitempty"`
-	Hostname   string        `json:"hostname,omitempty"`
-	Restart    string        `json:"restart,omitempty"`
-	IP         string        `json:"ip,omitempty"`
+	ID           string        `json:"id"`
+	Name         string        `json:"name"`
+	ImageName    string        `json:"image_name"`
+	ImageTag     string        `json:"image_tag"`
+	PID          int           `json:"pid"`
+	Status       Status        `json:"status"`
+	Cmd          []string      `json:"cmd"`
+	CreatedAt    time.Time     `json:"created_at"`
+	Ports        []PortMap     `json:"ports,omitempty"`
+	Volumes      []VolumeMount `json:"volumes,omitempty"`
+	Env          []string      `json:"env,omitempty"`
+	Hostname     string        `json:"hostname,omitempty"`
+	Restart      string        `json:"restart,omitempty"`
+	IP           string        `json:"ip,omitempty"`
+	Detach       bool          `json:"detach,omitempty"`
+	Interactive  bool          `json:"interactive,omitempty"`
+	TTY          bool          `json:"tty,omitempty"`
+	RemoveOnExit bool          `json:"remove_on_exit,omitempty"`
 }
 
 type Status string

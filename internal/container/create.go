@@ -35,18 +35,22 @@ func New(img *image.Image, opts CreateOpts) *Container {
 	}
 
 	return &Container{
-		ID:        id,
-		Name:      name,
-		ImageName: img.Name,
-		ImageTag:  img.Tag,
-		Status:    Created,
-		Cmd:       cmd,
-		CreatedAt: time.Now(),
-		Ports:     opts.Ports,
-		Volumes:   opts.Volumes,
-		Env:       opts.Env,
-		Hostname:  hostname,
-		Restart:   opts.Restart,
+		ID:           id,
+		Name:         name,
+		ImageName:    img.Name,
+		ImageTag:     img.Tag,
+		Status:       Created,
+		Cmd:          cmd,
+		CreatedAt:    time.Now(),
+		Ports:        opts.Ports,
+		Volumes:      opts.Volumes,
+		Env:          opts.Env,
+		Hostname:     hostname,
+		Restart:      opts.Restart,
+		Detach:       opts.Detach,
+		Interactive:  opts.Interactive,
+		TTY:          opts.TTY,
+		RemoveOnExit: opts.RemoveOnExit,
 	}
 }
 
