@@ -35,7 +35,8 @@ pip install .
 | `dck restart <container>` | Restart a container |
 | `dck rm <container> [-f]` | Remove a container |
 | `dck restart-policy <c> <policy>` | Set auto-start policy (always/unless-stopped/on-failure/no) |
-| `dck console <container> [-f] [-a] [-t N]` | Interactive console with logs, live tail, attach |
+| `dck console <container> [-m <mode>] [-t N]` | Pterodactyl-style console: shell, attach, logs, or ptero mode |
+| `dck attach <container>` | Attach to container's main process (Ctrl+P Ctrl+Q to detach) |
 | `dck resources <container> [--ram <size>] [--cpu <cores>] [--restart <policy>]` | Update RAM/CPU limits and restart policy |
 
 ### Startup config (v0.4.0)
@@ -117,6 +118,16 @@ Custom templates are saved to `~/.dck/templates.json` for reuse.
 | `dck ports close <port>` | Close port in firewall |
 
 When creating a container with `dck create`, it will ask to auto-open required ports in the firewall.
+
+### Console (Pterodactyl-style)
+| Command | Description |
+|---------|-------------|
+| `dck console <container>` | Auto mode: shows info/logs, then choose shell/attach/logs/ptero |
+| `dck console <container> -m shell` | Directly enter interactive shell inside container |
+| `dck console <container> -m attach` | Attach to container's main process |
+| `dck console <container> -m logs` | Stream live container logs |
+| `dck console <container> -m ptero` | Pterodactyl mode: type commands, see output in real-time |
+| `dck attach <container>` | Attach to main process (shortcut) |
 
 ### Other
 | Command | Description |

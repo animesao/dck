@@ -19,7 +19,7 @@ from dck.create import create_interactive, show_templates as show_tmpl, run_cust
 from dck.uninstall import uninstall
 from dck.lang import lang_cmd
 from dck.port import ports_cmd
-from dck.exec import exec_container, inspect_container, console_container
+from dck.exec import exec_container, inspect_container, console_container, attach_container
 from dck.update import update as update_dck
 from dck.startup import (
     show_startup_config,
@@ -288,12 +288,27 @@ def inspect_cmd(container):
 
 @cli.command("console")
 @click.argument("container")
-@click.option("--follow", "-f", is_flag=True, help="Follow logs in real-time")
-@click.option("--tail", "-t", type=int, default=30, help="Number of log lines to show")
-@click.option("--attach", "-a", is_flag=True, help="Attach to container's main process")
-def console_cmd(container, follow, tail, attach):
-    """Open interactive console for a container (logs + shell)"""
-    console_container(container, follow, tail, attach)
+@click.option("--mode", "-m", type=click.Choice(["auto", "shell", "attach", "logs", "ptero"]),
+              default="auto", help="Console mode (default: auto)")
+@click.option("--tail", "-t", type=int, default=20, help="Number of log lines to show")
+def console_cmd(container, mode, tail):
+    """Pterodactyl-style console for a container (logs, shell, attach, ptero)
+
+    Modes:
+      auto   - show info/logs, then choose action
+      shell  - directly enter interactive shell
+      attach - attach to container's main process
+      logs   - stream live logs
+      ptero  - Pterodactyl-style: type commands, see output
+    """
+    console_container(container, mode=mode, tail=tail)
+
+
+@cli.command("attach")
+@click.argument("container")
+def attach_cmd(container):
+    """Attach to a container's main process (Ctrl+P Ctrl+Q to detach)"""
+    attach_container(container)
 
 
 @cli.command("run")
