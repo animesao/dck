@@ -284,24 +284,6 @@ class Container:
         except Exception:
             pass
 
-        # Signal parent that namespaces are ready
-        parent_pid = os.getppid()
-        try:
-            os.kill(parent_pid, signal.SIGUSR1)
-        except Exception:
-            pass
-
-        # Wait for parent to set up networking
-        if needs_net and container_ip:
-            while True:
-                try:
-                    os.kill(parent_pid, 0)
-                    break
-                except OSError:
-                    break
-            # Small delay to let parent set up veth
-            time.sleep(0.2)
-
         # Mount loopback
         try:
             subprocess.run(["ip", "link", "set", "lo", "up"],
@@ -566,9 +548,8 @@ class Container:
         return pid
 
     def _setup_container_net(self, pid, container_ip):
-        parent_netns = _netns_inode(os.getpid())
-        parent_self_inode = _netns_inode(os.getpid())
-        if not _wait_for_netns(pid, parent_self_inode, timeout=5):
+        parent_inode = _netns_inode(os.getpid())
+        if not _wait_for_netns(pid, parent_inode, timeout=5):
             return
 
         from dck.network import setup_veth
@@ -673,6 +654,38 @@ class Container:
                 remove_port_forward(h_port, container_ip or "", c_num, proto)
             except Exception:
                 pass
+
+    def start_existing(self):
+        """Restart a previously stopped container."""
+        status = self.get_status()
+        if status == "running":
+            return
+
+        rootfs = self.config.get("rootfs", "")
+        if not rootfs or not Path(rootfs).exists():
+            raise RuntimeError(f"Rootfs not found: {rootfs}")
+
+        merged = _setup_overlayfs(self.id, rootfs)
+        self.config["merged_rootfs"] = str(merged)
+
+        cg_path = _setup_cgroup(self.id, self.config.get("ram"), self.config.get("cpu"))
+        self.config["cgroup"] = str(cg_path)
+
+        log_file = DCK_DIR / "logs" / f"{self.id}.log"
+        _ensure_dir(str(log_file.parent))
+        self.config["log_file"] = str(log_file)
+
+        self.config["status"] = "created"
+        self.config["pid"] = None
+        self.config.pop("network", None)
+        self.save_state()
+
+        self.start()
+
+    def restart(self, timeout=10):
+        """Stop and restart the container."""
+        self.stop(timeout=timeout)
+        self.start_existing()
 
     def remove(self):
         try:
