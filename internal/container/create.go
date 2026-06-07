@@ -72,6 +72,16 @@ func generateID() string {
 	return hex.EncodeToString(b)
 }
 
+func FindByName(name string) *Container {
+	all, _ := List(true)
+	for _, c := range all {
+		if c.Name == name {
+			return c
+		}
+	}
+	return nil
+}
+
 func SetupOverlay(rootfs, upper, work, merged string) error {
 	for _, d := range []string{upper, work, merged} {
 		if err := os.MkdirAll(d, 0755); err != nil {

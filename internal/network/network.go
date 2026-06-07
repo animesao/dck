@@ -77,8 +77,10 @@ func ReleaseIP(ip string) {
 }
 
 func EnsureBridge() error {
-	exec.Command("ip", "link", "add", BridgeName, "type", "bridge").Run()
-	exec.Command("ip", "addr", "add", fmt.Sprintf("%s/24", BridgeIP), "dev", BridgeName).Run()
+	if err := exec.Command("ip", "link", "show", BridgeName).Run(); err != nil {
+		exec.Command("ip", "link", "add", BridgeName, "type", "bridge").Run()
+		exec.Command("ip", "addr", "add", fmt.Sprintf("%s/24", BridgeIP), "dev", BridgeName).Run()
+	}
 	exec.Command("ip", "link", "set", BridgeName, "up").Run()
 
 	if err := exec.Command("iptables", "-t", "nat", "-C", "POSTROUTING",
@@ -87,8 +89,12 @@ func EnsureBridge() error {
 			"-s", BridgeCIDR, "!", "-o", BridgeName, "-j", "MASQUERADE").Run()
 	}
 
-	exec.Command("iptables", "-A", "FORWARD", "-i", BridgeName, "-j", "ACCEPT").Run()
-	exec.Command("iptables", "-A", "FORWARD", "-o", BridgeName, "-j", "ACCEPT").Run()
+	if err := exec.Command("iptables", "-C", "FORWARD", "-i", BridgeName, "-j", "ACCEPT").Run(); err != nil {
+		exec.Command("iptables", "-A", "FORWARD", "-i", BridgeName, "-j", "ACCEPT").Run()
+	}
+	if err := exec.Command("iptables", "-C", "FORWARD", "-o", BridgeName, "-j", "ACCEPT").Run(); err != nil {
+		exec.Command("iptables", "-A", "FORWARD", "-o", BridgeName, "-j", "ACCEPT").Run()
+	}
 	return nil
 }
 

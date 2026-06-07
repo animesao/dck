@@ -70,6 +70,13 @@ func Run(args []string) {
 		env = strings.Split(*envVars, ",")
 	}
 
+	if *name != "" {
+		if existing := container.FindByName(*name); existing != nil {
+			fmt.Fprintf(os.Stderr, "Error: container with name %q already exists (%s)\n", *name, existing.ID[:12])
+			os.Exit(1)
+		}
+	}
+
 	opts := container.CreateOpts{
 		Name:        *name,
 		Cmd:         cmd,

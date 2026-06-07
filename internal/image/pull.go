@@ -46,7 +46,7 @@ func Pull(ref string) (*Image, error) {
 		return nil, fmt.Errorf("auth: %w", err)
 	}
 
-	manifest, err := getManifest(name, tag, token)
+	manifest, err := getResolvedManifest(name, tag, token)
 	if err != nil {
 		return nil, fmt.Errorf("manifest: %w", err)
 	}
@@ -80,7 +80,9 @@ func Pull(ref string) (*Image, error) {
 		}
 	}
 
-	saveConfig(state.ImageDir(name, tag), configData)
+	if err := saveConfig(state.ImageDir(name, tag), configData); err != nil {
+		return nil, fmt.Errorf("save config: %w", err)
+	}
 
 	img := &Image{Name: name, Tag: tag, Digest: manifest.Config.Digest}
 	if err := SaveToStore(img); err != nil {
@@ -89,6 +91,83 @@ func Pull(ref string) (*Image, error) {
 
 	fmt.Printf("Done: %s:%s\n", name, tag)
 	return img, nil
+}
+
+func getResolvedManifest(repo, ref, token string) (*ManifestV2, error) {
+	m, raw, err := fetchRawManifest(repo, ref, token)
+	if err != nil {
+		return nil, err
+	}
+
+	if m.MediaType == "application/vnd.docker.distribution.manifest.list.v2+json" ||
+		m.MediaType == "application/vnd.oci.image.index.v1+json" {
+		var list ManifestList
+		if err := json.Unmarshal(raw, &list); err != nil {
+			return nil, fmt.Errorf("parse manifest list: %w", err)
+		}
+		var targetDigest string
+		for _, entry := range list.Manifests {
+			if entry.Platform.Architecture == "amd64" && entry.Platform.OS == "linux" {
+				targetDigest = entry.Digest
+				break
+			}
+		}
+		if targetDigest == "" && len(list.Manifests) > 0 {
+			targetDigest = list.Manifests[0].Digest
+		}
+		if targetDigest == "" {
+			return nil, fmt.Errorf("no suitable manifest found in list")
+		}
+		fmt.Printf("  Resolved multi-arch to %s\n", shortDigest(targetDigest))
+		return getResolvedManifest(repo, targetDigest, token)
+	}
+
+	if m.SchemaVersion == 0 || len(m.Layers) == 0 {
+		var v2 ManifestV2
+		if err := json.Unmarshal(raw, &v2); err != nil {
+			return nil, fmt.Errorf("parse manifest v2: %w", err)
+		}
+		if v2.SchemaVersion == 0 || len(v2.Layers) == 0 {
+			return nil, fmt.Errorf("unrecognized manifest format (mediaType: %s)", m.MediaType)
+		}
+		return &v2, nil
+	}
+
+	return m, nil
+}
+
+func fetchRawManifest(repo, ref, token string) (*ManifestV2, []byte, error) {
+	u := fmt.Sprintf("%s/v2/%s/manifests/%s", registryURL, repo, ref)
+	req, _ := http.NewRequest("GET", u, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept",
+		"application/vnd.docker.distribution.manifest.v2+json,"+
+			"application/vnd.oci.image.manifest.v1+json,"+
+			"application/vnd.docker.distribution.manifest.list.v2+json,"+
+			"application/vnd.oci.image.index.v1+json")
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
+	}
+
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var m ManifestV2
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return nil, nil, fmt.Errorf("parse manifest: %w", err)
+	}
+
+	return &m, raw, nil
 }
 
 func saveConfig(dir string, data []byte) error {
@@ -127,28 +206,7 @@ func getToken(repo string) (string, error) {
 }
 
 func getManifest(repo, ref, token string) (*ManifestV2, error) {
-	u := fmt.Sprintf("%s/v2/%s/manifests/%s", registryURL, repo, ref)
-	req, _ := http.NewRequest("GET", u, nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Accept", "application/vnd.docker.distribution.manifest.v2+json")
-	req.Header.Set("Accept", "application/vnd.oci.image.manifest.v1+json")
-
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
-	}
-
-	var m ManifestV2
-	if err := json.NewDecoder(resp.Body).Decode(&m); err != nil {
-		return nil, err
-	}
-	return &m, nil
+	return getResolvedManifest(repo, ref, token)
 }
 
 func downloadBlob(repo, digest, token string) ([]byte, error) {
@@ -256,5 +314,3 @@ func shortDigest(d string) string {
 	}
 	return d
 }
-
-

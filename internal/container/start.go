@@ -37,6 +37,15 @@ func (c *Container) Start() error {
 		return fmt.Errorf("overlay: %w", err)
 	}
 
+	for _, vol := range c.Volumes {
+		target := filepath.Join(merged, vol.Target)
+		os.MkdirAll(target, 0755)
+		os.MkdirAll(vol.Source, 0755)
+		if err := exec.Command("mount", "--bind", vol.Source, target).Run(); err != nil {
+			return fmt.Errorf("mount volume %s -> %s: %w", vol.Source, vol.Target, err)
+		}
+	}
+
 	logFile, err := os.Create(c.LogFile())
 	if err != nil {
 		return fmt.Errorf("log: %w", err)
