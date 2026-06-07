@@ -533,6 +533,222 @@ When you run `dck up`:
 | `restart` | Restart policy | `"always"` (default), `"no"`, `"on-failure"` |
 | `hostname` | Container hostname | `"myserver"` |
 
+### Examples with dck.toml
+
+#### Web Server + Database
+
+Put this in your project as `dck.toml`, then run `dck up`:
+
+```toml
+[container.web]
+image = "nginx:alpine"
+ports = ["80:80", "443:80"]
+volumes = ["./html:/usr/share/nginx/html"]
+restart = "always"
+
+[container.db]
+image = "postgres:16"
+ports = ["5432:5432"]
+env = { POSTGRES_PASSWORD = "secret", POSTGRES_DB = "myapp" }
+volumes = ["pg_data:/var/lib/postgresql/data"]
+restart = "always"
+```
+
+```bash
+dck up         # starts both web + db
+curl localhost # → nginx
+```
+
+#### Python Flask App + PostgreSQL
+
+```toml
+[container.app]
+image = "python:3.11-slim"
+command = "python3 app.py"
+ports = ["5000:5000"]
+volumes = ["./app:/app"]
+env = { FLASK_ENV = "production", DATABASE_URL = "postgres://postgres:secret@HOST_IP:5432/myapp" }
+restart = "always"
+
+[container.db]
+image = "postgres:16"
+ports = ["5432:5432"]
+env = { POSTGRES_PASSWORD = "secret", POSTGRES_DB = "myapp" }
+volumes = ["pg_data:/var/lib/postgresql/data"]
+restart = "always"
+```
+
+```bash
+dck up app db         # start app + database
+curl localhost:5000   # → Hello from dck!
+```
+
+#### Minecraft Server (Paper with Plugins)
+
+```toml
+[container.mc]
+image = "itzg/minecraft-server"
+ports = ["25565:25565"]
+volumes = ["mc_data:/data"]
+env = { EULA = "TRUE", TYPE = "PAPER", VERSION = "1.20.4", MEMORY = "4G", DIFFICULTY = "hard" }
+restart = "always"
+```
+
+```bash
+dck up mc
+# connect in Minecraft: server_ip:25565
+dck console mc        # server console
+dck logs -f mc        # follow logs
+```
+
+#### Discord Bot (Python)
+
+```toml
+[container.discord-bot]
+image = "python:3.11-slim"
+command = "python bot.py"
+volumes = ["./discord-bot:/bot"]
+workdir = "/bot"  # will be /bot in container
+env = { DISCORD_TOKEN = "YOUR_BOT_TOKEN" }
+restart = "always"
+```
+
+```bash
+mkdir discord-bot && cd discord-bot
+# create bot.py with your code
+cat > bot.py << 'EOF'
+import discord, os
+from discord.ext import commands
+bot = commands.Bot(command_prefix="!", intents=discord.Intents.default())
+@bot.event
+async def on_ready():
+    print(f"Logged in as {bot.user}")
+@bot.command()
+async def ping(ctx):
+    await ctx.send("Pong!")
+bot.run(os.environ["DISCORD_TOKEN"])
+EOF
+
+# create requirements.txt
+echo "discord.py==2.3.2" > requirements.txt
+```
+
+Configure `dck.toml` above and run:
+
+```bash
+pip download -r discord-bot/requirements.txt -d discord-bot/pkgs  # pre-download deps
+dck up discord-bot
+```
+
+#### Telegram Bot
+
+```toml
+[container.tg-bot]
+image = "python:3.11-slim"
+command = "python bot.py"
+volumes = ["./telegram-bot:/bot"]
+env = { TELEGRAM_TOKEN = "YOUR_BOT_TOKEN" }
+restart = "always"
+```
+
+```bash
+mkdir telegram-bot && cd telegram-bot
+cat > bot.py << 'EOF'
+from telegram import Update
+from telegram.ext import Application, CommandHandler
+import os
+async def start(update, context):
+    await update.message.reply_text("Hello from dck!")
+app = Application.builder().token(os.environ["TELEGRAM_TOKEN"]).build()
+app.add_handler(CommandHandler("start", start))
+app.run_polling()
+EOF
+echo "python-telegram-bot==20.7" > requirements.txt
+```
+
+```bash
+dck up tg-bot
+```
+
+#### Node.js App + Redis
+
+```toml
+[container.app]
+image = "node:20"
+command = "node index.js"
+ports = ["3000:3000"]
+volumes = ["./app:/app"]
+env = { REDIS_URL = "redis://HOST_IP:6379" }
+restart = "always"
+
+[container.redis]
+image = "redis:7"
+command = "redis-server --appendonly yes"
+ports = ["6379:6379"]
+volumes = ["redis_data:/data"]
+restart = "always"
+```
+
+```bash
+dck up
+curl localhost:3000
+```
+
+#### WordPress (Nginx + PHP + MariaDB)
+
+```toml
+[container.db]
+image = "mariadb:10"
+volumes = ["wp_db:/var/lib/mysql"]
+env = { MARIADB_ROOT_PASSWORD = "rootpass", MARIADB_DATABASE = "wordpress", MARIADB_USER = "wp", MARIADB_PASSWORD = "wppass" }
+restart = "always"
+
+[container.php]
+image = "php:8-fpm"
+volumes = ["./wordpress:/var/www/html"]
+restart = "always"
+
+[container.web]
+image = "nginx:alpine"
+ports = ["80:80"]
+volumes = ["./wordpress:/var/www/html", "./nginx.conf:/etc/nginx/conf.d/default.conf"]
+restart = "always"
+```
+
+#### Reverse Proxy (Nginx + multiple apps)
+
+```toml
+[container.proxy]
+image = "nginx:alpine"
+ports = ["80:80", "443:443"]
+volumes = ["./nginx.conf:/etc/nginx/conf.d/default.conf", "./ssl:/etc/nginx/ssl"]
+restart = "always"
+
+[container.app1]
+image = "node:20"
+command = "node server.js"
+volumes = ["./app1:/app"]
+restart = "always"
+
+[container.app2]
+image = "python:3.11-slim"
+command = "python app.py"
+volumes = ["./app2:/app"]
+restart = "always"
+```
+
+All containers start with one command:
+
+```bash
+dck up
+```
+
+And stop with another:
+
+```bash
+dck down
+```
+
 ## Auto-Start on Boot (`dck bootstrap`)
 
 `dck` has no daemon. Instead, it uses a systemd oneshot service
@@ -929,7 +1145,13 @@ cd /tmp/dck && go build -o dck . && install dck /usr/local/bin/
 
 ## Changelog
 
-### v1.2.1 (current)
+### v1.3.0 (current)
+- **`dck.toml` config file** — define all containers in one TOML file
+- **`dck up`** — create/start containers from config (auto-pulls images, creates with --restart always)
+- **`dck down`** — stop/remove containers from config
+- **`dck down -a`** — remove ALL containers (ignore config)
+
+### v1.2.1
 - **KillMode=process** in systemd unit — containers no longer die after bootstrap
 - **DNAT deduplication** — old DNAT rules are removed before adding new ones
 - **PID liveness check** — `dck ps` shows real status instead of stale "running"
@@ -939,7 +1161,6 @@ cd /tmp/dck && go build -o dck . && install dck /usr/local/bin/
 - **`DCK_UPDATE_MIRROR`** — env var for update mirror
 - **Auto UFW ports** — `dck run -p` automatically opens ports in UFW, `dck rm` closes them
 - **Fixed OUTPUT DNAT** — now restricted to local traffic only, won't hijack outbound HTTPS connections (e.g., to GitLab)
-- **`dck.toml` config file** — define all containers in one file, start with `dck up`, stop with `dck down`
 
 ### v1.2.0
 - OUTPUT DNAT rule (localhost → container)
