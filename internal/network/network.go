@@ -139,7 +139,8 @@ func AddPortForwarding(containerIP string, hostPort, containerPort int, protocol
 		"-j", "ACCEPT",
 	}
 	if err := exec.Command("iptables", fwd...).Run(); err != nil {
-		exec.Command("iptables", "-t", "nat", "-D", dnat[3:]...).Run()
+		rollback := append([]string{"-t", "nat", "-D"}, dnat[3:]...)
+		exec.Command("iptables", rollback...).Run()
 		return fmt.Errorf("FORWARD: %w", err)
 	}
 
