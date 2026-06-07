@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"syscall"
 
 	"dck/internal/container"
@@ -44,7 +45,7 @@ func Bootstrap(args []string) {
 		if c.Restart != "always" {
 			continue
 		}
-		if c.Status == container.Running && pidAlive(c.PID) {
+		if c.Status == container.Running && pidAlive(c.PID, c.ID) {
 			fmt.Printf("  %s (%s) already running — restoring port rules\n", c.ID[:12], c.Name)
 			if c.IP != "" {
 				for _, p := range c.Ports {
@@ -67,7 +68,7 @@ func Bootstrap(args []string) {
 	fmt.Printf("Bootstrap complete: %d containers started\n", count)
 }
 
-func pidAlive(pid int) bool {
+func pidAlive(pid int, id string) bool {
 	if pid <= 0 {
 		return false
 	}
@@ -75,7 +76,14 @@ func pidAlive(pid int) bool {
 	if err != nil {
 		return false
 	}
-	return proc.Signal(syscall.Signal(0)) == nil
+	if proc.Signal(syscall.Signal(0)) != nil {
+		return false
+	}
+	cmdline, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(cmdline), id[:12])
 }
 
 func installSystemdService() {

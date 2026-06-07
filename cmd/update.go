@@ -86,29 +86,32 @@ func Update(args []string) {
 }
 
 func fetchLatestVersion() (string, error) {
-	url := repoURL + "/-/raw/main/cmd/root.go"
-	client := &http.Client{Timeout: 10 * time.Second}
+	url := repoURL + "/-/raw/main/VERSION"
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 3 {
+				return fmt.Errorf("too many redirects")
+			}
+			return nil
+		},
+	}
 	resp, err := client.Get(url)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", err
 	}
 
-	for _, line := range strings.Split(string(body), "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, `var version = "`) {
-			v := strings.TrimPrefix(line, `var version = "`)
-			v = strings.TrimSuffix(v, `"`)
-			return v, nil
-		}
-	}
-
-	return "", fmt.Errorf("could not determine latest version")
+	return strings.TrimSpace(string(body)), nil
 }
 
 func compareVersions(a, b string) int {
