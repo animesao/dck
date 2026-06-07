@@ -198,8 +198,11 @@ def list_images():
                 except Exception:
                     pass
             cmd = config.get("config", {}).get("Cmd", [])
+            name = img_dir.name.replace("_", "/")
+            if name.startswith("library/"):
+                name = name[len("library/"):]
             images.append({
-                "name": img_dir.name.replace("_", "/"),
+                "name": name,
                 "tag": tag_dir.name,
                 "cmd": " ".join(cmd) if cmd else "-",
                 "rootfs": str(tag_dir / "rootfs"),
@@ -208,6 +211,8 @@ def list_images():
 
 
 def remove_image(image, tag="latest"):
+    if "/" not in image:
+        image = f"library/{image}"
     img_dir = IMAGES_DIR / image.replace("/", "_") / tag
     if not img_dir.exists():
         return False
