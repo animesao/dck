@@ -62,6 +62,8 @@ def _load_image_config(image, tag):
     if cfg_file.exists():
         try:
             return json.loads(cfg_file.read_text()).get("config", {})
+        except Exception:
+            pass
     return {}
 
 
