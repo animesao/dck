@@ -53,13 +53,11 @@ pip install .
 
 ### How Ptero Console Works
 
-**`dck console -m ptero`** (default mode) — commands are executed inside the container via `docker exec`. Works for: web servers (nginx, apache), databases (postgres, mysql), applications (python, node), scripts (`ls`, `ps`, `cat`, `npm install`, `python manage.py`).
+**`dck console -m ptero`** (exec mode) — commands run via `docker exec`. For: nginx, postgres, python, node, etc.
 
-**`dck console -m ptero -s`** (stdin mode, Pterodactyl-like) — dck opens a **Docker attach socket** directly to the container's main process (PID 1). This is the same mechanism Pterodactyl uses: commands are written to the server's stdin, and all output (logs + command responses) appears in a **single stream** — no RCON noise, no separate command output.
+**`dck console -m ptero -s`** (stdin mode, Pterodactyl-like) — creates a **PTY** (pseudo-terminal) and runs `docker attach` through it. Commands go to the server's stdin, and all output (logs + command responses) appears in a **single stream**. Works with any game server (Minecraft, Terraria, Valheim, CS2) by allocating a TTY and providing true bidirectional console — exactly like Pterodactyl.
 
-For **Minecraft** (`itzg/minecraft-server`): commands like `tps`, `pl`, `list`, `say Hello`, `give`, `stop` go directly to the server console via the attach socket. The server's response appears in the same log stream — exactly like Pterodactyl panel.
-
-If the attach socket is unavailable, dck falls back to `docker exec` mode (with a hint to use `--stdin` for game servers).
+When you create a container from a game server template, `tty: True` is set automatically so stdin works out of the box.
 
 ## Eggs — Pterodactyl-Style (v0.4.0)
 

@@ -7,6 +7,7 @@ TEMPLATES = {
         "ram": "128m",
         "cpu": "0.5",
         "disk": "~100MB",
+        "tty": False,
         "volumes": [
             {"path": "/usr/share/nginx/html", "label": "HTML files", "default": "./html"},
         ],
@@ -15,17 +16,20 @@ TEMPLATES = {
     },
     "minecraft": {
         "name": "Minecraft Server (Java Edition)",
-        "desc": "Minecraft Java Edition dedicated server",
+        "desc": "Minecraft Java Edition dedicated server (Paper 1.21 by default)",
         "image": "itzg/minecraft-server",
         "ports": [{"host": 25565, "container": 25565, "proto": "tcp"}],
         "ram": "2g",
         "cpu": "2",
         "disk": "~1GB",
+        "tty": True,
         "volumes": [
             {"path": "/data", "label": "World data & config", "default": "./minecraft-data"},
         ],
         "env": [
             {"key": "EULA", "default": "TRUE", "desc": "Accept EULA (must be TRUE)"},
+            {"key": "TYPE", "default": "PAPER", "desc": "Server type: VANILLA | PAPER | SPIGOT | FABRIC | FORGE"},
+            {"key": "VERSION", "default": "1.21", "desc": "Minecraft version (e.g. 1.21, 1.20.4, LATEST)"},
             {"key": "DIFFICULTY", "default": "easy", "desc": "peaceful | easy | normal | hard"},
             {"key": "GAMEMODE", "default": "survival", "desc": "survival | creative | adventure"},
             {"key": "MAX_PLAYERS", "default": "20", "desc": "Max players"},
@@ -42,6 +46,7 @@ TEMPLATES = {
         "ram": "1g",
         "cpu": "1",
         "disk": "~500MB",
+        "tty": True,
         "volumes": [
             {"path": "/world", "label": "World files", "default": "./terraria-world"},
         ],
@@ -59,6 +64,7 @@ TEMPLATES = {
         "ram": "2g",
         "cpu": "2",
         "disk": "~2GB",
+        "tty": True,
         "volumes": [
             {"path": "/config", "label": "Server config & worlds", "default": "./valheim-config"},
         ],
@@ -80,6 +86,7 @@ TEMPLATES = {
         "ram": "4g",
         "cpu": "4",
         "disk": "~10GB",
+        "tty": True,
         "volumes": [
             {"path": "/home/steam/cs2-dedicated", "label": "Game files", "default": "./cs2-files"},
         ],
@@ -97,6 +104,7 @@ TEMPLATES = {
         "ram": "4g",
         "cpu": "4",
         "disk": "~5GB",
+        "tty": True,
         "volumes": [
             {"path": "/config", "label": "Server config", "default": "./satisfactory-config"},
         ],

@@ -4,6 +4,9 @@ import os
 import threading
 import time
 import select as select_module
+import pty
+import re
+import signal
 
 from rich.console import Console
 from rich.table import Table
@@ -17,6 +20,8 @@ from dck.client import get_client
 from dck.i18n import t
 
 console = Console()
+
+ANSI_RE = re.compile(r'\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x1b]*\x1b\\')
 
 
 def _pick_shell(container_name):
@@ -284,13 +289,12 @@ def _exec_command(container_name, cmd):
 
 
 def _ptero_console(container, container_name, tail=30, use_stdin=False):
-    """Pterodactyl-style real-time console with log streaming + command input.
+    """Pterodactyl-style real-time console.
 
-    stdin mode: uses Docker attach socket for true bidirectional
-    communication with PID 1 — exactly like Pterodactyl panel.
+    stdin mode: creates a PTY and runs `docker attach` for true
+    bidirectional communication with PID 1 — exactly like Pterodactyl.
 
-    exec mode: uses docker exec for containers without a long-running
-    process (web apps, DBs, scripts).
+    exec mode: uses docker exec for apps/scripts.
     """
     import shlex
 
@@ -298,114 +302,128 @@ def _ptero_console(container, container_name, tail=30, use_stdin=False):
         console.print("[yellow]Container must be running for Pterodactyl console.[/yellow]")
         return
 
-    ws = None
-    attach_mode = False
-
     if use_stdin:
-        console.print()
-        console.print(Panel.fit(
-            "[bold cyan]Pterodactyl Console[/bold cyan] — real-time server console\n"
-            "Logs and command output appear in the same stream.\n"
-            "Type [bold]exit[/bold]/[bold]quit[/bold] or Ctrl+C to leave",
-            border_style="cyan",
-        ))
-        # Try to establish Docker attach socket (Pterodactyl-like)
-        try:
-            api = container.client.api
-            sock = api.attach_socket(
-                container_name,
-                params={'stdin': 1, 'stdout': 1, 'stderr': 1, 'stream': 1}
-            )
-            raw = getattr(sock, '_sock', sock)
-            raw.setblocking(False)
-            ws = raw
-            attach_mode = True
-            console.print("[dim]Connected to container console (attach socket)[/dim]")
-        except Exception as e:
-            console.print(f"[yellow]Attach socket unavailable, falling back to logs+exec mode[/yellow]")
-    else:
-        console.print(f"\n[bold cyan]══ Pterodactyl Console: {container_name} (docker exec) ══[/bold cyan]")
-        console.print("[dim]Logs stream in real-time. Commands via [bold]docker exec[/bold][/dim]")
-        console.print("[dim]Type [bold]exit[/bold]/[bold]quit[/bold] or Ctrl+C to leave[/dim]")
+        _ptero_console_pty(container, container_name, tail)
+        return
 
-    # Show recent logs
+    console.print(f"\n[bold cyan]══ Pterodactyl Console: {container_name} (docker exec) ══[/bold cyan]")
+    console.print("[dim]Logs stream in real-time. Commands via [bold]docker exec[/bold][/dim]")
+    console.print("[dim]Type [bold]exit[/bold]/[bold]quit[/bold] or Ctrl+C to leave[/dim]")
+
     try:
         logs = container.logs(tail=tail).decode("utf-8", errors="replace").strip()
         if logs:
             console.print()
             for line in logs.split("\n")[-15:]:
-                console.print(f"  {escape(line)}")
+                if line.strip():
+                    console.print(f"  {escape(line)}")
     except Exception:
         pass
 
-    if attach_mode:
-        log_queue = []
-        stop_event = threading.Event()
+    log_queue = []
+    stop_event = threading.Event()
+    log_thread = threading.Thread(
+        target=_live_log_stream,
+        args=(container_name, stop_event, log_queue),
+        daemon=True,
+        name="log-stream",
+    )
+    log_thread.start()
 
-        # Thread: read from attach socket and push to log queue
-        def _attach_reader():
-            buf = b""
-            try:
-                while not stop_event.is_set():
-                    r, _, _ = select_module.select([ws], [], [], 0.05)
-                    if not r:
-                        continue
-                    chunk = docker_socket.read(ws)
-                    if not chunk:
-                        break
-                    buf += chunk
-                    while b"\n" in buf:
-                        line, buf = buf.split(b"\n", 1)
-                        text = line.decode("utf-8", errors="replace").rstrip("\r")
-                        if text:
-                            log_queue.append(text)
-            except Exception:
-                pass
-            finally:
-                if buf:
-                    text = buf.decode("utf-8", errors="replace").rstrip("\r")
+    while True:
+        _drain_logs(log_queue)
+        try:
+            cmd = input("\n▶ ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
+        if not cmd:
+            continue
+        if cmd.lower() in ("exit", "quit"):
+            break
+        _exec_command(container_name, cmd)
+
+    stop_event.set()
+    log_thread.join(timeout=2)
+    console.print(f"\n[bold yellow]── Console session ended ──[/bold yellow]")
+
+
+def _ptero_console_pty(container, container_name, tail=30):
+    """Pterodactyl console via PTY + docker attach (true bidirectional)."""
+    console.print()
+    console.print(Panel.fit(
+        "[bold cyan]Pterodactyl Console[/bold cyan] — real-time server console\n"
+        "Logs and command output appear in the same stream.\n"
+        "Type [bold]exit[/bold]/[bold]quit[/bold] or Ctrl+C to leave",
+        border_style="cyan",
+    ))
+
+    try:
+        logs = container.logs(tail=tail).decode("utf-8", errors="replace").strip()
+        if logs:
+            console.print()
+            for line in logs.split("\n")[-15:]:
+                if line.strip():
+                    console.print(f"  {escape(line)}")
+    except Exception:
+        pass
+
+    master_fd, slave_fd = pty.openpty()
+
+    try:
+        proc = subprocess.Popen(
+            ["docker", "attach", container_name],
+            stdin=slave_fd,
+            stdout=slave_fd,
+            stderr=subprocess.STDOUT,
+            close_fds=True,
+            preexec_fn=lambda: signal.signal(signal.SIGINT, signal.SIG_IGN),
+        )
+    except Exception as e:
+        os.close(master_fd)
+        os.close(slave_fd)
+        console.print(f"[red]Failed to attach: {e}[/red]")
+        return
+
+    os.close(slave_fd)
+
+    log_queue = []
+    stop_event = threading.Event()
+
+    def _reader():
+        buf = b""
+        try:
+            while not stop_event.is_set():
+                r, _, _ = select_module.select([master_fd], [], [], 0.05)
+                if not r:
+                    continue
+                chunk = os.read(master_fd, 65536)
+                if not chunk:
+                    break
+                buf += chunk
+                while b"\n" in buf:
+                    line, buf = buf.split(b"\n", 1)
+                    text = line.decode("utf-8", errors="replace").rstrip("\r")
+                    text = ANSI_RE.sub("", text)
                     if text:
                         log_queue.append(text)
-
-        reader = threading.Thread(target=_attach_reader, daemon=True, name="attach-reader")
-        reader.start()
-
-        while True:
-            _drain_logs(log_queue)
-
-            try:
-                cmd = input("\n▶ ").strip()
-            except (EOFError, KeyboardInterrupt):
-                print()
-                break
-
-            if not cmd:
-                continue
-            if cmd.lower() in ("exit", "quit"):
-                break
-
-            try:
-                ws.sendall((cmd + "\n").encode("utf-8"))
-            except Exception as e:
-                console.print(f"[dim]Send error: {e}[/dim]")
-
-        stop_event.set()
-        reader.join(timeout=2)
-        try:
-            ws.close()
         except Exception:
             pass
-    else:
-        log_queue = []
-        stop_event = threading.Event()
-        log_thread = threading.Thread(
-            target=_live_log_stream,
-            args=(container_name, stop_event, log_queue),
-            daemon=True,
-            name="log-stream",
-        )
-        log_thread.start()
+        finally:
+            if buf:
+                text = buf.decode("utf-8", errors="replace").rstrip("\r")
+                text = ANSI_RE.sub("", text)
+                if text:
+                    log_queue.append(text)
+            try:
+                os.close(master_fd)
+            except Exception:
+                pass
 
+    reader = threading.Thread(target=_reader, daemon=True, name="pty-reader")
+    reader.start()
+
+    try:
         while True:
             _drain_logs(log_queue)
 
@@ -420,10 +438,37 @@ def _ptero_console(container, container_name, tail=30, use_stdin=False):
             if cmd.lower() in ("exit", "quit"):
                 break
 
-            _exec_command(container_name, cmd)
-
+            try:
+                os.write(master_fd, (cmd + "\n").encode())
+            except OSError:
+                console.print("[red]Connection to container lost[/red]")
+                break
+            except Exception as e:
+                console.print(f"[red]Error: {e}[/red]")
+                break
+    finally:
         stop_event.set()
-        log_thread.join(timeout=2)
+        reader.join(timeout=2)
+
+        try:
+            os.write(master_fd, b"\x03")
+        except Exception:
+            pass
+
+        try:
+            proc.terminate()
+            proc.wait(timeout=3)
+        except Exception:
+            try:
+                proc.kill()
+                proc.wait(timeout=2)
+            except Exception:
+                pass
+
+        try:
+            os.close(master_fd)
+        except Exception:
+            pass
 
     console.print(f"\n[bold yellow]── Console session ended ──[/bold yellow]")
 

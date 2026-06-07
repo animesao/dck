@@ -403,6 +403,11 @@ def build_and_start(template_key, template, name, ports, env_vars, volumes, ram,
         elif stype == "entrypoint":
             create_kwargs["entrypoint"] = svalue
 
+    # Allocate TTY for game servers so console stdin works
+    if template.get("tty"):
+        create_kwargs["tty"] = True
+        create_kwargs["stdin_open"] = True
+
     with console.status(f"{t('pulling')} [cyan]{escape(image)}[/cyan]..."):
         try:
             client.images.pull(image)
