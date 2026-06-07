@@ -74,7 +74,7 @@ Usage:
   dck attach <container>       Attach to container's main process
   dck images                   List images
   dck rmi <image>[:tag]        Remove image
-  dck bootstrap                Start all containers with --restart always
+  dck bootstrap [--install]    Start all containers (--install = add systemd service)
   dck update [--check]         Check for updates and self-update
   dck --help                   Show this help
   dck version, --version       Show version

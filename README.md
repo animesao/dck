@@ -731,31 +731,26 @@ rm -rf ~/.dck
 ## Auto-start (systemd + bootstrap)
 
 `dck` не имеет демона. Чтобы контейнеры автоматически запускались при загрузке
-сервера — используй `dck bootstrap` через systemd:
+сервера:
 
 ```bash
-# Создать systemd сервис
-cat > /etc/systemd/system/dck-bootstrap.service << 'EOF'
-[Unit]
-Description=dck containers bootstrap
-After=network.target
+# Установить systemd сервис (автоматически)
+dck bootstrap --install
 
-[Service]
-Type=oneshot
-ExecStart=/usr/local/bin/dck bootstrap
-RemainAfterExit=yes
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-systemctl daemon-reload
-systemctl enable --now dck-bootstrap
+# Запустить контейнеры сейчас
+dck bootstrap
 ```
 
-`dck bootstrap` находит все контейнеры с `--restart always` и запускает их.
-При следующей перезагрузке сервера systemd вызовет `dck bootstrap`,
-и контейнеры поднимутся автоматически.
+После перезагрузки сервера systemd сам вызовет `dck bootstrap`,
+и контейнеры с `--restart always` поднимутся автоматически.
+
+**Флаги:**
+
+| Флаг | Описание |
+|------|----------|
+| `--install` / `-i` | Создать и включить systemd сервис `dck-bootstrap` |
+| `--remove` / `-r` | Удалить systemd сервис |
+| *(без флагов)* | Запустить все контейнеры с `--restart always` |
 
 Если нужен перезапуск при падении — можно создать отдельный systemd unit
 на конкретный контейнер:
