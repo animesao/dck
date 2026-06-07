@@ -9,7 +9,6 @@ from rich.table import Table
 from rich.panel import Panel
 from rich.prompt import Prompt, Confirm
 from rich.markup import escape
-from rich.layout import Layout
 from docker.errors import APIError
 
 from dck.client import get_client
@@ -25,6 +24,7 @@ from dck.startup import (
 console = Console()
 DCK_DIR = Path.home() / ".dck"
 TEMPLATES_FILE = DCK_DIR / "templates.json"
+PAPER_VERSIONS_FILE = Path(__file__).parent / "paper_versions.json"
 
 
 def _get_server_ip():
@@ -55,6 +55,73 @@ def _get_server_ip():
     except Exception:
         pass
     return None
+
+
+def _load_paper_versions():
+    """Load Paper versions from bundled JSON."""
+    try:
+        data = json.loads(PAPER_VERSIONS_FILE.read_text())
+        return data.get("latest"), data.get("versions", {})
+    except Exception:
+        return None, {}
+
+
+def _ask_paper_version():
+    """Show Paper version picker, return (version_str, download_url) or None."""
+    latest, versions = _load_paper_versions()
+    if not versions:
+        return None
+
+    stable = {k: v for k, v in versions.items() if "-" not in k}
+    stable_sorted = sorted(stable.keys(), key=lambda x: [int(p) if p.isdigit() else p for p in x.split(".")], reverse=True)
+
+    console.print(f"\n[bold]Paper versions[/bold]  latest: [cyan]{latest}[/cyan]")
+    console.print("[dim]Select version or leave empty for latest[/dim]\n")
+
+    table = Table(border_style="cyan", box=None, show_header=False, padding=(0, 2))
+    table.add_column("#", style="bold", width=3)
+    table.add_column("Version")
+    table.add_column("Build")
+
+    recent = stable_sorted[:16]
+    for i, ver in enumerate(recent, 1):
+        url = stable[ver]
+        build = url.split("-")[-1].replace(".jar", "")
+        label = f"[green]{ver}[/green]" if ver == latest else ver
+        table.add_row(str(i), label, build)
+
+    console.print(table)
+
+    if len(stable) > 16:
+        console.print(f"  [dim]... and {len(stable) - 16} older versions (edit run.sh to use them)[/dim]")
+
+    choice = Prompt.ask("  Paper version", default=str(recent.index(latest) + 1) if latest in recent else "1")
+    try:
+        idx = int(choice) - 1
+        if 0 <= idx < len(recent):
+            ver = recent[idx]
+            return ver, stable[ver]
+    except ValueError:
+        pass
+    if choice in versions:
+        return choice, versions[choice]
+    if not choice and latest:
+        return latest, versions.get(latest)
+    return None
+
+
+def _download_jar(url, dest_path):
+    """Download a jar file from URL to destination path."""
+    import urllib.request
+    console.print(f"  [dim]Downloading Paper...[/dim]")
+    try:
+        urllib.request.urlretrieve(url, str(dest_path))
+        size = dest_path.stat().st_size
+        console.print(f"  [green]✓[/green] Downloaded [bold]{size // 1024 // 1024}MB[/bold]")
+        return True
+    except Exception as e:
+        console.print(f"  [red]Download failed: {e}[/red]")
+        return False
 
 
 def load_user_templates():
@@ -428,7 +495,7 @@ def _save_launcher_script(container_name, docker_run_cmd):
     console.print(f"  [green]✓[/green] Launcher saved: [bold]{script_path}[/bold]")
 
 
-def _show_creation_summary(template_key, name, ports, env_vars, volumes, ram, cpu):
+def _show_creation_summary(template_key, name, ports, env_vars, volumes, ram, cpu, paper_version=None):
     """Show a clean summary BEFORE creating the container."""
     ip = _get_server_ip()
     panel_lines = []
@@ -438,6 +505,8 @@ def _show_creation_summary(template_key, name, ports, env_vars, volumes, ram, cp
         panel_lines.append(f"[bold]RAM:[/bold] {escape(ram)}")
     if cpu:
         panel_lines.append(f"[bold]CPU:[/bold] {escape(cpu)} cores")
+    if paper_version:
+        panel_lines.append(f"[bold]Paper:[/bold] [cyan]{escape(paper_version)}[/cyan]")
     for c_port, h_port in (ports or {}).items():
         proto = c_port.split("/")[1] if "/" in c_port else "tcp"
         c_num = c_port.split("/")[0]
@@ -491,7 +560,7 @@ def _show_container_summary(container, container_name, image, ports, volumes, en
     console.print(table)
 
 
-def build_and_start(template_key, template, name, ports, env_vars, volumes, ram, cpu, start_now=True, startup_cfg=None):
+def build_and_start(template_key, template, name, ports, env_vars, volumes, ram, cpu, start_now=True, startup_cfg=None, paper_info=None):
     client = get_client()
 
     is_game_server = template.get("tty", False)
@@ -529,6 +598,13 @@ def build_and_start(template_key, template, name, ports, env_vars, volumes, ram,
         except APIError as e:
             console.print(f"[red]{t('error')}:[/red] {e}")
             return None
+
+    # Download Paper jar if user selected a version
+    if paper_info and volumes:
+        paper_version, paper_url = paper_info
+        vol_path = list(volumes.keys())[0]
+        jar_dest = Path(vol_path) / "server.jar"
+        _download_jar(paper_url, jar_dest)
 
     container_name = name or f"{template_key}-{os.urandom(4).hex()}"
 
@@ -570,7 +646,10 @@ def build_and_start(template_key, template, name, ports, env_vars, volumes, ram,
         container.reload()
         console.print(f"  [green]✓[/green] Launcher: [bold]{vol_path}/run.sh[/bold]")
         console.print(f"  [dim]Server folder: [bold]{vol_path}[/bold][/dim]")
-        console.print(f"  [dim]1. Put your [bold]server.jar[/bold] in that folder[/dim]")
+        if paper_info:
+            console.print(f"  [green]✓[/green] Paper jar downloaded: [bold]{vol_path}/server.jar[/bold]")
+        else:
+            console.print(f"  [dim]1. Put your [bold]server.jar[/bold] in that folder[/dim]")
         console.print(f"  [dim]2. Edit [bold]run.sh[/bold] if needed[/dim]")
         console.print(f"  [dim]3. Run: [bold]{vol_path}/run.sh[/bold][/dim]")
         open_container_ports(container_name, ports)
@@ -712,6 +791,13 @@ def create_interactive(template_name, name, ram, cpu, port, env, volume, list_on
     volumes = ask_volumes(tpl, template_key)
     ram_cfg, cpu_cfg = ask_resources(tpl)
 
+    # Paper version picker for Minecraft
+    paper_info = None
+    if template_key == "minecraft":
+        result = _ask_paper_version()
+        if result:
+            paper_info = result
+
     startup_cfg = startup_prompt()
 
     is_user_template = template_name.startswith("user:")
@@ -732,13 +818,13 @@ def create_interactive(template_name, name, ram, cpu, port, env, volume, list_on
     name = Prompt.ask("  Container name", default=suggested_name)
 
     # Pre-creation summary
-    _show_creation_summary(template_key, name, ports, env_vars, volumes, ram_cfg, cpu_cfg)
+    _show_creation_summary(template_key, name, ports, env_vars, volumes, ram_cfg, cpu_cfg, paper_version=paper_info[0] if paper_info else None)
 
     if not Confirm.ask("\n[bold]Build this container?[/bold]", default=True):
         console.print("[yellow]Cancelled[/yellow]")
         return
 
-    build_and_start(template_key, tpl, name, ports, env_vars, volumes, ram_cfg, cpu_cfg, startup_cfg=startup_cfg)
+    build_and_start(template_key, tpl, name, ports, env_vars, volumes, ram_cfg, cpu_cfg, startup_cfg=startup_cfg, paper_info=paper_info)
 
 
 def run_custom(image, name, ram, cpu):
