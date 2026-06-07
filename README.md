@@ -210,3 +210,7 @@ All local configuration is stored in `~/.dck/`:
 - `~/.dck/lang` — language setting
 - `~/.dck/startup.json` — per-container startup configs
 - `~/.dck/templates.json` — custom templates
+
+## License
+
+MIT
