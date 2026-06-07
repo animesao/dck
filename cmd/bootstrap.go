@@ -9,11 +9,6 @@ import (
 	"dck/internal/network"
 )
 
-func vethExists(containerID string) bool {
-	return exec.Command("ip", "link", "show",
-		fmt.Sprintf("ve%s", containerID[:8])).Run() == nil
-}
-
 func Bootstrap(args []string) {
 	install := false
 	remove := false
@@ -46,10 +41,6 @@ func Bootstrap(args []string) {
 	count := 0
 	for _, c := range all {
 		if c.Restart != "always" {
-			continue
-		}
-		if c.Status == container.Running && vethExists(c.ID) {
-			fmt.Printf("  %s (%s) already running\n", c.ID[:12], c.Name)
 			continue
 		}
 		fmt.Printf("  Starting %s (%s)... ", c.ID[:12], c.Name)
