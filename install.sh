@@ -29,14 +29,19 @@ fi
 [ "$OS" = "Darwin" ] && PKG_MGR="brew"
 [ "$(id -u)" -ne 0 ] && command -v sudo &>/dev/null && SUDO="sudo"
 
-pkg() {
-    case "$PKG_MGR" in
-        apt)    $SUDO apt-get install --no-install-recommends -y "$@" ;;
-        dnf)    $SUDO dnf install -y "$@" ;;
-        pacman) $SUDO pacman -S --noconfirm "$@" ;;
-        zypper) $SUDO zypper install -y "$@" ;;
-        brew)   brew install "$@" ;;
-    esac
+pkg()  { case "$PKG_MGR" in
+    apt)    $SUDO apt-get install --no-install-recommends -y "$@" ;;
+    dnf)    $SUDO dnf install -y "$@" ;;
+    pacman) $SUDO pacman -S --noconfirm "$@" ;;
+    zypper) $SUDO zypper install -y "$@" ;;
+    brew)   brew install "$@" ;;
+esac; }
+
+pkg_try() {
+    for pkg_name in "$@"; do
+        pkg "$pkg_name" 2>/dev/null && return 0 || true
+    done
+    return 1
 }
 
 # ── Python ────────────────────────────────────────────────────────
@@ -55,29 +60,23 @@ done
 if [ -z "$PYTHON" ]; then
     warn "Python 3.10+ not found — installing"
     case "$PKG_MGR" in
-        apt|dnf|zypper) pkg python3 python3-pip python3-venv ;;
-        pacman) pkg python python-pip ;;
-        brew)   pkg python@3.12 ;;
+        apt|dnf|zypper) pkg python3 python3-pip python3-venv 2>/dev/null || true ;;
+        pacman) pkg python python-pip 2>/dev/null || true ;;
+        brew)   pkg python@3.12 2>/dev/null || true ;;
     esac
     PYTHON="python3"
 fi
 ok "$($PYTHON --version 2>&1)"
 
 # ── runtime deps ──────────────────────────────────────────────────
-MISSING=""
 for cmd in ip iptables nsenter; do
-    command -v "$cmd" &>/dev/null || MISSING="$MISSING $cmd"
-done
-if [ -n "$MISSING" ]; then
-    case "$PKG_MGR" in
-        apt)    pkg iproute2 iptables util-linux ;;
-        dnf)    pkg iproute iptables util-linux ;;
-        pacman) pkg iproute2 iptables util-linux ;;
-        zypper) pkg iproute2 iptables util-linux ;;
-        brew)   warn "Install manually: iproute2mac iptables util-linux" ;;
-    esac
-fi
-for cmd in ip iptables nsenter; do
+    if ! command -v "$cmd" &>/dev/null; then
+        case "$cmd" in
+            ip)       pkg_try iproute2 iproute || true ;;
+            iptables) pkg_try iptables iptables-legacy || true ;;
+            nsenter)  pkg_try util-linux coreutils || true ;;
+        esac
+    fi
     command -v "$cmd" &>/dev/null && ok "$cmd" || warn "missing: $cmd"
 done
 
@@ -95,7 +94,6 @@ if $PYTHON -m pip install --quiet "git+${REPO}" 2>/dev/null; then
 elif $PYTHON -m pip install --quiet --no-build-isolation "git+${REPO}" 2>/dev/null; then
     ok "installed from git (no build isolation)"
 else
-    # fallback: clone and install
     TMP=$(mktemp -d)
     git clone --depth 1 "$REPO" "$TMP/$APP"
     $PYTHON -m pip install "$TMP/$APP" || $PYTHON -m pip install --no-build-isolation "$TMP/$APP"
