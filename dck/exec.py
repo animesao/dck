@@ -21,14 +21,15 @@ def _pick_shell(container_name):
         container = client.containers.get(container_name)
     except NotFound:
         return "sh"
-    for shell in ["bash", "sh", "ash", "powershell"]:
+    for shell in ["bash", "sh", "ash"]:
         r = subprocess.run(
             ["docker", "exec", container_name, "sh", "-c",
-             f"command -v {shell} >/dev/null 2>&1 && echo found"],
+             f"command -v {shell} >/dev/null 2>&1 && echo {shell}"],
             capture_output=True, timeout=5,
         )
-        if "found" in r.stdout.decode():
-            return shell
+        out = r.stdout.decode().strip()
+        if out:
+            return out
     return "sh"
 
 
@@ -149,24 +150,64 @@ def _show_recent_logs(container, tail=20):
     console.print()
 
 
-def _attach_and_stream(container_name, show_logs_first=True):
-    if show_logs_first:
-        client = get_client()
-        try:
-            container = client.containers.get(container_name)
-            _show_recent_logs(container, 15)
-        except Exception:
-            pass
-
+def _attach_and_reconnect(container_name):
+    """Attach to container with auto-reconnect on restart and clean signal handling."""
     console.print(f"[bold cyan]── Attached to {container_name} ──[/bold cyan]")
     console.print("[dim]Type your commands directly into the container's console[/dim]")
     console.print("[dim]Detach: Ctrl+P Ctrl+Q  |  Exit: Ctrl+C[/dim]\n")
-    try:
-        subprocess.run(["docker", "attach", container_name])
-    except KeyboardInterrupt:
-        pass
-    console.print(f"\n[bold yellow]── Detached from {container_name} ──[/bold yellow]")
-    console.print(f"[dim]dck logs {container_name} -f  |  dck exec {container_name}  |  dck stop {container_name}[/dim]")
+
+    client = get_client()
+
+    while True:
+        proc = subprocess.Popen(
+            ["docker", "attach", "--sig-proxy=false", container_name],
+            stdin=sys.stdin,
+            stdout=sys.stdout,
+            stderr=subprocess.STDOUT,
+        )
+
+        try:
+            proc.wait()
+        except KeyboardInterrupt:
+            try:
+                proc.terminate()
+                proc.wait(timeout=3)
+            except Exception:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+
+            console.print(f"\n[yellow]Exit console? (y/n): [/yellow]", end="", flush=True)
+            try:
+                response = sys.stdin.readline().strip().lower()
+            except Exception:
+                response = "y"
+            if response == "y":
+                break
+            continue
+
+        console.print(f"\n[yellow]Disconnected, waiting for container to restart...[/yellow]")
+
+        reconnected = False
+        for _ in range(300):
+            try:
+                container = client.containers.get(container_name)
+                container.reload()
+                if container.status == "running":
+                    reconnected = True
+                    break
+            except Exception:
+                pass
+            time.sleep(1)
+
+        if not reconnected:
+            console.print(f"[red]Container did not restart[/red]")
+            break
+
+        console.print(f"[green]Reconnecting...[/green]")
+
+    console.print(f"\n[bold yellow]── Console session ended ──[/bold yellow]")
 
 
 def _enter_interactive_shell(container_name):
@@ -198,94 +239,6 @@ def _follow_logs(container_name, tail=30):
     console.print(f"\n[bold yellow]── Log streaming stopped ──[/bold yellow]")
 
 
-def _start_and_shell(container_name):
-    client = get_client()
-    try:
-        container = client.containers.get(container_name)
-    except NotFound:
-        console.print(f"[red]{t('error')}:[/red] {t('container.notfound', name=container_name)}")
-        return
-
-    console.print(f"[yellow]Container '{container_name}' is not running.[/yellow]")
-    if container.attrs.get("State", {}).get("ExitCode"):
-        console.print(f"  Exit code: {container.attrs['State']['ExitCode']}")
-
-    if Confirm.ask("Start container and enter shell?", default=False):
-        try:
-            container.start()
-            time.sleep(1)
-            container.reload()
-            if container.status == "running":
-                _show_console_header(container)
-                _enter_interactive_shell(container_name)
-            else:
-                logs = container.logs(tail=10).decode("utf-8", errors="replace").strip()
-                console.print(f"[red]Container exited again ({container.status})[/red]")
-                if logs:
-                    console.print(f"[dim]{logs}[/dim]")
-        except Exception as e:
-            console.print(f"[red]{t('error')}:[/red] {e}")
-
-
-
-def _ptero_console_direct(container_name):
-    console.print(f"[dim]{t('console.direct.attaching')}[/dim]")
-    console.print(f"[dim]{t('console.direct.attaching')}[/dim]")
-
-    client = get_client()
-
-    while True:
-        proc = subprocess.Popen(
-            ["docker", "attach", "--sig-proxy=false", container_name],
-            stdin=sys.stdin,
-            stdout=sys.stdout,
-            stderr=subprocess.STDOUT,
-        )
-
-        try:
-            proc.wait()
-        except KeyboardInterrupt:
-            try:
-                proc.terminate()
-                proc.wait(timeout=3)
-            except Exception:
-                try:
-                    proc.kill()
-                except Exception:
-                    pass
-
-            console.print(f"\n[yellow]{t('console.direct.exit')}[/yellow]", end="", flush=True)
-            try:
-                response = sys.stdin.readline().strip().lower()
-            except Exception:
-                response = "y"
-            if response == "y":
-                break
-            continue
-
-        console.print(f"\n[yellow]{t('console.direct.reconnect')}[/yellow]")
-
-        reconnected = False
-        for _ in range(300):
-            try:
-                container = client.containers.get(container_name)
-                container.reload()
-                if container.status == "running":
-                    reconnected = True
-                    break
-            except Exception:
-                pass
-            time.sleep(1)
-
-        if not reconnected:
-            console.print(f"[red]{t('console.direct.done')}[/red]")
-            break
-
-        console.print(f"[green]{t('console.direct.reconnecting')}[/green]")
-
-    console.print(f"\n[bold yellow]── {t('console.direct.ended')} ──[/bold yellow]")
-
-
 def console_container(container_name, mode="attach", tail=20):
     """Game console for a container.
 
@@ -307,42 +260,34 @@ def console_container(container_name, mode="attach", tail=20):
 
     if mode == "shell":
         if container.status != "running":
-            _start_and_shell(container_name)
+            console.print("[yellow]Container is not running.[/yellow]")
+            if Confirm.ask("  Start it and enter shell?", default=False):
+                try:
+                    container.start()
+                    time.sleep(1)
+                    container.reload()
+                except Exception as e:
+                    console.print(f"[red]{t('error')}:[/red] {e}")
+                    return
+                _show_console_header(container)
+                _enter_interactive_shell(container_name)
             return
         _enter_interactive_shell(container_name)
         return
 
-    # Default: real-time docker attach
-    _show_recent_logs(container, 10)
-    if container.status != "running":
-        console.print("[yellow]Container is not running.[/yellow]")
-        if Confirm.ask("  Start it and enter console?", default=False):
-            try:
-                container.start()
-                time.sleep(1)
-                container.reload()
-            except Exception as e:
-                console.print(f"[red]{t('error')}:[/red] {e}")
+    if mode == "attach":
+        _show_recent_logs(container, 10)
+        if container.status != "running":
+            console.print("[yellow]Container is not running.[/yellow]")
+            if Confirm.ask("  Start it and enter console?", default=False):
+                try:
+                    container.start()
+                    time.sleep(1)
+                    container.reload()
+                except Exception as e:
+                    console.print(f"[red]{t('error')}:[/red] {e}")
+                    return
+                _show_console_header(container)
+            else:
                 return
-            _show_console_header(container)
-        else:
-            return
-
-    _ptero_console_direct(container_name)
-
-
-def attach_container(container_name):
-    """Attach to a container's main process with logs shown first."""
-    client = get_client()
-    try:
-        container = client.containers.get(container_name)
-    except NotFound:
-        console.print(f"[red]{t('error')}:[/red] {t('container.notfound', name=container_name)}")
-        return
-
-    if container.status != "running":
-        console.print(f"[yellow]Container '{container_name}' is not running.[/yellow]")
-        return
-
-    _show_console_header(container)
-    _attach_and_stream(container_name, show_logs_first=True)
+        _attach_and_reconnect(container_name)

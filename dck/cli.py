@@ -15,11 +15,11 @@ from dck.image import list_images, pull_image, remove_image, export_image, impor
 from dck.compose import compose_up, compose_down, compose_ps, compose_logs
 from dck.stats import stats
 from dck.doctor import doctor
-from dck.create import create_interactive, show_templates as show_tmpl, run_custom
+from dck.create import create_interactive, run_custom
 from dck.uninstall import uninstall
 from dck.lang import lang_cmd
 from dck.port import ports_cmd
-from dck.exec import exec_container, inspect_container, console_container, attach_container
+from dck.exec import exec_container, inspect_container, console_container
 from dck.update import update as update_dck
 from dck.startup import (
     show_startup_config,
@@ -29,7 +29,6 @@ from dck.startup import (
     clear_startup_config,
 )
 from dck.manifest import deploy_manifest, destroy_manifest, show_manifest
-from dck.eggs import show_eggs, create_from_egg
 
 console = Console()
 
@@ -222,23 +221,17 @@ def doctor_cmd():
 
 
 @cli.command("create")
-@click.argument("template_name", required=False)
+@click.option("--image", "-i", help="Docker image (default: nginx:alpine)")
 @click.option("--name", "-n", help="Container name")
 @click.option("--ram", help="Memory limit (e.g. 512m, 2g)")
 @click.option("--cpu", help="CPU limit (e.g. 0.5, 2)")
 @click.option("--port", "-p", multiple=True, help="Port mapping (host:container/proto)")
 @click.option("--env", "-e", multiple=True, help="Environment variable (KEY=value)")
 @click.option("--volume", "-v", multiple=True, help="Volume mount (host:container)")
-@click.option("--list", "-l", "list_only", is_flag=True, help="List templates")
-def create_cmd(template_name, name, ram, cpu, port, env, volume, list_only):
-    """Create a container from a template (nginx, minecraft, etc.)"""
-    create_interactive(template_name, name, ram, cpu, port, env, volume, list_only)
-
-
-@cli.command("templates")
-def templates_cmd():
-    """List available container templates"""
-    show_tmpl()
+@click.option("--paper", is_flag=True, help="Create a Paper Minecraft server (auto-download jar)")
+def create_cmd(image, name, ram, cpu, port, env, volume, paper):
+    """Create a container with interactive setup"""
+    create_interactive(image, name, ram, cpu, port, env, volume, paper)
 
 
 @cli.command("export-image")
@@ -306,13 +299,6 @@ def console_cmd(container, mode_flag, tail):
     console_container(container, mode=mode_flag or "attach", tail=tail)
 
 
-@cli.command("attach")
-@click.argument("container")
-def attach_cmd(container):
-    """Attach to a container's main process (Ctrl+P Ctrl+Q to detach)"""
-    attach_container(container)
-
-
 @cli.command("run")
 @click.argument("image")
 @click.option("--name", "-n", help="Container name")
@@ -376,24 +362,6 @@ def down_cmd():
 def manifest_cmd():
     """Show containers defined in manifest"""
     show_manifest()
-
-
-# --- Egg commands ---
-
-@cli.command("eggs")
-def eggs_cmd():
-    """List Pterodactyl-style eggs (Python, Node.js, Go, Rust, DBs, etc.)"""
-    show_eggs()
-
-
-@cli.command("egg")
-@click.argument("name", required=False)
-def egg_cmd(name):
-    """Create a container from an egg (dck egg python-slim)"""
-    if name:
-        create_from_egg(name)
-    else:
-        show_eggs()
 
 
 # Add the ports command (already a click command)
