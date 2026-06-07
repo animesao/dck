@@ -408,6 +408,9 @@ def build_and_start(template_key, template, name, ports, env_vars, volumes, ram,
         create_kwargs["tty"] = True
         create_kwargs["stdin_open"] = True
 
+    # Auto-restart unless manually stopped
+    create_kwargs["restart_policy"] = {"Name": "unless-stopped"}
+
     with console.status(f"{t('pulling')} [cyan]{escape(image)}[/cyan]..."):
         try:
             client.images.pull(image)

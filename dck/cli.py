@@ -47,10 +47,10 @@ def cli():
 
 
 @cli.command("ps")
-@click.option("--all", "-a", "show_all", is_flag=True, help="Show all containers (default shows running)")
-def ps(show_all):
-    """List containers"""
-    list_containers(show_all)
+@click.option("--running", "-r", "running_only", is_flag=True, help="Show only running containers")
+def ps(running_only):
+    """List containers (all by default, including stopped/exited)"""
+    list_containers(not running_only)
 
 
 # --- Short aliases ---
