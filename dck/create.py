@@ -315,6 +315,53 @@ def _parse_cpu(cpu_str):
         return 1_000_000_000
 
 
+def _create_data_launcher(container_name, template_key, template, vol_path, ports, env_vars, ram, cpu):
+    """Create editable run.sh launcher in the server data directory."""
+    image = template["image"]
+
+    cmd_parts = [
+        "#!/usr/bin/env bash",
+        "# Minecraft Server Launcher — сгенерировано dck",
+        "# Редактируй этот файл под себя",
+        "#",
+        "# Как использовать своё ядро:",
+        "#   1. Останови сервер: docker stop " + container_name,
+        "#   2. Скопируй своё ядро в " + vol_path + "/server.jar",
+        f'#   3. Раскомментируй строки TYPE=CUSTOM и CUSTOM_SERVER ниже',
+        "#   4. Запусти: ./run.sh",
+        "",
+        f'CONTAINER="{container_name}"',
+        f'MEMORY="{ram}"',
+        '# TYPE=CUSTOM',
+        '# CUSTOM_SERVER=/data/server.jar',
+        "",
+        "docker start $CONTAINER 2>/dev/null || \\",
+        "docker run -d \\",
+        f'  --name "$CONTAINER" \\',
+        '  --restart unless-stopped \\',
+    ]
+    for c_port, h_port in (ports or {}).items():
+        cmd_parts.append(f'  -p "{h_port}:{c_port}" \\')
+    for k, v in (env_vars or {}).items():
+        if v:
+            cmd_parts.append(f'  -e "{k}={v}" \\')
+    cmd_parts.append(f'  --memory $MEMORY \\')
+    if cpu:
+        cmd_parts.append(f'  --cpus="{cpu}" \\')
+    cmd_parts.append(f'  -v "{vol_path}:/data" \\')
+    cmd_parts.append(f'  {image}')
+    cmd_parts.append("")
+    cmd_parts.append("# Attach to server console")
+    cmd_parts.append("docker attach $CONTAINER")
+    cmd_parts.append("")
+
+    vol_dir = Path(vol_path)
+    vol_dir.mkdir(parents=True, exist_ok=True)
+    script_path = vol_dir / "run.sh"
+    script_path.write_text("\n".join(cmd_parts) + "\n")
+    script_path.chmod(script_path.stat().st_mode | 0o111)
+
+
 def _gen_docker_run(template_key, template, name, ports, env_vars, volumes, ram, cpu):
     parts = ["docker run -d"]
     if name:
@@ -476,6 +523,22 @@ def build_and_start(template_key, template, name, ports, env_vars, volumes, ram,
     # Offer to save launcher script
     docker_run = _gen_docker_run(template_key, template, name, ports, env_vars, volumes, ram, cpu)
     _save_launcher_script(container_name, docker_run)
+
+    # For game servers: offer editable launcher in data directory
+    if template.get("tty") and volumes:
+        vol_path = list(volumes.keys())[0]
+        if Confirm.ask("  Create editable launcher in server data directory?", default=False):
+            _create_data_launcher(container_name, template_key, template, vol_path, ports, env_vars, ram, cpu)
+            console.print(f"  [dim]Launcher: [bold]{vol_path}/run.sh[/bold][/dim]")
+
+            if container.status == "running":
+                if Confirm.ask("  Stop container now to edit server files?", default=True):
+                    with console.status("Stopping..."):
+                        container.stop()
+                        container.reload()
+                    console.print("  [green]✓[/green] Container stopped")
+                    console.print(f"  [dim]Server folder: [bold]{vol_path}[/bold][/dim]")
+                    console.print(f"  [dim]Edit [bold]{vol_path}/run.sh[/bold] and run it[/dim]")
 
     # Show comprehensive summary
     _show_container_summary(container_name, image, ports, volumes, env_vars, ram, cpu)
