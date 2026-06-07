@@ -54,9 +54,14 @@ The installer will:
 
 ### Build from source
 ```bash
+# HTTPS (default)
 git clone https://gitlab.com/animesao/dck.git && cd dck
 go build -o dck .
 sudo install dck /usr/local/bin/
+
+# HTTP fallback (if your VPS blocks HTTPS to gitlab.com)
+git clone http://gitlab.com/animesao/dck.git /tmp/dck
+cd /tmp/dck && go build -o dck . && sudo install dck /usr/local/bin/
 ```
 
 ## Usage
@@ -757,6 +762,17 @@ iptables -t nat -F PREROUTING
 iptables -t nat -F OUTPUT
 ```
 
+### HTTPS to GitLab не работает (SSL wrong version number)
+Некоторые VPS провайдеры блокируют HTTPS (порт 443) к gitlab.com.
+```bash
+# Использовать HTTP вместо HTTPS
+git clone http://gitlab.com/animesao/dck.git /tmp/dck
+cd /tmp/dck && go build -o dck . && install dck /usr/local/bin/
+
+# dck update тоже умеет HTTP fallback (начиная с v1.2.1)
+dck update
+```
+
 ### Container won't start
 ```bash
 # Check logs
@@ -802,8 +818,14 @@ dck update --check
 dck update
 ```
 
-The update command fetches the latest version from the GitLab repository and
-runs the installer to upgrade if a newer version is found.
+The update command tries HTTPS first, then falls back to HTTP
+(некоторые VPS провайдеры блокируют HTTPS к gitlab.com).
+
+Если `dck update` не работает — собери вручную:
+```bash
+git clone http://gitlab.com/animesao/dck.git /tmp/dck
+cd /tmp/dck && go build -o dck . && install dck /usr/local/bin/
+```
 
 ## Changelog
 

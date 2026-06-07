@@ -48,29 +48,36 @@ func Update(args []string) {
 	}
 
 	fmt.Println("Downloading update...")
-	installURL := repoURL + "/-/raw/main/install.sh"
-
-	resp, err := http.Get(installURL)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to fetch installer: %v\n", err)
-		os.Exit(1)
+	installURLs := []string{
+		repoURL + "/-/raw/main/install.sh",
+		"http://gitlab.com/animesao/dck/-/raw/main/install.sh",
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != 200 {
-		fmt.Fprintf(os.Stderr, "Installer returned HTTP %d\n", resp.StatusCode)
+	var installBody []byte
+	for _, url := range installURLs {
+		resp, err := http.Get(url)
+		if err != nil {
+			continue
+		}
+		if resp.StatusCode != 200 {
+			resp.Body.Close()
+			continue
+		}
+		installBody, _ = io.ReadAll(resp.Body)
+		resp.Body.Close()
+		break
+	}
+
+	if installBody == nil {
+		fmt.Fprintf(os.Stderr, "Failed to fetch installer from any URL\n")
 		os.Exit(1)
 	}
 
 	tmpFile := "/tmp/dck-install.sh"
-	f, err := os.Create(tmpFile)
-	if err != nil {
+	if err := os.WriteFile(tmpFile, installBody, 0755); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to create temp file: %v\n", err)
 		os.Exit(1)
 	}
-	io.Copy(f, resp.Body)
-	f.Close()
-	os.Chmod(tmpFile, 0755)
 
 	cmd := exec.Command("sudo", tmpFile)
 	cmd.Stdout = os.Stdout
@@ -85,8 +92,7 @@ func Update(args []string) {
 	fmt.Println("Update complete!")
 }
 
-func fetchLatestVersion() (string, error) {
-	url := repoURL + "/-/raw/main/VERSION"
+func fetchURL(url string) (string, error) {
 	client := &http.Client{
 		Timeout: 10 * time.Second,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -107,11 +113,23 @@ func fetchLatestVersion() (string, error) {
 	}
 
 	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
-	}
+	return strings.TrimSpace(string(body)), err
+}
 
-	return strings.TrimSpace(string(body)), nil
+func fetchLatestVersion() (string, error) {
+	urls := []string{
+		repoURL + "/-/raw/main/VERSION",
+		"http://gitlab.com/animesao/dck/-/raw/main/VERSION",
+	}
+	var errs []string
+	for _, url := range urls {
+		v, err := fetchURL(url)
+		if err == nil {
+			return v, nil
+		}
+		errs = append(errs, fmt.Sprintf("%s: %v", url, err))
+	}
+	return "", fmt.Errorf("all attempts failed:\n  %s", strings.Join(errs, "\n  "))
 }
 
 func compareVersions(a, b string) int {
