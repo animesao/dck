@@ -1,6 +1,8 @@
 import subprocess
 import sys
 import os
+import threading
+import time
 
 from rich.console import Console
 from rich.table import Table
@@ -10,7 +12,6 @@ from rich.markup import escape
 from docker.errors import NotFound
 
 from dck.client import get_client
-from dck.i18n import t
 from dck.i18n import t
 
 console = Console()
@@ -30,22 +31,6 @@ def _pick_shell(container_name):
         if r.returncode == 0:
             return shell
     return "sh"
-
-
-def _container_info(container_name):
-    client = get_client()
-    try:
-        container = client.containers.get(container_name)
-    except NotFound:
-        return None
-    return container
-
-
-def _get_shell_cmd(container_name):
-    shell = _pick_shell(container_name)
-    if os.name == "nt":
-        return ["docker", "exec", "-it", container_name, shell]
-    return ["docker", "exec", "-it", container_name, shell]
 
 
 def exec_container(container_name, cmd):
@@ -154,7 +139,7 @@ def _show_recent_logs(container, tail=20):
             lines = logs.split("\n")
             console.print(f"[bold]Recent logs (last {len(lines)} lines):[/bold]")
             log_panel = Panel(
-                "\n".join(f"  [dim]{escape(line)}[/dim]" for line in lines[-20:]),
+                "\n".join(f"  [dim]{escape(line)}[/dim]" for line in lines[-tail:]),
                 border_style="dim",
             )
             console.print(log_panel)
@@ -165,9 +150,18 @@ def _show_recent_logs(container, tail=20):
     console.print()
 
 
-def _attach_and_stream(container_name):
-    console.print(f"\n[bold cyan]── Attached to {container_name} (Ctrl+P Ctrl+Q to detach) ──[/bold cyan]")
-    console.print("[dim]You are now attached to the container's main process.[/dim]\n")
+def _attach_and_stream(container_name, show_logs_first=True):
+    if show_logs_first:
+        client = get_client()
+        try:
+            container = client.containers.get(container_name)
+            _show_recent_logs(container, 15)
+        except Exception:
+            pass
+
+    console.print(f"[bold cyan]── Attached to {container_name} ──[/bold cyan]")
+    console.print("[dim]Type your commands directly into the container's console[/dim]")
+    console.print("[dim]Detach: Ctrl+P Ctrl+Q  |  Exit: Ctrl+C[/dim]\n")
     try:
         subprocess.run(["docker", "attach", container_name])
     except KeyboardInterrupt:
@@ -185,7 +179,6 @@ def _enter_interactive_shell(container_name):
     except KeyboardInterrupt:
         pass
     console.print(f"\n[bold yellow]── Shell session ended for '{container_name}' ──[/bold yellow]")
-    console.print(f"[dim]dck logs {container_name} -f  |  dck exec {container_name}  |  dck stop {container_name}[/dim]")
 
 
 def _follow_logs(container_name, tail=30):
@@ -221,7 +214,6 @@ def _start_and_shell(container_name):
     if Confirm.ask("Start container and enter shell?", default=False):
         try:
             container.start()
-            import time
             time.sleep(1)
             container.reload()
             if container.status == "running":
@@ -236,15 +228,101 @@ def _start_and_shell(container_name):
             console.print(f"[red]{t('error')}:[/red] {e}")
 
 
+def _live_log_stream(container_name, stop_event, log_queue):
+    """Background thread: continuously fetch new logs and add to queue."""
+    client = get_client()
+    try:
+        container = client.containers.get(container_name)
+        for line in container.logs(stream=True, tail=5):
+            if stop_event.is_set():
+                break
+            log_queue.append(line.decode("utf-8", errors="replace").rstrip())
+            if len(log_queue) > 200:
+                log_queue[:100] = []
+    except Exception:
+        pass
+
+
+def _ptero_console(container, container_name, tail=30):
+    """Pterodactyl-style real-time console with log streaming + command input."""
+    import shlex
+
+    if container.status != "running":
+        console.print("[yellow]Container must be running for Pterodactyl console.[/yellow]")
+        return
+
+    console.print(f"\n[bold cyan]══ Pterodactyl Console: {container_name} ══[/bold cyan]")
+    console.print("[dim]Commands are executed in the container via docker exec[/dim]")
+    console.print("[dim]Logs stream in real-time. Type [bold]exit[/bold]/[bold]quit[/bold] or Ctrl+C to leave[/dim]")
+
+    log_queue = []
+    stop_event = threading.Event()
+    log_thread = threading.Thread(
+        target=_live_log_stream,
+        args=(container_name, stop_event, log_queue),
+        daemon=True,
+    )
+    log_thread.start()
+
+    try:
+        logs = container.logs(tail=tail).decode("utf-8", errors="replace").strip()
+        if logs:
+            recent = logs.split("\n")[-10:]
+            console.print()
+            for line in recent:
+                console.print(f"  [dim]{escape(line)}[/dim]")
+    except Exception:
+        pass
+
+    while True:
+        try:
+            while log_queue:
+                line = log_queue.pop(0)
+                console.print(f"  [dim]{escape(line)}[/dim]")
+        except Exception:
+            pass
+
+        try:
+            cmd = input("\n▶ ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
+
+        if not cmd:
+            continue
+        if cmd.lower() in ("exit", "quit"):
+            break
+
+        try:
+            r = subprocess.run(
+                ["docker", "exec", container_name] + shlex.split(cmd),
+                capture_output=True, text=True, timeout=30,
+            )
+            if r.stdout:
+                print(r.stdout.rstrip())
+            if r.stderr:
+                sys.stderr.write(r.stderr.rstrip() + "\n")
+            if r.returncode != 0:
+                console.print(f"[dim]Exit code: {r.returncode}[/dim]")
+        except subprocess.TimeoutExpired:
+            console.print("[red]Command timed out[/red]")
+        except Exception as e:
+            console.print(f"[red]Error: {e}[/red]")
+
+    stop_event.set()
+    log_thread.join(timeout=2)
+    console.print(f"\n[bold yellow]── Pterodactyl console session ended ──[/bold yellow]")
+
+
 def console_container(container_name, mode="auto", tail=20):
     """Pterodactyl-style console for a container.
 
     Modes:
-      auto    - show info, logs, then offer shell/attach
+      auto    - show info, logs, then offer shell/attach/ptero
       shell   - show info then directly enter interactive shell
       attach  - attach to container's main process
       logs    - stream live logs
-      ptero   - Pterodactyl-style: REPL with log streaming + command input
+      ptero   - Pterodactyl-style: real-time logs + commands
     """
     client = get_client()
     try:
@@ -263,7 +341,7 @@ def console_container(container_name, mode="auto", tail=20):
         if container.status != "running":
             console.print("[yellow]Container not running, cannot attach.[/yellow]")
             return
-        _attach_and_stream(container_name)
+        _attach_and_stream(container_name, show_logs_first=True)
         return
 
     if mode == "shell":
@@ -282,14 +360,14 @@ def console_container(container_name, mode="auto", tail=20):
         _show_recent_logs(container, tail)
         console.print("[bold]Console options:[/bold]")
         console.print("  1. Enter interactive shell  [dim](docker exec -it)[/dim]")
-        console.print("  2. Attach to main process   [dim](docker attach)[/dim]")
+        console.print("  2. Attach to main process   [dim](docker attach)[/dim]  [green]← for game servers[/green]")
         console.print("  3. Stream live logs         [dim](docker logs -f)[/dim]")
-        console.print("  4. Pterodactyl console mode [dim](logs + commands)[/dim]")
+        console.print("  4. Pterodactyl console mode [dim](real-time logs + cmd)[/dim]")
         choice = Prompt.ask("  Choose", default="1")
         if choice == "1":
             _enter_interactive_shell(container_name)
         elif choice == "2":
-            _attach_and_stream(container_name)
+            _attach_and_stream(container_name, show_logs_first=True)
         elif choice == "3":
             _follow_logs(container_name, tail)
         elif choice == "4":
@@ -298,65 +376,8 @@ def console_container(container_name, mode="auto", tail=20):
         _start_and_shell(container_name)
 
 
-def _ptero_console(container, container_name, tail=30):
-    """Pterodactyl-style console: live log streaming + command input."""
-    import shlex
-
-    if container.status != "running":
-        console.print("[yellow]Container must be running for Pterodactyl console.[/yellow]")
-        return
-
-    console.print(f"\n[bold cyan]══ Pterodactyl Console: {container_name} ══[/bold cyan]")
-    console.print("[dim]Type commands and press Enter to execute them in the container[/dim]")
-    console.print("[dim]Type [bold]exit[/bold], [bold]quit[/bold], or press Ctrl+C to leave[/dim]")
-
-    log_buffer = []
-    try:
-        logs = container.logs(tail=tail).decode("utf-8", errors="replace").strip()
-        if logs:
-            log_buffer = logs.split("\n")[-15:]
-    except Exception:
-        pass
-
-    console.print()
-    for line in log_buffer[-10:]:
-        console.print(f"  [dim]{escape(line)}[/dim]")
-    console.print()
-
-    while True:
-        try:
-            cmd = input("▶ ").strip()
-        except (EOFError, KeyboardInterrupt):
-            print()
-            break
-
-        if not cmd:
-            continue
-        if cmd.lower() in ("exit", "quit"):
-            break
-
-        try:
-            r = subprocess.run(
-                ["docker", "exec", container_name] + shlex.split(cmd),
-                capture_output=True, text=True, timeout=30,
-            )
-            if r.stdout:
-                console.print(r.stdout.rstrip())
-            if r.stderr:
-                console.print(f"[red]{escape(r.stderr.rstrip())}[/red]")
-            if r.returncode != 0:
-                console.print(f"[dim]Exit code: {r.returncode}[/dim]")
-        except subprocess.TimeoutExpired:
-            console.print("[red]Command timed out[/red]")
-        except Exception as e:
-            console.print(f"[red]Error: {e}[/red]")
-
-    console.print(f"\n[bold yellow]── Pterodactyl console session ended ──[/bold yellow]")
-    console.print(f"[dim]dck logs {container_name} -f  |  dck exec {container_name}[/dim]")
-
-
 def attach_container(container_name):
-    """Attach to a container's main process."""
+    """Attach to a container's main process with logs shown first."""
     client = get_client()
     try:
         container = client.containers.get(container_name)
@@ -368,4 +389,5 @@ def attach_container(container_name):
         console.print(f"[yellow]Container '{container_name}' is not running.[/yellow]")
         return
 
-    _attach_and_stream(container_name)
+    _show_console_header(container)
+    _attach_and_stream(container_name, show_logs_first=True)

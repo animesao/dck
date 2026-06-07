@@ -29,6 +29,7 @@ from dck.startup import (
     clear_startup_config,
 )
 from dck.manifest import deploy_manifest, destroy_manifest, show_manifest
+from dck.eggs import show_eggs, create_from_egg
 
 console = Console()
 
@@ -374,6 +375,24 @@ def down_cmd():
 def manifest_cmd():
     """Show containers defined in manifest"""
     show_manifest()
+
+
+# --- Egg commands ---
+
+@cli.command("eggs")
+def eggs_cmd():
+    """List Pterodactyl-style eggs (Python, Node.js, Go, Rust, DBs, etc.)"""
+    show_eggs()
+
+
+@cli.command("egg")
+@click.argument("name", required=False)
+def egg_cmd(name):
+    """Create a container from an egg (dck egg python-slim)"""
+    if name:
+        create_from_egg(name)
+    else:
+        show_eggs()
 
 
 # Add the ports command (already a click command)

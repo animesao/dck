@@ -91,6 +91,24 @@ containers:
 | `dck compose ps` | List compose services |
 | `dck compose logs [-f]` | View compose logs |
 
+### Eggs (Pterodactyl-style)
+| Command | Description |
+|---------|-------------|
+| `dck eggs` | List all available eggs |
+| `dck egg <name>` | Create a container from an egg |
+
+**Built-in eggs by category:**
+
+| Category | Eggs |
+|----------|------|
+| Python | `python-slim` (3.12, lightweight), `python-full` (with dev tools) |
+| Node.js | `node` (22 LTS), `node-dev` (with nodemon) |
+| Go | `golang` (1.22) |
+| Rust | `rust` (with cargo) |
+| Java | `java` (21, Maven) |
+| Database | `postgres` (16), `mysql` (8), `redis` (7) |
+| Web | `nginx-proxy` (reverse proxy) |
+
 ### Templates & Container Creation
 | Command | Description |
 |---------|-------------|
@@ -122,12 +140,12 @@ When creating a container with `dck create`, it will ask to auto-open required p
 ### Console (Pterodactyl-style)
 | Command | Description |
 |---------|-------------|
-| `dck console <container>` | Auto mode: shows info/logs, then choose shell/attach/logs/ptero |
+| `dck console <container>` | Auto mode: shows info/logs, then choose shell/attach/ptero |
 | `dck console <container> -m shell` | Directly enter interactive shell inside container |
-| `dck console <container> -m attach` | Attach to container's main process |
+| `dck console <container> -m attach` | Attach to container's main process (shows logs first) |
 | `dck console <container> -m logs` | Stream live container logs |
-| `dck console <container> -m ptero` | Pterodactyl mode: type commands, see output in real-time |
-| `dck attach <container>` | Attach to main process (shortcut) |
+| `dck console <container> -m ptero` | Pterodactyl mode: real-time log streaming + command input |
+| `dck attach <container>` | Attach to main process with recent logs shown |
 
 ### Other
 | Command | Description |
