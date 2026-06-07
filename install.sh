@@ -177,6 +177,66 @@ for cmd in ip iptables nsenter; do
     fi
 done
 
+# ── Kernel tweaks ───────────────────────────────────────────────────
+if [ "$OS" = "Linux" ] && [ "$(id -u)" -eq 0 ]; then
+    # OverlayFS module
+    if ! grep -q overlay /proc/filesystems 2>/dev/null; then
+        modprobe overlay 2>/dev/null && ok "OverlayFS module loaded" || warn "Could not load overlay module"
+    fi
+
+    # cgroups v2
+    if [ ! -f /sys/fs/cgroup/cgroup.controllers ]; then
+        if grep -q systemd /proc/cmdline 2>/dev/null && grep -q cgroup_no_v1 /proc/cmdline 2>/dev/null; then
+            :  # already set
+        elif grep -q systemd /proc/cmdline 2>/dev/null; then
+            warn "cgroups v2 not active — add 'systemd.unified_cgroup_hierarchy=1' to GRUB_CMDLINE_LINUX and reboot"
+        else
+            warn "cgroups v2 not found — resource limits will not work"
+        fi
+    else
+        ok "cgroups v2"
+    fi
+
+    # Kernel keyring limits (ENOMEM fix for pivot_root)
+    KEY_OK=true
+    if [ -f /proc/sys/kernel/keys/root_maxkeys ]; then
+        cur_keys=$(cat /proc/sys/kernel/keys/root_maxkeys)
+        if [ "$cur_keys" -lt 1000000 ]; then
+            sysctl -w kernel.keys.root_maxkeys=1000000 >/dev/null 2>&1 || true
+            KEY_OK=false
+        fi
+    fi
+    if [ -f /proc/sys/kernel/keys/root_maxbytes ]; then
+        cur_bytes=$(cat /proc/sys/kernel/keys/root_maxbytes)
+        if [ "$cur_bytes" -lt 25000000 ]; then
+            sysctl -w kernel.keys.root_maxbytes=25000000 >/dev/null 2>&1 || true
+            KEY_OK=false
+        fi
+    fi
+    if [ "$KEY_OK" = false ]; then
+        SYSCTL_CONF="/etc/sysctl.d/99-dck.conf"
+        if [ ! -f "$SYSCTL_CONF" ] || ! grep -q "root_maxkeys" "$SYSCTL_CONF" 2>/dev/null; then
+            echo "kernel.keys.root_maxkeys=1000000" >> "$SYSCTL_CONF" 2>/dev/null || true
+        fi
+        if [ ! -f "$SYSCTL_CONF" ] || ! grep -q "root_maxbytes" "$SYSCTL_CONF" 2>/dev/null; then
+            echo "kernel.keys.root_maxbytes=25000000" >> "$SYSCTL_CONF" 2>/dev/null || true
+        fi
+        ok "kernel keyring limits increased (persistent)"
+    fi
+
+    # UFW: install if missing
+    if ! command -v ufw &>/dev/null; then
+        case "$PKG_MGR" in
+            apt|dnf|pacman|zypper) pkg ufw 2>/dev/null || true ;;
+        esac
+    fi
+    if command -v ufw &>/dev/null && ! ufw status 2>/dev/null | grep -q "active"; then
+        ufw allow 22/tcp 2>/dev/null || true
+        ufw --force enable 2>/dev/null || true
+        ok "UFW enabled (SSH port 22 allowed)"
+    fi
+fi
+
 # ── Clone / Update ──────────────────────────────────────────────
 header "Getting source"
 if [ -d "$APP" ]; then
