@@ -1,6 +1,6 @@
 # dck — Simple Docker CLI client
 
-A lightweight CLI wrapper to simplify daily Docker operations.
+A lightweight CLI wrapper to simplify daily Docker operations. Features Pterodactyl-style egg system, game server support, container manifests, firewall management, and language switching (RU/EN).
 
 ## Quick Install
 
@@ -13,9 +13,8 @@ Or via pip:
 pip install .
 ```
 
-## Usage
+## Short Aliases
 
-### Short aliases
 | Alias | Full command | Description |
 |-------|-------------|-------------|
 | `dck l <container>` | `dck logs <container>` | View container logs |
@@ -25,7 +24,8 @@ pip install .
 | `dck i` | `dck images` | List Docker images |
 | `dck e <container>` | `dck exec <container>` | Execute command in container |
 
-### Container management
+## Container Management
+
 | Command | Description |
 |---------|-------------|
 | `dck ps [-a]` | List containers (colored status, ports, uptime) |
@@ -35,23 +35,81 @@ pip install .
 | `dck restart <container>` | Restart a container |
 | `dck rm <container> [-f]` | Remove a container |
 | `dck restart-policy <c> <policy>` | Set auto-start policy (always/unless-stopped/on-failure/no) |
-| `dck console <container> [-m <mode>] [-t N]` | Pterodactyl-style console: shell, attach, logs, or ptero mode |
+| `dck console <container> [-m <mode>] [-t N] [-s]` | Pterodactyl-style console |
 | `dck attach <container>` | Attach to container's main process (Ctrl+P Ctrl+Q to detach) |
 | `dck resources <container> [--ram <size>] [--cpu <cores>] [--restart <policy>]` | Update RAM/CPU limits and restart policy |
 
-### Startup config (v0.4.0)
+## Pterodactyl Console (v0.5.0)
+
+| Command | Mode | Description |
+|---------|------|-------------|
+| `dck console <container>` | auto | Shows info/logs, then choose action |
+| `dck console <container> -m shell` | shell | Interactive shell via `docker exec -it` |
+| `dck console <container> -m attach` | attach | Attach to main process (shows recent logs) |
+| `dck console <container> -m logs` | logs | Stream live container logs |
+| `dck console <container> -m ptero` | ptero | Real-time log streaming + commands via `docker exec` |
+| `dck console <container> -m ptero -s` | ptero+stdin | Commands piped to PID 1 stdin (for game servers) |
+| `dck attach <container>` | — | Attach to main process with recent logs shown |
+
+### How Ptero Console Works
+
+**`dck console -m ptero`** (default mode) — commands are executed inside the container via `docker exec`. Works for: web servers (nginx, apache), databases (postgres, mysql), applications (python, node), scripts (`ls`, `ps`, `cat`, `npm install`, `python manage.py`).
+
+**`dck console -m ptero -s`** (stdin mode) — commands are piped directly to the container's **main process stdin** (`/proc/1/fd/0`). Works for game servers: **Minecraft** (`pl`, `tps`, `say Hello`, `give`, `stop`), **Terraria**, **Valheim**, **CS2** — any server where commands must reach the server console, not a shell.
+
+If you forget to use `--stdin` with a game server command, dck auto-detects `exit code 127` ("command not found") and suggests switching to stdin mode.
+
+## Eggs — Pterodactyl-Style (v0.4.0)
+
+Pre-configured container blueprints with optimal settings for popular runtimes and servers.
+
 | Command | Description |
 |---------|-------------|
-| `dck startup <container>` | Show startup config |
-| `dck startup <container> -c "cmd"` | Set custom startup command |
-| `dck startup <container> -e "entry"` | Set custom entrypoint |
-| `dck startup <container> -f "/path"` | Set startup script path |
-| `dck startup <container> -C` | Clear startup config |
+| `dck eggs` | List all available eggs |
+| `dck egg <name>` | Interactive container creation from egg (sets name, ports, volumes) |
 
-You can also set startup settings interactively during `dck create`.
+### Available Eggs
 
-### Container Manifest (v0.4.0)
-Define containers in `dck.yml`, `dck.yaml`, or `dck.json`:
+| Category | Egg | Image | Details |
+|----------|-----|-------|---------|
+| **Python** | `python-slim` | python:3.12-slim | Lightweight, 128MB RAM, port 8000 |
+| **Python** | `python-full` | python:3.12 | Full dev tools, git, 256MB RAM, port 8000 |
+| **Node.js** | `node` | node:22-alpine | LTS, 128MB RAM, port 3000 |
+| **Node.js** | `node-dev` | node:22 | Nodemon, git, 256MB RAM, port 3000 |
+| **Go** | `golang` | golang:1.22-alpine | 256MB RAM, port 8080 |
+| **Rust** | `rust` | rust:alpine | Cargo, 256MB RAM, port 8080 |
+| **Java** | `java` | maven:3-eclipse-temurin-21 | Maven, 512MB RAM, port 8080 |
+| **Database** | `postgres` | postgres:16-alpine | 256MB RAM, port 5432 |
+| **Database** | `mysql` | mysql:8 | 512MB RAM, port 3306 |
+| **Database** | `redis` | redis:7-alpine | 128MB RAM, port 6379 |
+| **Web** | `nginx-proxy` | nginx:alpine | Reverse proxy, 128MB RAM, port 80 |
+
+## Templates & Container Creation
+
+Pre-defined server templates for game servers and web services.
+
+| Command | Description |
+|---------|-------------|
+| `dck templates` | List available templates (built-in + custom) |
+| `dck create [template]` | Interactive container creation from template |
+| `dck run <image>` | Run any Docker image with interactive setup |
+
+### Built-in Templates
+
+| Template | Purpose | Ports | RAM |
+|----------|---------|-------|-----|
+| **Nginx** | Web server / reverse proxy | 80 | 128MB |
+| **Minecraft** | Java Edition game server | 25565 | 2GB |
+| **Terraria** | Dedicated game server | 7777 | 1GB |
+| **Valheim** | Dedicated game server | 2456-2457/udp | 2GB |
+| **CS2** | Counter-Strike 2 server | 27015 | 4GB |
+| **Satisfactory** | Dedicated server | 7777 | 4GB |
+
+Port input supports comma-separated values: `80:80,443:443` or just `80,443`. Custom templates are saved to `~/.dck/templates.json` for reuse.
+
+## Container Manifest (v0.4.0)
+
+Define and deploy multiple containers declaratively in `dck.yml`, `dck.yaml`, or `dck.json`:
 
 ```yaml
 containers:
@@ -66,15 +124,36 @@ containers:
     ram: 128m
     cpu: 0.5
     restart: always
+  - name: db
+    image: postgres:16-alpine
+    env:
+      POSTGRES_PASSWORD: secret
+    ram: 256m
+    restart: unless-stopped
 ```
 
 | Command | Description |
 |---------|-------------|
-| `dck up` | Deploy containers from manifest |
+| `dck up` | Deploy containers from manifest (create/pull/start) |
 | `dck down` | Stop and remove manifest containers |
 | `dck manifest` | Show manifest containers status |
 
-### Image management
+## Startup Config (v0.4.0)
+
+Per-container startup configuration stored in `~/.dck/startup.json`. Set custom entrypoints, startup commands, or script paths that override Docker defaults.
+
+| Command | Description |
+|---------|-------------|
+| `dck startup <container>` | Show current startup config |
+| `dck startup <container> -c "cmd"` | Set custom startup command (`CMD`) |
+| `dck startup <container> -e "entry"` | Set custom entrypoint (`ENTRYPOINT`) |
+| `dck startup <container> -f "/path"` | Run a startup script path |
+| `dck startup <container> -C` | Clear startup config |
+
+You can also set startup settings interactively during `dck create`.
+
+## Image Management
+
 | Command | Description |
 |---------|-------------|
 | `dck images` | List Docker images |
@@ -83,7 +162,8 @@ containers:
 | `dck export-image <image> [path]` | Export image to tar archive |
 | `dck import-image <path>` | Import image from tar archive |
 
-### Docker Compose
+## Docker Compose
+
 | Command | Description |
 |---------|-------------|
 | `dck compose up [-d] [--build]` | Create and start containers |
@@ -91,43 +171,8 @@ containers:
 | `dck compose ps` | List compose services |
 | `dck compose logs [-f]` | View compose logs |
 
-### Eggs (Pterodactyl-style)
-| Command | Description |
-|---------|-------------|
-| `dck eggs` | List all available eggs |
-| `dck egg <name>` | Create a container from an egg |
+## Firewall & Ports
 
-**Built-in eggs by category:**
-
-| Category | Eggs |
-|----------|------|
-| Python | `python-slim` (3.12, lightweight), `python-full` (with dev tools) |
-| Node.js | `node` (22 LTS), `node-dev` (with nodemon) |
-| Go | `golang` (1.22) |
-| Rust | `rust` (with cargo) |
-| Java | `java` (21, Maven) |
-| Database | `postgres` (16), `mysql` (8), `redis` (7) |
-| Web | `nginx-proxy` (reverse proxy) |
-
-### Templates & Container Creation
-| Command | Description |
-|---------|-------------|
-| `dck templates` | List available templates |
-| `dck create [template]` | Interactive container creation from template |
-| `dck run <image>` | Run any Docker image with interactive setup |
-
-**Built-in templates:**
-- **Nginx** — web server / reverse proxy (port 80, 128MB RAM)
-- **Minecraft** — Java Edition server (port 25565, 2GB RAM)
-- **Terraria** — dedicated server (port 7777, 1GB RAM)
-- **Valheim** — dedicated server (ports 2456-2457/udp, 2GB RAM)
-- **CS2** — Counter-Strike 2 server (port 27015, 4GB RAM)
-- **Satisfactory** — dedicated server (port 7777, 4GB RAM)
-
-Port input supports comma-separated values: `80:80,443:443` or just `80,443`.
-Custom templates are saved to `~/.dck/templates.json` for reuse.
-
-### Firewall & Ports
 | Command | Description |
 |---------|-------------|
 | `dck ports` | List listening ports |
@@ -135,20 +180,10 @@ Custom templates are saved to `~/.dck/templates.json` for reuse.
 | `dck ports open <port> [--proto udp]` | Open port in firewall (UFW) |
 | `dck ports close <port>` | Close port in firewall |
 
-When creating a container with `dck create`, it will ask to auto-open required ports in the firewall.
+When creating a container with `dck create`, dck will ask to auto-open required ports in the firewall.
 
-### Console (Pterodactyl-style)
-| Command | Description |
-|---------|-------------|
-| `dck console <container>` | Auto mode: shows info/logs, then choose shell/attach/ptero |
-| `dck console <container> -m shell` | Directly enter interactive shell inside container |
-| `dck console <container> -m attach` | Attach to container's main process (shows logs first) |
-| `dck console <container> -m logs` | Stream live container logs |
-| `dck console <container> -m ptero` | Pterodactyl mode: real-time log streaming + command input |
-| `dck console <container> -m ptero -s` | Pterodactyl mode with stdin piping for game servers |
-| `dck attach <container>` | Attach to main process with recent logs shown |
+## Other Commands
 
-### Other
 | Command | Description |
 |---------|-------------|
 | `dck stats` | Live CPU / memory / network monitoring |
@@ -158,3 +193,20 @@ When creating a container with `dck create`, it will ask to auto-open required p
 | `dck lang [ru/en]` | Switch language (Русский / English) |
 | `dck update` | Update dck to latest version |
 | `dck uninstall` | Remove dck completely from your system |
+
+## Language
+
+dck supports switching between English and Russian:
+
+```bash
+dck lang ru    # переключиться на русский
+dck lang en    # switch to English
+dck lang       # show current language
+```
+
+## Configuration
+
+All local configuration is stored in `~/.dck/`:
+- `~/.dck/lang` — language setting
+- `~/.dck/startup.json` — per-container startup configs
+- `~/.dck/templates.json` — custom templates
