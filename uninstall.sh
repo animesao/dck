@@ -18,6 +18,18 @@ done
 
 info "Uninstalling dck..."
 
+unmount_overlay() {
+    OVERLAY_DIR="${DCK_DIR:-$HOME/.dck}/overlay"
+    if [ -d "$OVERLAY_DIR" ]; then
+        for d in "$OVERLAY_DIR"/*/merged; do
+            if [ -d "$d" ] && mountpoint -q "$d" 2>/dev/null; then
+                umount "$d" 2>/dev/null || true
+                info "  Unmounted $d"
+            fi
+        done
+    fi
+}
+
 PREFIX="${PREFIX:-/usr/local}"
 BIN="$PREFIX/bin/dck"
 
@@ -32,6 +44,7 @@ DCK_DIR="${DCK_DIR:-$HOME/.dck}"
 if [ -d "$DCK_DIR" ]; then
     echo ""
     if [ "$FORCE" = "true" ] || [ ! -t 0 ]; then
+        unmount_overlay
         rm -rf "$DCK_DIR"
         info "Removed $DCK_DIR"
     else
@@ -39,6 +52,7 @@ if [ -d "$DCK_DIR" ]; then
         printf "Remove %s? [y/N] " "$DCK_DIR"
         read -r confirm
         if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
+            unmount_overlay
             rm -rf "$DCK_DIR"
             info "Removed $DCK_DIR"
         else
