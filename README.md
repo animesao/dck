@@ -62,6 +62,10 @@ sudo install dck /usr/local/bin/
 # HTTP fallback (if your VPS blocks HTTPS to gitlab.com)
 git clone http://gitlab.com/animesao/dck.git /tmp/dck
 cd /tmp/dck && go build -o dck . && sudo install dck /usr/local/bin/
+
+# SSH (if you have a key on GitLab)
+git clone git@gitlab.com:animesao/dck.git
+cd dck && go build -o dck . && sudo install dck /usr/local/bin/
 ```
 
 ## Usage
@@ -688,8 +692,9 @@ iptables -t nat -F OUTPUT
 
 ## Environment Variables
 ```bash
-DCK_EXTERNAL_IP=1.2.3.4    # External IP for port URL display
-DCK_DATA_DIR=/path/to/dck  # Override ~/.dck location
+DCK_EXTERNAL_IP=1.2.3.4            # External IP for port URL display
+DCK_DATA_DIR=/path/to/dck          # Override ~/.dck location
+DCK_UPDATE_MIRROR=http://mirror...  # Custom update source (if HTTPS to gitlab is blocked)
 ```
 
 ## Troubleshooting
@@ -763,14 +768,33 @@ iptables -t nat -F OUTPUT
 ```
 
 ### HTTPS to GitLab не работает (SSL wrong version number)
-Некоторые VPS провайдеры блокируют HTTPS (порт 443) к gitlab.com.
+Некоторые VPS провайдеры ставят прозрачный HTTP-прокси на 443 порт,
+либо есть локальное DNAT правило, которое редиректит HTTPS на plain HTTP:
+
 ```bash
-# Использовать HTTP вместо HTTPS
+# Проверить iptables — нет ли локального редиректа
+iptables -t nat -L -n | grep ':443 '
+
+# Если видно такое:
+#   DNAT tcp -- 0.0.0.0/0 0.0.0.0/0 tcp dpt:443 to:10.0.2.4:80
+# Удалить правила:
+iptables -t nat -D PREROUTING -p tcp --dport 443 -j DNAT --to-destination 10.0.2.4:80
+iptables -t nat -D OUTPUT -p tcp --dport 443 -j DNAT --to-destination 10.0.2.4:80
+```
+
+Если это не локальный DNAT, а провайдерский блок:
+```bash
+# Собрать из исходников через HTTP
 git clone http://gitlab.com/animesao/dck.git /tmp/dck
 cd /tmp/dck && go build -o dck . && install dck /usr/local/bin/
 
-# dck update тоже умеет HTTP fallback (начиная с v1.2.1)
-dck update
+# Или через SSH (если добавлен ключ на GitLab)
+git clone git@gitlab.com:animesao/dck.git /tmp/dck
+cd /tmp/dck && go build -o dck . && install dck /usr/local/bin/
+
+# dck update пробует: Go HTTP → curl → wget → git ls-remote (SSH)
+# Плюс можно указать зеркало через DCK_UPDATE_MIRROR:
+DCK_UPDATE_MIRROR=http://ваш-зеркало dck update --check
 ```
 
 ### Container won't start
@@ -816,14 +840,26 @@ dck update --check
 
 # Download and install the latest version
 dck update
+
+# Use a custom mirror (if GitLab is blocked)
+DCK_UPDATE_MIRROR=http://ваш-зеркало dck update
 ```
 
-The update command tries HTTPS first, then falls back to HTTP
-(некоторые VPS провайдеры блокируют HTTPS к gitlab.com).
+The update command tries multiple methods in order:
+1. **Go HTTP client** (HTTPS)
+2. **curl** (HTTPS)
+3. **wget** (HTTPS)
+4. **git ls-remote over SSH** (version check only)
+5. `DCK_UPDATE_MIRROR` env var — полное зеркало с той же структурой URL
 
 Если `dck update` не работает — собери вручную:
 ```bash
+# HTTP (если HTTPS блокирован)
 git clone http://gitlab.com/animesao/dck.git /tmp/dck
+cd /tmp/dck && go build -o dck . && install dck /usr/local/bin/
+
+# SSH (если ключ добавлен на GitLab)
+git clone git@gitlab.com:animesao/dck.git /tmp/dck
 cd /tmp/dck && go build -o dck . && install dck /usr/local/bin/
 ```
 
@@ -835,6 +871,8 @@ cd /tmp/dck && go build -o dck . && install dck /usr/local/bin/
 - **PID liveness check** — `dck ps` показывает реальный статус, а не stale "running"
 - **Улучшен bootstrap** — всегда пересоздаёт контейнеры без race condition
 - **/root/.dck для root** — не зависит от systemd `HOME=/`
+- **Мульти-транспорт для update** — Go HTTP → curl → wget → git SSH
+- **`DCK_UPDATE_MIRROR`** — env var для зеркала обновлений
 
 ### v1.2.0
 - OUTPUT DNAT rule (localhost → container)
