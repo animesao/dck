@@ -23,6 +23,9 @@ PAPER_VERSIONS_FILE = Path(__file__).parent / "paper_versions.json"
 
 
 def _get_server_ip():
+    ext = os.environ.get("DCK_EXTERNAL_IP") or os.environ.get("EXTERNAL_IP")
+    if ext:
+        return ext
     try:
         r = subprocess.run(
             ["curl", "-s", "--max-time", "3", "https://ifconfig.me"],
@@ -506,7 +509,7 @@ def build_and_start(image, name, ports, env_vars, volumes, ram, cpu, start_now=T
 # ── public entry points ─────────────────────────────────────────────
 
 
-def create_interactive(image=None, name=None, ram=None, cpu=None, port=None, env=None, volume=None, paper=False):
+def create_interactive(image=None, name=None, ram=None, cpu=None, port=None, env=None, volume=None, paper=False, external_ip=None):
     if not image:
         image = Prompt.ask("  Docker image", default="nginx:alpine")
 

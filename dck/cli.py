@@ -103,10 +103,11 @@ def cli():
 @click.option("--cap-add", multiple=True, help="Add Linux capability")
 @click.option("--cap-drop", multiple=True, help="Drop Linux capability")
 @click.option("--privileged", is_flag=True, help="Extended privileges")
+@click.option("--external-ip", help="External IP for port display (default: auto-detect)")
 def run_cmd(image, cmd, name, tag, port, volume, env, env_file,
             labels, interactive, tty, detach, rm, ram, cpu, pids_limit,
             workdir, user, read_only, hostname, entrypoint,
-            restart, cap_add, cap_drop, privileged):
+            restart, cap_add, cap_drop, privileged, external_ip):
     """Run a container using native Linux runtime"""
     _check_native()
 
@@ -224,11 +225,20 @@ def run_cmd(image, cmd, name, tag, port, volume, env, env_file,
         pid = container.config.get("pid")
         console.print(f"  PID: {pid}")
         if ports:
-            ip = container.config.get("network", {}).get("ip")
-            if ip:
-                console.print(f"  IP: {ip}")
+            ext_ip = external_ip
+            if not ext_ip:
+                try:
+                    import subprocess
+                    r = subprocess.run(["hostname", "-I"], capture_output=True, text=True, timeout=3)
+                    ext_ip = r.stdout.strip().split()[0] if r.returncode == 0 else None
+                except Exception:
+                    pass
             for c_port, h_port in ports.items():
-                console.print(f"  Port: [cyan]{h_port}:{c_port}[/cyan]")
+                line = f"  Port: [cyan]{h_port}:{c_port}[/cyan]"
+                if ext_ip:
+                    c_num = c_port.split("/")[0]
+                    line += f"  [dim]http://{ext_ip}:{h_port}[/dim]"
+                console.print(line)
             from dck.network import ensure_ufw, open_ufw_ports
             if ensure_ufw():
                 opened = open_ufw_ports(ports)
@@ -524,9 +534,10 @@ def inspect_cmd(container_id):
 @click.option("--env", "-e", multiple=True)
 @click.option("--volume", "-v", multiple=True)
 @click.option("--paper", is_flag=True)
-def create_cmd(image, name, ram, cpu, port, env, volume, paper):
+@click.option("--external-ip", help="External IP for port display")
+def create_cmd(image, name, ram, cpu, port, env, volume, paper, external_ip):
     """Create a container with interactive setup"""
-    create_interactive(image, name, ram, cpu, port, env, volume, paper)
+    create_interactive(image, name, ram, cpu, port, env, volume, paper, external_ip=external_ip)
 
 
 # ── system commands ─────────────────────────────────────────────────
