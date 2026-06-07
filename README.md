@@ -873,6 +873,8 @@ cd /tmp/dck && go build -o dck . && install dck /usr/local/bin/
 - **/root/.dck for root** — doesn't depend on systemd's `HOME=/`
 - **Multi-transport update** — Go HTTP → curl → wget → git SSH
 - **`DCK_UPDATE_MIRROR`** — env var for update mirror
+- **Auto UFW ports** — `dck run -p` automatically opens ports in UFW, `dck rm` closes them
+- **Fixed OUTPUT DNAT** — now restricted to local traffic only, won't hijack outbound HTTPS connections (e.g., to GitLab)
 
 ### v1.2.0
 - OUTPUT DNAT rule (localhost → container)
