@@ -88,20 +88,21 @@ def release_ip(ip):
         pass
 
 
-def setup_veth(container_id, container_ip, bridge=DCK_BRIDGE):
-    """Create veth pair and attach to bridge."""
-    veth_host = f"v{container_id[:8]}"
+def setup_veth(pid, container_ip, bridge=DCK_BRIDGE):
+    """Create veth pair and attach to bridge. `pid` is the container's init process PID."""
+    import os
+    veth_host = f"v{pid:x}"[:12]
     veth_container = "eth0"
 
     _ip(["link", "add", veth_host, "type", "veth", "peer", "name", veth_container])
     _ip(["link", "set", veth_host, "master", bridge])
     _ip(["link", "set", veth_host, "up"])
 
-    _ip(["link", "set", veth_container, "netns", container_id])
-    _ip(["netns", "exec", container_id, "ip", "addr", "add", f"{container_ip}/24", "dev", veth_container], timeout=5)
-    _ip(["netns", "exec", container_id, "ip", "link", "set", veth_container, "up"], timeout=5)
-    _ip(["netns", "exec", container_id, "ip", "link", "set", "lo", "up"], timeout=5)
-    _ip(["netns", "exec", container_id, "ip", "route", "add", "default", "via", DCK_GATEWAY], timeout=5)
+    _ip(["link", "set", veth_container, "netns", str(pid)])
+    _ip(["nsenter", "-t", str(pid), "-n", "ip", "addr", "add", f"{container_ip}/24", "dev", veth_container], timeout=5)
+    _ip(["nsenter", "-t", str(pid), "-n", "ip", "link", "set", veth_container, "up"], timeout=5)
+    _ip(["nsenter", "-t", str(pid), "-n", "ip", "link", "set", "lo", "up"], timeout=5)
+    _ip(["nsenter", "-t", str(pid), "-n", "ip", "route", "add", "default", "via", DCK_GATEWAY], timeout=5)
 
     return veth_host
 

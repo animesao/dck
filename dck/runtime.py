@@ -4,12 +4,12 @@ import json
 import os
 import shutil
 import signal
+import stat
 import subprocess
+import sys
 import time
 import uuid
 from pathlib import Path
-
-from dck.i18n import t
 
 DCK_DIR = Path.home() / ".dck"
 CONTAINERS_DIR = DCK_DIR / "containers"
@@ -26,7 +26,6 @@ def _cgroup_path(name):
 
 
 def _setup_overlayfs(container_id, rootfs_path):
-    """Create overlayfs mount for container root."""
     overlay_dir = DCK_DIR / "overlay" / container_id
     upper_dir = overlay_dir / "upper"
     work_dir = overlay_dir / "work"
@@ -54,16 +53,13 @@ def _setup_overlayfs(container_id, rootfs_path):
 
 
 def _teardown_overlayfs(container_id):
-    """Unmount and remove overlayfs."""
     overlay_dir = DCK_DIR / "overlay" / container_id
     merged_dir = overlay_dir / "merged"
-
     if merged_dir.exists():
         try:
             subprocess.run(["umount", str(merged_dir)], check=False, capture_output=True, timeout=5)
         except Exception:
             pass
-
         try:
             shutil.rmtree(str(overlay_dir))
         except Exception:
@@ -71,7 +67,6 @@ def _teardown_overlayfs(container_id):
 
 
 def _setup_cgroup(container_id, ram=None, cpu=None, pids=1000):
-    """Create cgroup for container."""
     cg_path = _cgroup_path(container_id)
     _ensure_dir(str(cg_path))
 
@@ -101,19 +96,15 @@ def _setup_cgroup(container_id, ram=None, cpu=None, pids=1000):
 
 
 def _teardown_cgroup(container_id):
-    """Remove cgroup for container."""
     cg_path = _cgroup_path(container_id)
     if cg_path.exists():
         try:
-            for proc_file in cg_path.glob("cgroup.procs"):
-                pass
             shutil.rmtree(str(cg_path))
         except Exception:
             pass
 
 
 def _parse_memory(mem_str):
-    """Parse memory string like 512m, 2g to bytes."""
     if not mem_str:
         return None
     mem_str = str(mem_str).strip().lower()
@@ -125,6 +116,40 @@ def _parse_memory(mem_str):
         return None
     multipliers = {"b": 1, "k": 1024, "m": 1024**2, "g": 1024**3, "t": 1024**4}
     return int(num) * multipliers.get(unit, 1)
+
+
+def _netns_inode(pid):
+    try:
+        return os.stat(f"/proc/{pid}/ns/net").st_ino
+    except OSError:
+        return None
+
+
+def _wait_for_netns(pid, parent_inode, timeout=5):
+    for _ in range(timeout * 10):
+        inode = _netns_inode(pid)
+        if inode is not None and inode != parent_inode:
+            return True
+        time.sleep(0.1)
+    return False
+
+
+def _parse_user_group(user_str):
+    import pwd
+    uid = None
+    gid = None
+    if user_str is None:
+        return uid, gid
+    if user_str.isdigit():
+        uid = int(user_str)
+    else:
+        try:
+            pw = pwd.getpwnam(user_str)
+            uid = pw.pw_uid
+            gid = pw.pw_gid
+        except KeyError:
+            uid = 0
+    return uid, gid
 
 
 class Container:
@@ -166,12 +191,24 @@ class Container:
             "cgroup": str(self.config.get("cgroup", "")),
             "log_file": self.config.get("log_file", ""),
             "network": self.config.get("network", {}),
+            "hostname": self.config.get("hostname", ""),
+            "user": self.config.get("user", ""),
+            "workdir": self.config.get("workdir", ""),
+            "entrypoint": self.config.get("entrypoint", ""),
+            "tty": self.config.get("tty", False),
+            "interactive": self.config.get("interactive", False),
+            "detach": self.config.get("detach", False),
+            "rm": self.config.get("rm", False),
+            "read_only": self.config.get("read_only", False),
+            "restart": self.config.get("restart", "no"),
+            "labels": self.config.get("labels", {}),
+            "cap_add": self.config.get("cap_add", []),
+            "cap_drop": self.config.get("cap_drop", []),
+            "privileged": self.config.get("privileged", False),
         }
 
     def create(self):
-        """Prepare container: overlayfs, cgroup, save state."""
         rootfs = self.config.get("rootfs", "")
-
         if not rootfs or not Path(rootfs).exists():
             raise RuntimeError(f"Rootfs not found: {rootfs}")
 
@@ -179,7 +216,7 @@ class Container:
         self.config["merged_rootfs"] = str(merged)
 
         cg_path = _setup_cgroup(self.id, self.config.get("ram"), self.config.get("cpu"))
-        self.config["cgroup"] = cg_path
+        self.config["cgroup"] = str(cg_path)
 
         log_file = DCK_DIR / "logs" / f"{self.id}.log"
         _ensure_dir(str(log_file.parent))
@@ -187,42 +224,40 @@ class Container:
         self.config["status"] = "created"
         self.config["created"] = time.time()
         self.save_state()
-
         return self
 
     def start(self):
-        """Start the container process with namespaces."""
+        mode = "detach" if self.config.get("detach") else \
+               "tty" if self.config.get("tty") else \
+               "interactive" if self.config.get("interactive") else \
+               "normal"
+
         rootfs = self.config.get("merged_rootfs", "")
         command = self.config.get("command", ["/bin/sh"])
         env = self.config.get("env", {})
         volumes = self.config.get("volumes", {})
-        cg_path = self.config.get("cgroup", "")
         log_file = self.config.get("log_file", "")
 
-        pid = os.fork()
-        if pid == 0:
-            try:
-                self._run_child(rootfs, command, env, volumes, log_file)
-            except Exception as e:
-                with open(log_file, "a") as f:
-                    f.write(f"Container init failed: {e}\n")
-                os._exit(1)
-        else:
-            self.config["pid"] = pid
-            self.config["status"] = "running"
+        # Determine if we need networking
+        needs_net = bool(self.config.get("ports")) or \
+                    self.config.get("network", {}).get("mode", "bridge") != "none"
+
+        container_ip = None
+        if needs_net:
+            from dck.network import ensure_bridge, allocate_ip
+            ensure_bridge()
+            container_ip = allocate_ip()
+            self.config["network"] = {"ip": container_ip, "mode": "bridge"}
             self.save_state()
 
-            if cg_path:
-                cg_procs = Path(str(cg_path)) / "cgroup.procs"
-                try:
-                    cg_procs.write_text(str(pid))
-                except Exception:
-                    pass
+        if mode == "tty" or mode == "interactive":
+            return self._start_pty(rootfs, command, env, volumes, log_file, needs_net, container_ip)
+        elif mode == "detach":
+            return self._start_detach(rootfs, command, env, volumes, log_file, needs_net, container_ip)
+        else:
+            return self._start_normal(rootfs, command, env, volumes, log_file, needs_net, container_ip)
 
-        return pid
-
-    def _run_child(self, rootfs, command, env, volumes, log_file):
-        """Child process: set up namespaces, mounts, exec."""
+    def _run_child(self, rootfs, command, env, volumes, log_file, needs_net, container_ip, master_fd=None):
         import ctypes
 
         libc = ctypes.CDLL("libc.so.6")
@@ -242,95 +277,364 @@ class Container:
         except Exception as e:
             raise RuntimeError(f"Namespace setup failed: {e}")
 
-        hostname = self.name[:64]
+        # Set hostname
+        hostname = self.config.get("hostname") or self.name[:64]
         try:
             libc.sethostname(hostname.encode(), len(hostname))
         except Exception:
             pass
 
-        for h_path, c_path in volumes.items():
-            Path(c_path).mkdir(parents=True, exist_ok=True)
-            try:
-                subprocess.run(
-                    ["mount", "--bind", str(h_path), str(c_path)],
-                    check=True, capture_output=True, timeout=5,
-                )
-            except subprocess.CalledProcessError:
-                pass
+        # Signal parent that namespaces are ready
+        parent_pid = os.getppid()
+        try:
+            os.kill(parent_pid, signal.SIGUSR1)
+        except Exception:
+            pass
 
+        # Wait for parent to set up networking
+        if needs_net and container_ip:
+            while True:
+                try:
+                    os.kill(parent_pid, 0)
+                    break
+                except OSError:
+                    break
+            # Small delay to let parent set up veth
+            time.sleep(0.2)
+
+        # Mount loopback
+        try:
+            subprocess.run(["ip", "link", "set", "lo", "up"],
+                           check=False, capture_output=True, timeout=5)
+        except Exception:
+            pass
+
+        # Mount proc, sys, dev, tmp
         try:
             os.chdir(rootfs)
-
-            subprocess.run(
-                ["mount", "--make-rprivate", "/"],
-                check=True, capture_output=True, timeout=5,
-            )
+            subprocess.run(["mount", "--make-rprivate", "/"],
+                           check=True, capture_output=True, timeout=5)
 
             old_root = Path(rootfs) / ".old_root"
             old_root.mkdir(exist_ok=True)
 
             libc.pivot_root(rootfs.encode(), str(old_root).encode())
-
             os.chdir("/")
-
             os.chroot(".")
 
-            subprocess.run(
-                ["mount", "-t", "proc", "proc", "/proc"],
-                check=False, capture_output=True, timeout=5,
-            )
-
-            subprocess.run(
-                ["mount", "-t", "sysfs", "sys", "/sys"],
-                check=False, capture_output=True, timeout=5,
-            )
-
-            subprocess.run(
-                ["mount", "-t", "tmpfs", "tmpfs", "/tmp"],
-                check=False, capture_output=True, timeout=5,
-            )
-
-            subprocess.run(
-                ["mount", "-t", "devtmpfs", "dev", "/dev"],
-                check=False, capture_output=True, timeout=5,
-            )
+            subprocess.run(["mount", "-t", "proc", "proc", "/proc"],
+                           check=False, capture_output=True, timeout=5)
+            subprocess.run(["mount", "-t", "sysfs", "sys", "/sys"],
+                           check=False, capture_output=True, timeout=5)
+            subprocess.run(["mount", "-t", "tmpfs", "tmpfs", "/tmp"],
+                           check=False, capture_output=True, timeout=5)
+            subprocess.run(["mount", "-t", "devtmpfs", "dev", "/dev"],
+                           check=False, capture_output=True, timeout=5)
+            subprocess.run(["mount", "-t", "devpts", "devpts", "/dev/pts"],
+                           check=False, capture_output=True, timeout=5)
 
             try:
                 shutil.rmtree("/.old_root")
             except Exception:
                 pass
-
         except Exception as e:
-            with open(log_file, "a") as f:
-                f.write(f"Mount setup error: {e}\n")
+            self._write_log(log_file, f"Mount setup error: {e}\n")
+            raise
 
+        # Bind mount volumes
+        for h_path, c_path in volumes.items():
+            Path(c_path).mkdir(parents=True, exist_ok=True)
+            try:
+                subprocess.run(["mount", "--bind", str(h_path), str(c_path)],
+                               check=True, capture_output=True, timeout=5)
+            except subprocess.CalledProcessError:
+                pass
+
+        # Read-only rootfs
+        if self.config.get("read_only"):
+            try:
+                subprocess.run(["mount", "-o", "remount,ro", "/"],
+                               check=False, capture_output=True, timeout=5)
+                _ensure_dir("/tmp")
+                _ensure_dir("/run")
+                subprocess.run(["mount", "-t", "tmpfs", "tmpfs", "/run"],
+                               check=False, capture_output=True, timeout=5)
+            except Exception:
+                pass
+
+        # Change to workdir
+        workdir = self.config.get("workdir", "")
+        if workdir:
+            try:
+                os.chdir(workdir)
+            except Exception:
+                pass
+
+        # Build final command
+        entrypoint = self.config.get("entrypoint", "")
         cmd = command if isinstance(command, list) else command.split()
+        if entrypoint:
+            if isinstance(entrypoint, str):
+                entry_cmd = entrypoint.split()
+            else:
+                entry_cmd = list(entrypoint)
+            cmd = entry_cmd + cmd
 
-        if log_file:
-            log_fd = os.open(log_file, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
-            os.dup2(log_fd, 1)
-            os.dup2(log_fd, 2)
-            if log_fd > 2:
-                os.close(log_fd)
-
+        # Set up environment
         env_list = os.environ.copy()
         for k, v in env.items():
             if v is not None:
                 env_list[k] = str(v)
 
+        # Redirect stdout/stderr to log file (only if not TTY/interactive)
+        if master_fd is None:
+            if log_file:
+                log_fd = os.open(log_file, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+                os.dup2(log_fd, 1)
+                os.dup2(log_fd, 2)
+                if log_fd > 2:
+                    os.close(log_fd)
+
+        # Drop privileges
+        user = self.config.get("user", "")
+        if user:
+            uid, gid = _parse_user_group(user)
+            if gid is not None:
+                try:
+                    os.setgid(gid)
+                except Exception:
+                    pass
+            if uid is not None:
+                try:
+                    os.setuid(uid)
+                except Exception:
+                    pass
+
         try:
             os.execvpe(cmd[0], cmd, env_list)
         except Exception as e:
-            with open("/dev/console", "w") if os.path.exists("/dev/console") else open("/dev/null", "w") as f:
-                f.write(f"exec failed: {e}\n")
+            err_msg = f"exec failed: {e}\n"
+            if master_fd is not None:
+                os.write(master_fd, err_msg.encode())
+            else:
+                with open(log_file or "/dev/null", "a") as f:
+                    f.write(err_msg)
             os._exit(1)
 
+    def _write_log(self, log_file, msg):
+        if log_file:
+            try:
+                with open(log_file, "a") as f:
+                    f.write(msg)
+            except Exception:
+                pass
+
+    def _start_pty(self, rootfs, command, env, volumes, log_file, needs_net, container_ip):
+        master_fd, slave_fd = os.openpty()
+
+        pid = os.fork()
+        if pid == 0:
+            os.close(master_fd)
+            try:
+                os.setsid()
+                os.dup2(slave_fd, 0)
+                os.dup2(slave_fd, 1)
+                os.dup2(slave_fd, 2)
+                if slave_fd > 2:
+                    os.close(slave_fd)
+                self._run_child(rootfs, command, env, volumes, log_file,
+                               needs_net, container_ip, master_fd=slave_fd)
+            except Exception as e:
+                self._write_log(log_file, f"PTY child init failed: {e}\n")
+                os._exit(1)
+        else:
+            os.close(slave_fd)
+            self.config["pid"] = pid
+            self.config["status"] = "running"
+            self.save_state()
+            self._add_to_cgroup(pid)
+
+            # Set up networking
+            if needs_net and container_ip:
+                self._setup_container_net(pid, container_ip)
+
+            original_handler = signal.signal(signal.SIGWINCH, signal.SIG_DFL)
+            try:
+                import select
+                stdin_fd = sys.stdin.fileno()
+                stdout_fd = sys.stdout.fileno()
+
+                # Set stdin to raw mode
+                import tty
+                import termios
+                old_tc = None
+                try:
+                    old_tc = termios.tcgetattr(stdin_fd)
+                    tty.setraw(stdin_fd)
+                except Exception:
+                    pass
+
+                try:
+                    while True:
+                        r, _, _ = select.select([stdin_fd, master_fd], [], [])
+                        if stdin_fd in r:
+                            try:
+                                data = os.read(stdin_fd, 1024)
+                                if not data:
+                                    break
+                                os.write(master_fd, data)
+                            except OSError:
+                                break
+                        if master_fd in r:
+                            try:
+                                data = os.read(master_fd, 1024)
+                                if not data:
+                                    break
+                                os.write(stdout_fd, data)
+                            except OSError:
+                                break
+                finally:
+                    if old_tc:
+                        try:
+                            termios.tcsetattr(stdin_fd, termios.TCSAFLUSH, old_tc)
+                        except Exception:
+                            pass
+            except (ImportError, KeyboardInterrupt, OSError):
+                pass
+            finally:
+                signal.signal(signal.SIGWINCH, original_handler)
+                try:
+                    os.close(master_fd)
+                except Exception:
+                    pass
+
+            # Wait for child
+            try:
+                os.waitpid(pid, 0)
+            except OSError:
+                pass
+
+            self._cleanup_after_exit()
+
+        return pid
+
+    def _start_detach(self, rootfs, command, env, volumes, log_file, needs_net, container_ip):
+        pid = os.fork()
+        if pid == 0:
+            try:
+                self._run_child(rootfs, command, env, volumes, log_file,
+                               needs_net, container_ip)
+            except Exception as e:
+                self._write_log(log_file, f"Detached start failed: {e}\n")
+                os._exit(1)
+        else:
+            self.config["pid"] = pid
+            self.config["status"] = "running"
+            self.save_state()
+            self._add_to_cgroup(pid)
+
+            if needs_net and container_ip:
+                self._setup_container_net(pid, container_ip)
+
+        return pid
+
+    def _start_normal(self, rootfs, command, env, volumes, log_file, needs_net, container_ip):
+        pid = os.fork()
+        if pid == 0:
+            try:
+                self._run_child(rootfs, command, env, volumes, log_file,
+                               needs_net, container_ip)
+            except Exception as e:
+                self._write_log(log_file, f"Start failed: {e}\n")
+                os._exit(1)
+        else:
+            self.config["pid"] = pid
+            self.config["status"] = "running"
+            self.save_state()
+            self._add_to_cgroup(pid)
+
+            if needs_net and container_ip:
+                self._setup_container_net(pid, container_ip)
+
+            try:
+                os.waitpid(pid, 0)
+            except OSError:
+                pass
+
+            self._cleanup_after_exit()
+
+        return pid
+
+    def _setup_container_net(self, pid, container_ip):
+        parent_netns = _netns_inode(os.getpid())
+        parent_self_inode = _netns_inode(os.getpid())
+        if not _wait_for_netns(pid, parent_self_inode, timeout=5):
+            return
+
+        from dck.network import setup_veth
+        try:
+            setup_veth(pid, container_ip)
+        except Exception:
+            pass
+
+        # Port forwarding
+        ports = self.config.get("ports", {})
+        for c_port, h_port in ports.items():
+            c_num = c_port.split("/")[0]
+            proto = c_port.split("/")[1] if "/" in c_port else "tcp"
+            from dck.network import forward_port
+            try:
+                forward_port(h_port, container_ip, c_num, proto)
+            except Exception:
+                pass
+
+    def _add_to_cgroup(self, pid):
+        cg_path = self.config.get("cgroup", "")
+        if cg_path:
+            try:
+                cg_procs = Path(str(cg_path)) / "cgroup.procs"
+                cg_procs.write_text(str(pid))
+            except Exception:
+                pass
+
+    def _cleanup_after_exit(self):
+        self.config["status"] = "stopped"
+        self.config["pid"] = None
+        self.save_state()
+
+        # Cleanup networking
+        network = self.config.get("network", {})
+        container_ip = network.get("ip")
+        if container_ip:
+            from dck.network import release_ip
+            try:
+                release_ip(container_ip)
+            except Exception:
+                pass
+
+        # Remove port forwarding rules
+        ports = self.config.get("ports", {})
+        for c_port, h_port in ports.items():
+            c_num = c_port.split("/")[0]
+            proto = c_port.split("/")[1] if "/" in c_port else "tcp"
+            from dck.network import remove_port_forward
+            try:
+                remove_port_forward(h_port, container_ip or "", c_num, proto)
+            except Exception:
+                pass
+
+        if self.config.get("rm"):
+            try:
+                self.remove()
+            except Exception:
+                pass
+
     def stop(self, timeout=10):
-        """Stop the container."""
         pid = self.config.get("pid")
         if not pid:
-            self.config["status"] = "stopped"
-            self.save_state()
+            if self.config.get("status") != "stopped":
+                self.config["status"] = "stopped"
+                self.save_state()
             return
 
         try:
@@ -351,8 +655,26 @@ class Container:
         self.config["pid"] = None
         self.save_state()
 
+        network = self.config.get("network", {})
+        container_ip = network.get("ip")
+        if container_ip:
+            from dck.network import release_ip
+            try:
+                release_ip(container_ip)
+            except Exception:
+                pass
+
+        ports = self.config.get("ports", {})
+        for c_port, h_port in ports.items():
+            c_num = c_port.split("/")[0]
+            proto = c_port.split("/")[1] if "/" in c_port else "tcp"
+            from dck.network import remove_port_forward
+            try:
+                remove_port_forward(h_port, container_ip or "", c_num, proto)
+            except Exception:
+                pass
+
     def remove(self):
-        """Remove container state and cleanup."""
         try:
             if self.config.get("status") == "running":
                 self.stop()
@@ -366,7 +688,6 @@ class Container:
             self.state_file.unlink()
 
     def logs(self, tail=50, follow=False):
-        """Read container logs."""
         log_file = self.config.get("log_file", "")
         if not log_file or not Path(log_file).exists():
             return ""
@@ -385,8 +706,7 @@ class Container:
         except Exception:
             return ""
 
-    def exec_run(self, cmd):
-        """Execute a command in the container's namespaces."""
+    def exec_run(self, cmd, interactive=False, tty=False):
         pid = self.config.get("pid")
         if not pid:
             raise RuntimeError("Container not running")
@@ -398,11 +718,17 @@ class Container:
             if Path(ns_path).exists():
                 ns_args += ["--target", str(pid), f"--{ns}"]
 
-        full_cmd = ["nsenter"] + ns_args + list(cmd) if isinstance(cmd, list) else cmd
-        subprocess.run(full_cmd)
+        if interactive or tty:
+            full_cmd = ["nsenter"] + ns_args + list(cmd)
+            subprocess.run(full_cmd)
+        else:
+            result = subprocess.run(
+                ["nsenter"] + ns_args + list(cmd),
+                capture_output=True, text=True, timeout=60,
+            )
+            return result.returncode, result.stdout, result.stderr
 
     def get_status(self):
-        """Get current container status."""
         pid = self.config.get("pid")
         if pid:
             try:
@@ -414,7 +740,6 @@ class Container:
 
 
 def list_containers(all_containers=False):
-    """List all containers from state."""
     containers = []
     if not CONTAINERS_DIR.exists():
         return containers
@@ -436,7 +761,6 @@ def list_containers(all_containers=False):
 
 
 def get_container(container_id_or_name):
-    """Get container by ID or name."""
     if not CONTAINERS_DIR.exists():
         return None
 
