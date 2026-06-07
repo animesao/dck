@@ -1,6 +1,6 @@
-# dck — Simple Docker CLI client
+# dck — Native Linux Container Runtime
 
-A lightweight CLI wrapper to simplify daily Docker operations. Features Pterodactyl-style egg system, game server support, container manifests, firewall management, and language switching (RU/EN).
+A lightweight container runtime that pulls OCI images directly from Docker Hub and runs them using Linux namespaces, cgroups v2, and overlayfs. **No Docker daemon required.**
 
 ## Quick Install
 
@@ -13,203 +13,180 @@ Or via pip:
 pip install .
 ```
 
-## Short Aliases
+## Requirements
 
-| Alias | Full command | Description |
-|-------|-------------|-------------|
-| `dck l <container>` | `dck logs <container>` | View container logs |
-| `dck s <container>` | `dck start <container>` | Start a container |
-| `dck st <container>` | `dck stop <container>` | Stop a container |
-| `dck r <container>` | `dck restart <container>` | Restart a container |
-| `dck i` | `dck images` | List Docker images |
-| `dck e <container>` | `dck exec <container>` | Execute command in container |
+- **Linux** (x86_64)
+- **root** (or CAP_SYS_ADMIN) for namespace creation
+- **binaries**: `mount`, `umount`, `ip` (iproute2), `iptables`, `nsenter` (util-linux)
+- **cgroups v2** (`/sys/fs/cgroup/cgroup.controllers` exists)
+- **OverlayFS** support in kernel
 
-## Container Management
-
-| Command | Description |
-|---------|-------------|
-| `dck ps [-a]` | List containers (colored status, ports, uptime) |
-| `dck logs <container> [-f]` | View container logs (tail / follow) |
-| `dck start <container> [--restart always]` | Start a container (optional restart policy) |
-| `dck stop <container>` | Stop a container |
-| `dck restart <container>` | Restart a container |
-| `dck rm <container> [-f]` | Remove a container |
-| `dck restart-policy <c> <policy>` | Set auto-start policy (always/unless-stopped/on-failure/no) |
-| `dck console <container> [-m <mode>] [-t N] [-s]` | Pterodactyl-style console |
-| `dck attach <container>` | Attach to container's main process (Ctrl+P Ctrl+Q to detach) |
-| `dck resources <container> [--ram <size>] [--cpu <cores>] [--restart <policy>]` | Update RAM/CPU limits and restart policy |
-
-## Pterodactyl Console (v0.5.0)
-
-| Command | Mode | Description |
-|---------|------|-------------|
-| `dck console <container>` | auto | Shows info/logs, then choose action |
-| `dck console <container> -m shell` | shell | Interactive shell via `docker exec -it` |
-| `dck console <container> -m attach` | attach | Attach to main process (shows recent logs) |
-| `dck console <container> -m logs` | logs | Stream live container logs |
-| `dck console <container> -m ptero` | ptero | Real-time log streaming + commands via `docker exec` |
-| `dck console <container> -m ptero -s` | ptero+stdin | Commands piped to PID 1 stdin (for game servers) |
-| `dck attach <container>` | — | Attach to main process with recent logs shown |
-
-### How Ptero Console Works
-
-**`dck console -m ptero`** (exec mode) — commands run via `docker exec`. For: nginx, postgres, python, node, etc.
-
-**`dck console -m ptero -s`** (stdin mode, Pterodactyl-like) — runs `docker attach --sig-proxy=false` directly on your terminal with auto-reconnect. Commands go to the server's stdin, all output appears in the same stream. True real-time terminal — exactly like Pterodactyl Wings. Works with any game server (Minecraft, Terraria, Valheim, CS2). Survives container restarts automatically.
-
-When you create a container from a game server template, `tty: True` is set automatically so stdin works out of the box.
-
-## Eggs — Pterodactyl-Style (v0.4.0)
-
-Pre-configured container blueprints with optimal settings for popular runtimes and servers.
-
-| Command | Description |
-|---------|-------------|
-| `dck eggs` | List all available eggs |
-| `dck egg <name>` | Interactive container creation from egg (sets name, ports, volumes) |
-
-### Available Eggs
-
-| Category | Egg | Image | Details |
-|----------|-----|-------|---------|
-| **Python** | `python-slim` | python:3.12-slim | Lightweight, 128MB RAM, port 8000 |
-| **Python** | `python-full` | python:3.12 | Full dev tools, git, 256MB RAM, port 8000 |
-| **Node.js** | `node` | node:22-alpine | LTS, 128MB RAM, port 3000 |
-| **Node.js** | `node-dev` | node:22 | Nodemon, git, 256MB RAM, port 3000 |
-| **Go** | `golang` | golang:1.22-alpine | 256MB RAM, port 8080 |
-| **Rust** | `rust` | rust:alpine | Cargo, 256MB RAM, port 8080 |
-| **Java** | `java` | maven:3-eclipse-temurin-21 | Maven, 512MB RAM, port 8080 |
-| **Database** | `postgres` | postgres:16-alpine | 256MB RAM, port 5432 |
-| **Database** | `mysql` | mysql:8 | 512MB RAM, port 3306 |
-| **Database** | `redis` | redis:7-alpine | 128MB RAM, port 6379 |
-| **Web** | `nginx-proxy` | nginx:alpine | Reverse proxy, 128MB RAM, port 80 |
-
-## Templates & Container Creation
-
-Pre-defined server templates for game servers and web services.
-
-| Command | Description |
-|---------|-------------|
-| `dck templates` | List available templates (built-in + custom) |
-| `dck create [template]` | Interactive container creation from template |
-| `dck run <image>` | Run any Docker image with interactive setup |
-
-### Built-in Templates
-
-| Template | Purpose | Ports | RAM |
-|----------|---------|-------|-----|
-| **Nginx** | Web server / reverse proxy | 80 | 128MB |
-| **Minecraft** | Java Edition game server | 25565 | 2GB |
-| **Terraria** | Dedicated game server | 7777 | 1GB |
-| **Valheim** | Dedicated game server | 2456-2457/udp | 2GB |
-| **CS2** | Counter-Strike 2 server | 27015 | 4GB |
-| **Satisfactory** | Dedicated server | 7777 | 4GB |
-
-Port input supports comma-separated values: `80:80,443:443` or just `80,443`. Custom templates are saved to `~/.dck/templates.json` for reuse.
-
-## Container Manifest (v0.4.0)
-
-Define and deploy multiple containers declaratively in `dck.yml`, `dck.yaml`, or `dck.json`:
-
-```yaml
-containers:
-  - name: web
-    image: nginx:alpine
-    ports:
-      - "80:80/tcp"
-    env:
-      NGINX_HOST: example.com
-    volumes:
-      - "./html:/usr/share/nginx/html"
-    ram: 128m
-    cpu: 0.5
-    restart: always
-  - name: db
-    image: postgres:16-alpine
-    env:
-      POSTGRES_PASSWORD: secret
-    ram: 256m
-    restart: unless-stopped
-```
-
-| Command | Description |
-|---------|-------------|
-| `dck up` | Deploy containers from manifest (create/pull/start) |
-| `dck down` | Stop and remove manifest containers |
-| `dck manifest` | Show manifest containers status |
-
-## Startup Config (v0.4.0)
-
-Per-container startup configuration stored in `~/.dck/startup.json`. Set custom entrypoints, startup commands, or script paths that override Docker defaults.
-
-| Command | Description |
-|---------|-------------|
-| `dck startup <container>` | Show current startup config |
-| `dck startup <container> -c "cmd"` | Set custom startup command (`CMD`) |
-| `dck startup <container> -e "entry"` | Set custom entrypoint (`ENTRYPOINT`) |
-| `dck startup <container> -f "/path"` | Run a startup script path |
-| `dck startup <container> -C` | Clear startup config |
-
-You can also set startup settings interactively during `dck create`.
-
-## Image Management
-
-| Command | Description |
-|---------|-------------|
-| `dck images` | List Docker images |
-| `dck pull <image>` | Pull an image from registry |
-| `dck rmi <image> [-f]` | Remove an image |
-| `dck export-image <image> [path]` | Export image to tar archive |
-| `dck import-image <path>` | Import image from tar archive |
-
-## Docker Compose
-
-| Command | Description |
-|---------|-------------|
-| `dck compose up [-d] [--build]` | Create and start containers |
-| `dck compose down [-v]` | Stop and remove containers |
-| `dck compose ps` | List compose services |
-| `dck compose logs [-f]` | View compose logs |
-
-## Firewall & Ports
-
-| Command | Description |
-|---------|-------------|
-| `dck ports` | List listening ports |
-| `dck ports check <port>` | Check if port is available |
-| `dck ports open <port> [--proto udp]` | Open port in firewall (UFW) |
-| `dck ports close <port>` | Close port in firewall |
-
-When creating a container with `dck create`, dck will ask to auto-open required ports in the firewall.
-
-## Other Commands
-
-| Command | Description |
-|---------|-------------|
-| `dck stats` | Live CPU / memory / network monitoring |
-| `dck exec <container> [cmd]` | Execute command (interactive shell if no command) |
-| `dck inspect <container>` | Show detailed container info |
-| `dck doctor` | Docker diagnostics + install instructions |
-| `dck lang [ru/en]` | Switch language (Русский / English) |
-| `dck update` | Update dck to latest version |
-| `dck uninstall` | Remove dck completely from your system |
-
-## Language
-
-dck supports switching between English and Russian:
+Check readiness:
 
 ```bash
-dck lang ru    # переключиться на русский
-dck lang en    # switch to English
-dck lang       # show current language
+dck doctor
 ```
 
-## Configuration
+## Usage
 
-All local configuration is stored in `~/.dck/`:
-- `~/.dck/lang` — language setting
-- `~/.dck/startup.json` — per-container startup configs
-- `~/.dck/templates.json` — custom templates
+### Images
+
+```bash
+dck pull nginx:alpine       # pull from Docker Hub
+dck images                  # list pulled images
+dck rmi nginx:alpine        # remove image
+```
+
+### Run Containers
+
+```bash
+dck run -d -p 8080:80 nginx:alpine               # web server (detached)
+dck run -it --rm ubuntu bash                      # interactive shell
+dck run --rm alpine echo hello                    # one-shot
+dck run -d --name pg -v /data/pg:/var/lib/postgresql/data \
+  -e POSTGRES_PASSWORD=secret postgres:16         # database
+dck run -d --name app -p 3000:3000 --ram 512m --cpu 0.5 node:20 npm start
+```
+
+### Container Lifecycle
+
+```bash
+dck ps                # list running containers
+dck ps -a             # all containers (including stopped)
+dck stop mycontainer  # stop (SIGTERM + SIGKILL after 10s)
+dck start mycontainer # restart a stopped container
+dck restart mycontainer
+dck rm mycontainer    # remove
+dck rm -f mycontainer # force remove (stop + remove)
+```
+
+### Connect & Debug
+
+```bash
+dck exec -it mycontainer /bin/sh      # run command
+dck ssh mycontainer                    # alias for exec -it /bin/sh
+dck logs mycontainer                   # show logs (last 50 lines)
+dck logs -f mycontainer                # follow logs
+dck inspect mycontainer                # show full config
+```
+
+### Interactive Create (with Paper Minecraft)
+
+```bash
+dck create --paper
+# interactive prompts: version, ports, volumes, resources
+# generates run.sh launcher for game servers
+```
+
+### Minecraft Paper Server
+
+```bash
+dck create --paper
+# 1. select version
+# 2. set port 25565
+# 3. set volume /data/mc
+# 4. run generated launcher:
+cd /data/mc && ./run.sh
+```
+
+## Run Options
+
+| Option | Description |
+|--------|-------------|
+| `-n, --name` | Container name |
+| `--tag` | Image tag (default: latest) |
+| `-p, --port` | Port mapping `host:container[/proto]` |
+| `-v, --volume` | Volume mount `host:container` |
+| `-e, --env` | Environment variable `KEY=value` |
+| `--env-file` | Read environment from file |
+| `-i, --interactive` | Keep STDIN open |
+| `-t, --tty` | Allocate pseudo-TTY |
+| `-d, --detach` | Run in background |
+| `--rm` | Auto-remove on exit |
+| `--ram` | Memory limit (`512m`, `2g`) |
+| `--cpu` | CPU limit (`0.5`, `2`) |
+| `--pids-limit` | PID limit (default: 1000) |
+| `-w, --workdir` | Working directory |
+| `-u, --user` | Username or UID |
+| `--read-only` | Read-only root filesystem |
+| `-h, --hostname` | Container hostname |
+| `--entrypoint` | Override entrypoint |
+| `--restart` | Restart policy (`no`, `always`, `on-failure`) |
+| `--cap-add` | Add Linux capability |
+| `--cap-drop` | Drop Linux capability |
+| `--privileged` | Extended privileges |
+
+## Architecture
+
+```
+dck pull nginx          dck run -p 8080:80 nginx
+      │                        │
+      ▼                        ▼
+  ┌──────────┐           ┌──────────┐
+  │  oci.py  │           │ cli.py   │
+  │ pull     │           │ run cmd  │
+  └────┬─────┘           └────┬─────┘
+       │                      │
+       ▼                      ▼
+  ┌──────────┐           ┌──────────┐
+  │  OCI     │           │runtime.py│
+  │ Registry │           │Container │
+  │  API v2  │           │ .create  │
+  └──────────┘           │ .start   │
+       │                 │ .stop    │
+       ▼                 │ .exec    │
+  ~/.dck/images/         │ .logs    │
+   └── library_nginx/    └────┬─────┘
+       └── alpine/            │
+           ├── config.json    ├── overlayfs (upper/work/merged)
+           ├── manifest.json  ├── cgroups v2  (memory.max, cpu.max)
+           └── rootfs/        ├── namespaces (NS/NET/PID/UTS/IPC)
+                              ├── veth pair + bridge + iptables
+                              └── ~/.dck/containers/{id}.json
+
+  network.py ─── dck0 bridge (10.0.0.0/24)
+         ├── allocate_ip / release_ip
+         ├── setup_veth (veth pair + nsenter)
+         └── forward_port (iptables DNAT)
+```
+
+## Storage
+
+All data stored in `~/.dck/`:
+
+```
+~/.dck/
+├── images/          # pulled OCI images (rootfs per tag)
+│   └── library_nginx/
+│       └── alpine/
+│           ├── config.json
+│           ├── manifest.json
+│           ├── layers/       # cached tar.gz layers
+│           └── rootfs/       # extracted root filesystem
+├── containers/      # container state files (*.json)
+├── overlay/         # overlayfs upper/work/merged per container
+├── logs/            # container stdout/stderr logs
+└── network_ips.json # allocated IP pool
+```
+
+## System Commands
+
+```bash
+dck doctor     # check native runtime readiness
+dck update     # update dck to latest version
+dck uninstall  # remove dck completely
+```
+
+## Remote Access
+
+dck does not include SSH server functionality. To access a container:
+
+```bash
+dck exec -it mycontainer /bin/sh   # interactive shell
+dck ssh mycontainer                 # same thing
+```
+
+For persistent remote access, run an SSH server inside the container or use the host's SSH to manage containers.
 
 ## License
 
