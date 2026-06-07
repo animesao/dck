@@ -179,6 +179,20 @@ func removeExistingDNAT(chain string, hostPort int, protocol string) {
 	}
 }
 
+func ufwAllowPort(hostPort int, protocol string) {
+	if _, err := exec.Command("ufw", "status").Output(); err != nil {
+		return
+	}
+	exec.Command("ufw", "allow", fmt.Sprintf("%d/%s", hostPort, protocol)).Run()
+}
+
+func ufwDenyPort(hostPort int, protocol string) {
+	if _, err := exec.Command("ufw", "status").Output(); err != nil {
+		return
+	}
+	exec.Command("ufw", "delete", "allow", fmt.Sprintf("%d/%s", hostPort, protocol)).Run()
+}
+
 func AddPortForwarding(containerIP string, hostPort, containerPort int, protocol string) error {
 	removeExistingDNAT("PREROUTING", hostPort, protocol)
 	removeExistingDNAT("OUTPUT", hostPort, protocol)
@@ -216,6 +230,8 @@ func AddPortForwarding(containerIP string, hostPort, containerPort int, protocol
 		return fmt.Errorf("FORWARD: %w", err)
 	}
 
+	ufwAllowPort(hostPort, protocol)
+
 	return nil
 }
 
@@ -231,6 +247,8 @@ func RemovePortForwarding(containerIP string, hostPort, containerPort int, proto
 	exec.Command("iptables", "-D", "FORWARD",
 		"-p", protocol, "-d", containerIP, "--dport", fmt.Sprintf("%d", containerPort),
 		"-j", "ACCEPT").Run()
+
+	ufwDenyPort(hostPort, protocol)
 }
 
 func RemoveVeth(containerID string) {
