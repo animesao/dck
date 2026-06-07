@@ -229,6 +229,11 @@ def run_cmd(image, cmd, name, tag, port, volume, env, env_file,
                 console.print(f"  IP: {ip}")
             for c_port, h_port in ports.items():
                 console.print(f"  Port: [cyan]{h_port}:{c_port}[/cyan]")
+            from dck.network import ensure_ufw, open_ufw_ports
+            if ensure_ufw():
+                opened = open_ufw_ports(ports)
+                for h_port, proto in opened:
+                    console.print(f"  [green]UFW:[/green] opened {h_port}/{proto}")
         console.print(f"\n  [dim]dck exec {container.name}[/dim]")
         console.print(f"  [dim]dck logs {container.name}[/dim]")
         console.print(f"  [dim]dck stop {container.name}[/dim]")

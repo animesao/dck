@@ -1,7 +1,8 @@
-"""Container networking: bridge, veth pairs, iptables port forwarding."""
+"""Container networking: bridge, veth pairs, iptables port forwarding, UFW management."""
 
 import subprocess
 import time
+from pathlib import Path
 
 DCK_BRIDGE = "dck0"
 DCK_SUBNET = "10.0.0.0/24"
@@ -152,3 +153,66 @@ def remove_port_forward(host_port, container_ip, container_port, proto="tcp"):
         "-d", container_ip,
         "-j", "ACCEPT",
     ], check=False)
+
+
+# ── UFW firewall helpers ────────────────────────────────────────────
+
+
+def _ufw_installed():
+    try:
+        r = subprocess.run(["ufw", "--version"], capture_output=True, text=True, timeout=5)
+        return r.returncode == 0
+    except FileNotFoundError:
+        return False
+
+
+def _install_ufw():
+    try:
+        r = subprocess.run(["apt-get", "install", "-y", "ufw"], capture_output=True, text=True, timeout=60)
+        return r.returncode == 0
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+
+
+def _check_ufw_active():
+    try:
+        r = subprocess.run(["ufw", "status"], capture_output=True, text=True, timeout=5)
+        return "active" in r.stdout.lower() if r.returncode == 0 else False
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+
+
+def _ufw_enable():
+    try:
+        subprocess.run(["ufw", "--force", "enable"], capture_output=True, text=True, timeout=10)
+        return True
+    except Exception:
+        return False
+
+
+def _ufw_allow(port, proto="tcp"):
+    try:
+        r = subprocess.run(["ufw", "allow", f"{port}/{proto}"], capture_output=True, text=True, timeout=10)
+        return r.returncode == 0
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+
+
+def ensure_ufw():
+    if not _ufw_installed():
+        if not _install_ufw():
+            return False
+    if not _check_ufw_active():
+        _ufw_enable()
+    return True
+
+
+def open_ufw_ports(ports):
+    opened = []
+    for c_port, h_port in (ports or {}).items():
+        proto = c_port.split("/")[1] if "/" in c_port else "tcp"
+        if str(h_port) == "22":
+            continue
+        if _ufw_allow(h_port, proto):
+            opened.append((h_port, proto))
+    return opened
