@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"dck/internal/image"
@@ -56,14 +58,29 @@ func New(img *image.Image, opts CreateOpts) *Container {
 
 func Load(id string) (*Container, error) {
 	path := state.ContainerPath(id)
-	if !state.FileExists(path) {
+	if state.FileExists(path) {
+		var c Container
+		if err := state.ReadJSON(path, &c); err != nil {
+			return nil, err
+		}
+		return &c, nil
+	}
+
+	entries, err := os.ReadDir(state.ContainersDir())
+	if err != nil {
 		return nil, fmt.Errorf("container %s not found", id)
 	}
-	var c Container
-	if err := state.ReadJSON(path, &c); err != nil {
-		return nil, err
+	for _, e := range entries {
+		name := strings.TrimSuffix(e.Name(), ".json")
+		if strings.HasPrefix(name, id) {
+			var c Container
+			if err := state.ReadJSON(filepath.Join(state.ContainersDir(), e.Name()), &c); err != nil {
+				return nil, err
+			}
+			return &c, nil
+		}
 	}
-	return &c, nil
+	return nil, fmt.Errorf("container %s not found", id)
 }
 
 func generateID() string {
