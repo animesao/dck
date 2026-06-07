@@ -1,425 +1,518 @@
-"""Container runtime: Linux namespaces, cgroups v2, overlayfs."""
-
+import ctypes
 import json
 import os
+import select
 import shutil
 import signal
-import stat
 import subprocess
-import sys
 import time
 import uuid
 from pathlib import Path
 
 DCK_DIR = Path.home() / ".dck"
+IMAGES_DIR = DCK_DIR / "images"
 CONTAINERS_DIR = DCK_DIR / "containers"
-CGROUP_ROOT = Path("/sys/fs/cgroup")
-DCK_CGROUP = CGROUP_ROOT / "dck"
+LOGS_DIR = DCK_DIR / "logs"
+OVERLAY_DIR = DCK_DIR / "overlay"
+CGROUP_DIR = Path("/sys/fs/cgroup/dck")
+NET_IPS_FILE = DCK_DIR / "network_ips.json"
+BRIDGE_NAME = "dck0"
+BRIDGE_SUBNET = "10.0.0.0/24"
+BRIDGE_GATEWAY = "10.0.0.1"
 
 
-def _ensure_dir(path):
-    Path(path).mkdir(parents=True, exist_ok=True)
+def _ensure(p):
+    Path(p).mkdir(parents=True, exist_ok=True)
 
 
-def _cgroup_path(name):
-    return DCK_CGROUP / name
+# ── images ───────────────────────────────────────────────────────────
 
+def pull_image(image, tag="latest", progress=None):
+    import base64
+    import hashlib
+    import requests
+    from urllib.parse import urljoin
 
-def _setup_overlayfs(container_id, rootfs_path):
-    overlay_dir = DCK_DIR / "overlay" / container_id
-    upper_dir = overlay_dir / "upper"
-    work_dir = overlay_dir / "work"
-    merged_dir = overlay_dir / "merged"
-    _ensure_dir(upper_dir)
-    _ensure_dir(work_dir)
-    _ensure_dir(merged_dir)
+    image = image.replace("docker.io/", "").replace("library/", "")
+    if "/" not in image:
+        image = f"library/{image}"
 
-    lower = rootfs_path
-    upper = str(upper_dir)
-    work = str(work_dir)
-    merged = str(merged_dir)
+    img_dir = IMAGES_DIR / image.replace("/", "_") / tag
+    layers_dir = img_dir / "layers"
+    rootfs_dir = img_dir / "rootfs"
+    _ensure(layers_dir)
+    _ensure(rootfs_dir)
 
-    try:
-        subprocess.run(
-            ["mount", "-t", "overlay", "overlay",
-             "-o", f"lowerdir={lower},upperdir={upper},workdir={work}",
-             merged],
-            check=True, capture_output=True, timeout=10,
+    def auth():
+        r = requests.get(
+            f"https://auth.docker.io/token?service=registry.docker.io&scope=repository:{image}:pull",
+            timeout=15,
         )
-    except subprocess.CalledProcessError as e:
-        raise RuntimeError(f"Overlay mount failed: {e.stderr.decode()}")
+        r.raise_for_status()
+        return r.json()["token"]
 
-    return merged_dir
+    def req(method, path, token, **kw):
+        url = urljoin("https://registry-1.docker.io/v2/", f"{image}/{path}")
+        h = {"Authorization": f"Bearer {token}",
+             "Accept": "application/vnd.docker.distribution.manifest.v2+json, application/vnd.oci.image.manifest.v1+json"}
+        h.update(kw.pop("headers", {}))
+        r = requests.request(method, url, headers=h, timeout=30, **kw)
+        if r.status_code == 401:
+            token = auth()
+            h["Authorization"] = f"Bearer {token}"
+            r = requests.request(method, url, headers=h, timeout=30, **kw)
+        r.raise_for_status()
+        return r, token
+
+    def stream(digest, token, dest):
+        h = {"Authorization": f"Bearer {token}"}
+        url = urljoin("https://registry-1.docker.io/v2/", f"{image}/blobs/{digest}")
+        r = requests.get(url, headers=h, stream=True, timeout=(10, 120))
+        if r.status_code == 401:
+            token = auth()
+            h["Authorization"] = f"Bearer {token}"
+            r = requests.get(url, headers=h, stream=True, timeout=(10, 120))
+        r.raise_for_status()
+        total = int(r.headers.get("Content-Length", 0))
+        dl, start = 0, time.time()
+        short = digest.split(":")[1][:12]
+        with open(dest, "wb") as f:
+            for chunk in r.iter_content(65536):
+                if chunk:
+                    f.write(chunk)
+                    dl += len(chunk)
+                    now = time.time()
+                    if progress and total > 0 and (now - start >= 1 or dl == total):
+                        pct = dl * 100 / total
+                        speed = dl / (now - start) / 1024 / 1024 if now > start else 0
+                        progress(f"[{dl/1024/1024:.1f}/{total/1024/1024:.1f}MB] {short} ({pct:.0f}% @ {speed:.1f}MB/s)")
+        return token
+
+    if progress:
+        progress("Authenticating...")
+    token = auth()
+
+    if progress:
+        progress("Fetching manifest...")
+    r, token = req("GET", f"manifests/{tag}", token)
+    manifest = r.json()
+
+    if manifest.get("mediaType") in (
+        "application/vnd.docker.distribution.manifest.list.v2+json",
+        "application/vnd.oci.image.index.v1+json",
+    ):
+        amd = [m for m in manifest.get("manifests", []) if m.get("platform", {}).get("architecture") == "amd64"]
+        if not amd:
+            raise RuntimeError("No amd64 image in manifest list")
+        r, token = req("GET", f"manifests/{amd[0]['digest']}", token)
+        manifest = r.json()
+
+    if progress:
+        progress("Downloading config...")
+    cd = manifest["config"]["digest"]
+    stream(cd, token, layers_dir / cd.replace(":", "_"))
+    config = json.loads((layers_dir / cd.replace(":", "_")).read_bytes())
+
+    (img_dir / ".image-name").write_text(image)
+    (img_dir / "manifest.json").write_text(json.dumps(manifest, indent=2))
+    (img_dir / "config.json").write_text(json.dumps(config, indent=2))
+
+    layers = manifest.get("layers", [])
+    for i, layer in enumerate(layers):
+        digest = layer["digest"]
+        short = digest.split(":")[1][:12]
+        lf = layers_dir / digest.replace(":", "_")
+        if not lf.exists():
+            if progress:
+                progress(f"Downloading layer {i+1}/{len(layers)}: {short}...")
+            token = stream(digest, token, lf, progress)
+        if layer.get("mediaType", "").endswith("tar.gzip") or layer.get("mediaType", "").endswith("gzip"):
+            if progress:
+                progress(f"Extracting layer {i+1}/{len(layers)}: {short}...")
+            import tarfile
+            with tarfile.open(str(lf), "r:gz") as tar:
+                for m in tar.getmembers():
+                    p = Path(m.name)
+                    if p.is_absolute() or ".." in p.parts:
+                        continue
+                    tar.extract(m, path=str(rootfs_dir))
+
+    if progress:
+        progress("Done")
+
+    return {"name": image, "tag": tag, "rootfs": str(rootfs_dir)}
 
 
-def _teardown_overlayfs(container_id):
-    overlay_dir = DCK_DIR / "overlay" / container_id
-    merged_dir = overlay_dir / "merged"
-    if merged_dir.exists():
-        try:
-            subprocess.run(["umount", str(merged_dir)], check=False, capture_output=True, timeout=5)
-        except Exception:
-            pass
-        try:
-            shutil.rmtree(str(overlay_dir))
-        except Exception:
-            pass
+def list_images():
+    imgs = []
+    if not IMAGES_DIR.exists():
+        return imgs
+    for d in sorted(IMAGES_DIR.iterdir()):
+        if not d.is_dir():
+            continue
+        nf = d / ".image-name"
+        name = nf.read_text().strip() if nf.exists() else d.name.replace("_", "/")
+        for td in sorted(d.iterdir()):
+            if not td.is_dir():
+                continue
+            cf = td / "config.json"
+            cmd = ""
+            if cf.exists():
+                try:
+                    cfg = json.loads(cf.read_text())
+                    cmd = " ".join(cfg.get("config", {}).get("Cmd", []))
+                except Exception:
+                    pass
+            display = name
+            if display.startswith("library/"):
+                display = display[len("library/"):]
+            imgs.append({"name": display, "tag": td.name, "cmd": cmd, "rootfs": str(td / "rootfs")})
+    return imgs
 
 
-def _setup_cgroup(container_id, ram=None, cpu=None, pids=1000):
-    cg_path = _cgroup_path(container_id)
-    _ensure_dir(str(cg_path))
-
-    if ram:
-        ram_bytes = _parse_memory(ram)
-        if ram_bytes:
-            try:
-                (cg_path / "memory.max").write_text(str(ram_bytes))
-                (cg_path / "memory.high").write_text(str(int(ram_bytes * 0.9)))
-            except Exception:
-                pass
-
-    if cpu:
-        try:
-            cpu_val = int(float(cpu) * 100000)
-            (cg_path / "cpu.max").write_text(f"{cpu_val} 100000")
-        except Exception:
-            pass
-
-    if pids:
-        try:
-            (cg_path / "pids.max").write_text(str(pids))
-        except Exception:
-            pass
-
-    return cg_path
-
-
-def _teardown_cgroup(container_id):
-    cg_path = _cgroup_path(container_id)
-    if cg_path.exists():
-        try:
-            shutil.rmtree(str(cg_path))
-        except Exception:
-            pass
-
-
-def _parse_memory(mem_str):
-    if not mem_str:
-        return None
-    mem_str = str(mem_str).strip().lower()
-    if mem_str[-1].isdigit():
-        mem_str += "m"
-    unit = mem_str[-1]
-    num = mem_str[:-1]
-    if not num.isdigit():
-        return None
-    multipliers = {"b": 1, "k": 1024, "m": 1024**2, "g": 1024**3, "t": 1024**4}
-    return int(num) * multipliers.get(unit, 1)
-
-
-def _netns_inode(pid):
-    try:
-        return os.stat(f"/proc/{pid}/ns/net").st_ino
-    except OSError:
-        return None
-
-
-def _wait_for_netns(pid, parent_inode, timeout=5):
-    for _ in range(timeout * 10):
-        inode = _netns_inode(pid)
-        if inode is not None and inode != parent_inode:
-            return True
-        time.sleep(0.1)
+def remove_image(image, tag="latest"):
+    if "/" not in image:
+        image = f"library/{image}"
+    d = IMAGES_DIR / image.replace("/", "_") / tag
+    if d.exists():
+        shutil.rmtree(str(d))
+        return True
     return False
 
 
-def _parse_user_group(user_str):
-    import pwd
-    uid = None
-    gid = None
-    if user_str is None:
-        return uid, gid
-    if user_str.isdigit():
-        uid = int(user_str)
-    else:
-        try:
-            pw = pwd.getpwnam(user_str)
-            uid = pw.pw_uid
-            gid = pw.pw_gid
-        except KeyError:
-            uid = 0
-    return uid, gid
+# ── networking ───────────────────────────────────────────────────────
 
+def _ip(cmd, check=True, timeout=10):
+    r = subprocess.run(["ip"] + cmd, check=False, capture_output=True, text=True, timeout=timeout)
+    if check and r.returncode != 0:
+        raise RuntimeError(f"ip {' '.join(cmd)}: {r.stderr.strip()}")
+    return r
+
+
+def _ipt(cmd, check=True):
+    r = subprocess.run(["iptables"] + cmd, check=False, capture_output=True, text=True, timeout=10)
+    if check and r.returncode != 0:
+        raise RuntimeError(f"iptables {' '.join(cmd)}: {r.stderr.strip()}")
+    return r
+
+
+def _rule_exists(cmd):
+    return _ipt(cmd + ["-C"], check=False).returncode == 0
+
+
+def ensure_bridge():
+    r = _ip(["link", "show", BRIDGE_NAME], check=False)
+    if r.returncode != 0:
+        _ip(["link", "add", BRIDGE_NAME, "type", "bridge"])
+        _ip(["addr", "add", f"{BRIDGE_GATEWAY}/24", "dev", BRIDGE_NAME])
+        _ip(["link", "set", BRIDGE_NAME, "up"])
+    for rule in [
+        ["-t", "nat", "-A", "POSTROUTING", "-s", BRIDGE_SUBNET, "!", "-o", BRIDGE_NAME, "-j", "MASQUERADE"],
+        ["-A", "FORWARD", "-i", BRIDGE_NAME, "-j", "ACCEPT"],
+        ["-A", "FORWARD", "-o", BRIDGE_NAME, "-j", "ACCEPT"],
+    ]:
+        if not _rule_exists(rule):
+            _ipt(rule)
+
+
+def alloc_ip():
+    import fcntl
+    _ensure(NET_IPS_FILE.parent)
+    fd = os.open(str(NET_IPS_FILE), os.O_RDWR | os.O_CREAT, 0o644)
+    fcntl.flock(fd, fcntl.LOCK_EX)
+    try:
+        data = os.read(fd, 65536) if os.path.getsize(NET_IPS_FILE) > 0 else b"[]"
+        used = set(json.loads(data)) if data.strip() else set()
+        for i in range(2, 255):
+            ip = f"10.0.0.{i}"
+            if ip not in used:
+                used.add(ip)
+                os.ftruncate(fd, 0)
+                os.lseek(fd, 0, os.SEEK_SET)
+                os.write(fd, json.dumps(list(used)).encode())
+                return ip
+        raise RuntimeError("No free IPs")
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
+
+
+def free_ip(ip):
+    import fcntl
+    if not NET_IPS_FILE.exists():
+        return
+    fd = os.open(str(NET_IPS_FILE), os.O_RDWR, 0o644)
+    fcntl.flock(fd, fcntl.LOCK_EX)
+    try:
+        data = os.read(fd, 65536)
+        used = set(json.loads(data)) if data.strip() else set()
+        used.discard(ip)
+        os.ftruncate(fd, 0)
+        os.lseek(fd, 0, os.SEEK_SET)
+        os.write(fd, json.dumps(list(used)).encode())
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
+
+
+def setup_veth(pid, ip):
+    host = f"v{pid:x}"[:12]
+    _ip(["link", "add", host, "type", "veth", "peer", "name", "eth0"])
+    _ip(["link", "set", host, "master", BRIDGE_NAME])
+    _ip(["link", "set", host, "up"])
+    _ip(["link", "set", "eth0", "netns", str(pid)])
+    _ip(["nsenter", "-t", str(pid), "-n", "ip", "addr", "add", f"{ip}/24", "dev", "eth0"], timeout=5)
+    _ip(["nsenter", "-t", str(pid), "-n", "ip", "link", "set", "eth0", "up"], timeout=5)
+    _ip(["nsenter", "-t", str(pid), "-n", "ip", "link", "set", "lo", "up"], timeout=5)
+    _ip(["nsenter", "-t", str(pid), "-n", "ip", "route", "add", "default", "via", BRIDGE_GATEWAY], timeout=5)
+    return host
+
+
+def del_veth(name):
+    _ip(["link", "delete", name], check=False)
+
+
+def forward_port(hp, cip, cp, proto="tcp"):
+    rule = ["-t", "nat", "-A", "PREROUTING", "-p", proto, "--dport", str(hp),
+            "-j", "DNAT", "--to-destination", f"{cip}:{cp}"]
+    if not _rule_exists(rule):
+        _ipt(rule)
+    rule2 = ["-A", "FORWARD", "-p", proto, "--dport", str(cp), "-d", cip, "-j", "ACCEPT"]
+    if not _rule_exists(rule2):
+        _ipt(rule2)
+
+
+def unforward_port(hp, cip, cp, proto="tcp"):
+    _ipt(["-t", "nat", "-D", "PREROUTING", "-p", proto, "--dport", str(hp),
+          "-j", "DNAT", "--to-destination", f"{cip}:{cp}"], check=False)
+    _ipt(["-D", "FORWARD", "-p", proto, "--dport", str(cp), "-d", cip, "-j", "ACCEPT"], check=False)
+
+
+# ── container ────────────────────────────────────────────────────────
 
 class Container:
     def __init__(self, name=None, config=None):
         self.id = uuid.uuid4().hex[:12]
         self.name = name or f"dck-{self.id}"
-        self.config = config or {}
+        self.cfg = config or {}
         self.state_file = CONTAINERS_DIR / f"{self.id}.json"
 
-    def save_state(self):
-        _ensure_dir(str(CONTAINERS_DIR))
-        self.state_file.write_text(json.dumps(self._get_state(), indent=2))
+    def save(self):
+        _ensure(CONTAINERS_DIR)
+        self.state_file.write_text(json.dumps(self._data(), indent=2))
 
-    def load_state(self):
-        if self.state_file.exists():
-            data = json.loads(self.state_file.read_text())
-            self.id = data.get("id", self.id)
-            self.name = data.get("name", self.name)
-            self.config = data.get("config", self.config)
-            return data
-        return None
-
-    def _get_state(self):
+    def _data(self):
         return {
-            "id": self.id,
-            "name": self.name,
-            "image": self.config.get("image", ""),
-            "pid": self.config.get("pid"),
-            "status": self.config.get("status", "created"),
-            "created": self.config.get("created", time.time()),
-            "command": self.config.get("command", []),
-            "ports": self.config.get("ports", {}),
-            "volumes": self.config.get("volumes", {}),
-            "env": self.config.get("env", {}),
-            "ram": self.config.get("ram"),
-            "cpu": self.config.get("cpu"),
-            "rootfs": self.config.get("rootfs", ""),
-            "cgroup": str(self.config.get("cgroup", "")),
-            "log_file": self.config.get("log_file", ""),
-            "network": self.config.get("network", {}),
-            "hostname": self.config.get("hostname", ""),
-            "user": self.config.get("user", ""),
-            "workdir": self.config.get("workdir", ""),
-            "entrypoint": self.config.get("entrypoint", ""),
-            "tty": self.config.get("tty", False),
-            "interactive": self.config.get("interactive", False),
-            "detach": self.config.get("detach", False),
-            "rm": self.config.get("rm", False),
-            "read_only": self.config.get("read_only", False),
-            "restart": self.config.get("restart", "no"),
-            "labels": self.config.get("labels", {}),
-            "cap_add": self.config.get("cap_add", []),
-            "cap_drop": self.config.get("cap_drop", []),
-            "privileged": self.config.get("privileged", False),
+            "id": self.id, "name": self.name,
+            "image": self.cfg.get("image", ""),
+            "pid": self.cfg.get("pid"),
+            "status": self.cfg.get("status", "created"),
+            "created": self.cfg.get("created", time.time()),
+            "cmd": self.cfg.get("cmd", []),
+            "ports": self.cfg.get("ports", {}),
+            "volumes": self.cfg.get("volumes", {}),
+            "env": self.cfg.get("env", {}),
+            "rootfs": self.cfg.get("rootfs", ""),
+            "cgroup": str(self.cfg.get("cgroup", "")),
+            "log": self.cfg.get("log", ""),
+            "hostname": self.cfg.get("hostname", ""),
+            "tty": self.cfg.get("tty", False),
+            "interactive": self.cfg.get("interactive", False),
+            "detach": self.cfg.get("detach", False),
+            "rm": self.cfg.get("rm", False),
+            "ram": self.cfg.get("ram"),
+            "cpu": self.cfg.get("cpu"),
+            "network": self.cfg.get("network", {}),
+            "veth": self.cfg.get("veth"),
         }
 
+    def load(self):
+        if self.state_file.exists():
+            d = json.loads(self.state_file.read_text())
+            for k, v in d.items():
+                setattr(self, k, v) if hasattr(self, k) else None
+            self.cfg = d
+            return d
+        return None
+
     def create(self):
-        rootfs = self.config.get("rootfs", "")
+        rootfs = self.cfg.get("rootfs", "")
         if not rootfs or not Path(rootfs).exists():
             raise RuntimeError(f"Rootfs not found: {rootfs}")
 
-        merged = _setup_overlayfs(self.id, rootfs)
-        self.config["merged_rootfs"] = str(merged)
+        # overlay
+        d = OVERLAY_DIR / self.id
+        _ensure(d / "upper")
+        _ensure(d / "work")
+        merged = str(d / "merged")
+        subprocess.run(["mount", "-t", "overlay", "overlay",
+                        "-o", f"lowerdir={rootfs},upperdir={d / 'upper'},workdir={d / 'work'}",
+                        merged], check=True, capture_output=True, timeout=10)
+        self.cfg["merged"] = merged
 
-        cg_path = _setup_cgroup(self.id, self.config.get("ram"), self.config.get("cpu"))
-        self.config["cgroup"] = str(cg_path)
+        # cgroup
+        cg = CGROUP_DIR / self.id
+        _ensure(str(cg))
+        ram = self.cfg.get("ram")
+        if ram:
+            self._set_cg_limit(cg / "memory.max", self._parse_mem(ram))
+        cpu = self.cfg.get("cpu")
+        if cpu:
+            self._set_cg_limit(cg / "cpu.max", f"{int(float(cpu) * 100000)} 100000")
+        self.cfg["cgroup"] = str(cg)
 
-        log_file = DCK_DIR / "logs" / f"{self.id}.log"
-        _ensure_dir(str(log_file.parent))
-        self.config["log_file"] = str(log_file)
-        self.config["status"] = "created"
-        self.config["created"] = time.time()
-        self.save_state()
+        # log
+        lf = LOGS_DIR / f"{self.id}.log"
+        _ensure(LOGS_DIR)
+        self.cfg["log"] = str(lf)
+        self.cfg["status"] = "created"
+        self.cfg["created"] = time.time()
+        self.save()
         return self
 
+    def _set_cg_limit(self, p, val):
+        try:
+            p.write_text(str(val))
+        except Exception:
+            pass
+
+    def _parse_mem(self, s):
+        if not s:
+            return None
+        s = str(s).strip().lower()
+        if s[-1].isdigit():
+            s += "m"
+        u = s[-1]
+        n = s[:-1]
+        if not n.isdigit():
+            return None
+        mul = {"b": 1, "k": 1024, "m": 1024**2, "g": 1024**3, "t": 1024**4}
+        return int(n) * mul.get(u, 1)
+
     def start(self):
-        mode = "detach" if self.config.get("detach") else \
-               "tty" if self.config.get("tty") else \
-               "interactive" if self.config.get("interactive") else \
-               "normal"
+        mode = "detach" if self.cfg.get("detach") else \
+               "tty" if self.cfg.get("tty") else \
+               "interactive" if self.cfg.get("interactive") else "normal"
 
-        rootfs = self.config.get("merged_rootfs", "")
-        command = self.config.get("command", ["/bin/sh"])
-        env = self.config.get("env", {})
-        volumes = self.config.get("volumes", {})
-        log_file = self.config.get("log_file", "")
+        merged = self.cfg.get("merged", "")
+        cmd = self.cfg.get("cmd", ["/bin/sh"])
+        env = self.cfg.get("env", {})
+        vols = self.cfg.get("volumes", {})
+        logf = self.cfg.get("log", "")
 
-        # Determine if we need networking
-        needs_net = bool(self.config.get("ports")) or \
-                    self.config.get("network", {}).get("mode", "bridge") != "none"
+        has_ports = bool(self.cfg.get("ports"))
+        needs_net = has_ports or self.cfg.get("network", {}).get("mode", "bridge") != "none"
 
-        container_ip = None
+        cip = None
         if needs_net:
-            from dck.network import ensure_bridge, allocate_ip
             ensure_bridge()
-            container_ip = allocate_ip()
-            self.config["network"] = {"ip": container_ip, "mode": "bridge"}
-            self.save_state()
+            cip = alloc_ip()
+            self.cfg["network"] = {"ip": cip, "mode": "bridge"}
+            self.save()
 
-        if mode == "tty" or mode == "interactive":
-            return self._start_pty(rootfs, command, env, volumes, log_file, needs_net, container_ip)
+        if mode in ("tty", "interactive"):
+            return self._run_pty(merged, cmd, env, vols, logf, needs_net, cip)
         elif mode == "detach":
-            return self._start_detach(rootfs, command, env, volumes, log_file, needs_net, container_ip)
+            return self._run_detach(merged, cmd, env, vols, logf, needs_net, cip)
         else:
-            return self._start_normal(rootfs, command, env, volumes, log_file, needs_net, container_ip)
+            return self._run_normal(merged, cmd, env, vols, logf, needs_net, cip)
 
-    def _run_child(self, rootfs, command, env, volumes, log_file, needs_net, container_ip, master_fd=None, ready_fd=None):
-        import ctypes
-
+    def _child(self, merged, cmd, env, vols, logf, needs_net, cip, ready_fd=None, pty_fd=None):
         libc = ctypes.CDLL("libc.so.6")
+        NS = {
+            "mnt": 0x00020000, "pid": 0x20000000, "net": 0x40000000,
+            "uts": 0x04000000, "ipc": 0x08000000,
+        }
+        flags = NS["mnt"] | NS["pid"] | NS["net"] | NS["uts"] | NS["ipc"]
 
-        CLONE_NEWNS = 0x00020000
-        CLONE_NEWPID = 0x20000000
-        CLONE_NEWNET = 0x40000000
-        CLONE_NEWUTS = 0x04000000
-        CLONE_NEWIPC = 0x08000000
+        ret = libc.unshare(flags)
+        if ret != 0:
+            e = ctypes.get_errno()
+            msg = f"unshare: {os.strerror(e)}"
+            if e == 12:
+                msg += "\n  ENOMEM: sysctl -w kernel.keys.root_maxkeys=1000000 kernel.keys.root_maxbytes=25000000"
+            self._log(logf, msg)
+            os._exit(1)
 
-        flags = CLONE_NEWNS | CLONE_NEWPID | CLONE_NEWNET | CLONE_NEWUTS | CLONE_NEWIPC
+        # hostname
+        hn = (self.cfg.get("hostname") or self.name)[:64]
+        libc.sethostname(hn.encode(), len(hn))
 
+        # lo
+        subprocess.run(["ip", "link", "set", "lo", "up"], check=False, capture_output=True, timeout=5)
+
+        # mounts
         try:
-            ret = libc.unshare(flags)
+            os.chdir(merged)
+            subprocess.run(["mount", "--make-rprivate", "/"], check=True, capture_output=True, timeout=5)
+
+            old = Path(merged) / ".old_root"
+            old.mkdir(exist_ok=True)
+
+            ret = libc.pivot_root(merged.encode(), str(old).encode())
             if ret != 0:
-                errno_val = ctypes.get_errno()
-                msg = f"unshare failed: {os.strerror(errno_val)}"
-                if errno_val == 12:
-                    msg += "\n  ENOMEM — try: sysctl -w kernel.keys.root_maxkeys=1000000 kernel.keys.root_maxbytes=25000000"
-                raise RuntimeError(msg)
-        except Exception as e:
-            raise RuntimeError(f"Namespace setup failed: {e}")
-
-        # Set hostname
-        hostname = self.config.get("hostname") or self.name[:64]
-        try:
-            libc.sethostname(hostname.encode(), len(hostname))
-        except Exception:
-            pass
-
-        # Mount loopback
-        try:
-            subprocess.run(["ip", "link", "set", "lo", "up"],
-                           check=False, capture_output=True, timeout=5)
-        except Exception:
-            pass
-
-        # Mount proc, sys, dev, tmp
-        try:
-            os.chdir(rootfs)
-            subprocess.run(["mount", "--make-rprivate", "/"],
-                           check=True, capture_output=True, timeout=5)
-
-            old_root = Path(rootfs) / ".old_root"
-            old_root.mkdir(exist_ok=True)
-
-            ret = libc.pivot_root(rootfs.encode(), str(old_root).encode())
-            if ret != 0:
-                errno_val = ctypes.get_errno()
-                raise OSError(errno_val, os.strerror(errno_val))
+                raise OSError(ctypes.get_errno(), os.strerror(ctypes.get_errno()))
             os.chdir("/")
             os.chroot(".")
 
-            for fs, target, fstype in [
-                ("proc", "/proc", "proc"),
-                ("sysfs", "/sys", "sysfs"),
-                ("tmpfs", "/tmp", "tmpfs"),
-                ("devtmpfs", "/dev", "devtmpfs"),
-                ("devpts", "/dev/pts", "devpts"),
-            ]:
-                r = subprocess.run(["mount", "-t", fstype, fs, target],
-                                   check=False, capture_output=True, timeout=5)
+            subs = [("proc", "/proc", "proc"), ("sysfs", "/sys", "sysfs"),
+                    ("tmpfs", "/tmp", "tmpfs"), ("devtmpfs", "/dev", "devtmpfs"),
+                    ("devpts", "/dev/pts", "devpts")]
+            for fs, target, fstype in subs:
+                r = subprocess.run(["mount", "-t", fstype, fs, target], check=False,
+                                   capture_output=True, timeout=5)
                 if r.returncode != 0:
-                    err = r.stderr.decode().strip()
-                    self._write_log(log_file, f"mount {target} failed: {err}\n")
+                    self._log(logf, f"mount {target}: {r.stderr.decode().strip()}\n")
 
-            try:
-                shutil.rmtree("/.old_root")
-            except Exception:
-                pass
+            shutil.rmtree("/.old_root", ignore_errors=True)
         except Exception as e:
-            msg = f"Mount setup error: {e}\n"
+            msg = f"mount: {e}"
             if isinstance(e, OSError) and e.errno == 12:
-                msg += "  ENOMEM — try: sysctl -w kernel.keys.root_maxkeys=1000000; sysctl -w kernel.keys.root_maxbytes=25000000\n"
-            self._write_log(log_file, msg)
-            raise
+                msg += "\n  ENOMEM: sysctl -w kernel.keys.root_maxkeys=1000000 kernel.keys.root_maxbytes=25000000"
+            self._log(logf, msg)
+            os._exit(1)
 
-        # Bind mount volumes
-        for h_path, c_path in volumes.items():
-            Path(c_path).mkdir(parents=True, exist_ok=True)
-            try:
-                subprocess.run(["mount", "--bind", str(h_path), str(c_path)],
-                               check=True, capture_output=True, timeout=5)
-            except subprocess.CalledProcessError:
-                pass
+        # bind volumes
+        for hp, cp in vols.items():
+            Path(cp).mkdir(parents=True, exist_ok=True)
+            subprocess.run(["mount", "--bind", str(hp), str(cp)], check=False, capture_output=True, timeout=5)
 
-        # Read-only rootfs
-        if self.config.get("read_only"):
-            try:
-                subprocess.run(["mount", "-o", "remount,ro", "/"],
-                               check=False, capture_output=True, timeout=5)
-                _ensure_dir("/tmp")
-                _ensure_dir("/run")
-                subprocess.run(["mount", "-t", "tmpfs", "tmpfs", "/run"],
-                               check=False, capture_output=True, timeout=5)
-            except Exception:
-                pass
-
-        # Change to workdir
-        workdir = self.config.get("workdir", "")
-        if workdir:
-            try:
-                os.chdir(workdir)
-            except Exception:
-                pass
-
-        # Build final command
-        entrypoint = self.config.get("entrypoint", "")
-        cmd = command if isinstance(command, list) else command.split()
-        if entrypoint:
-            if isinstance(entrypoint, str):
-                entry_cmd = entrypoint.split()
-            else:
-                entry_cmd = list(entrypoint)
-            cmd = entry_cmd + cmd
-
-        # Set up environment — start clean, avoid leaking host vars
-        _HOST_ENV_SKIP = {"PATH", "HOME", "LOGNAME", "USER", "SHELL", "XDG_*", "DBUS_*", "SYSTEMD_*", "LC_*", "LANG", "LANGUAGE", "LD_*"}
+        # environment
         env_list = {}
         for k, v in os.environ.items():
-            skip = False
-            for pat in _HOST_ENV_SKIP:
-                if pat.endswith("*"):
-                    if k.startswith(pat[:-1]):
-                        skip = True
-                        break
-                elif k == pat:
-                    skip = True
-                    break
-            if not skip:
-                env_list[k] = v
-        for k, v in env.items():
-            if v is not None:
-                env_list[k] = str(v)
+            if any(k.startswith(p) for p in ("XDG_", "DBUS_", "SYSTEMD_", "LC_", "LD_")) or \
+               k in ("PATH", "HOME", "LOGNAME", "USER", "SHELL", "LANG", "LANGUAGE"):
+                continue
+            env_list[k] = v
+        env_list.update(env)
         env_list.setdefault("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
         env_list.setdefault("HOME", "/root")
         env_list.setdefault("TERM", "xterm")
 
-        # Redirect stdout/stderr to log file (only if not TTY/interactive)
-        if master_fd is None:
-            if log_file:
-                log_fd = os.open(log_file, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
-                os.dup2(log_fd, 1)
-                os.dup2(log_fd, 2)
-                if log_fd > 2:
-                    os.close(log_fd)
+        # workdir
+        wd = self.cfg.get("workdir", "")
+        if wd:
+            try:
+                os.chdir(wd)
+            except Exception:
+                pass
 
-        # Drop privileges
-        user = self.config.get("user", "")
-        if user:
-            uid, gid = _parse_user_group(user)
-            if gid is not None:
-                try:
-                    os.setgid(gid)
-                except Exception:
-                    pass
-            if uid is not None:
-                try:
-                    os.setuid(uid)
-                except Exception:
-                    pass
+        # build command
+        ep = self.cfg.get("entrypoint", "")
+        if isinstance(cmd, str):
+            cmd = cmd.split()
+        if ep:
+            cmd = (ep.split() if isinstance(ep, str) else list(ep)) + cmd
 
-        # Signal readiness before exec (for detach mode)
+        # redirect output
+        if pty_fd is None and logf:
+            fd = os.open(logf, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+            os.dup2(fd, 1)
+            os.dup2(fd, 2)
+            if fd > 2:
+                os.close(fd)
+
+        # ready signal
         if ready_fd is not None:
             try:
                 os.write(ready_fd, b"1")
@@ -430,301 +523,194 @@ class Container:
         try:
             os.execvpe(cmd[0], cmd, env_list)
         except Exception as e:
-            err_msg = f"exec failed: {e}\n"
-            if master_fd is not None:
-                os.write(master_fd, err_msg.encode())
-            else:
-                with open(log_file or "/dev/null", "a") as f:
-                    f.write(err_msg)
+            self._log(logf, f"exec: {e}")
             os._exit(1)
 
-    def _write_log(self, log_file, msg):
-        if log_file:
+    def _log(self, lf, msg):
+        if lf:
             try:
-                with open(log_file, "a") as f:
-                    f.write(msg)
+                with open(lf, "a") as f:
+                    f.write(msg + "\n")
             except Exception:
                 pass
 
-    def _start_pty(self, rootfs, command, env, volumes, log_file, needs_net, container_ip):
-        master_fd, slave_fd = os.openpty()
-        sync_r, sync_w = os.pipe()
+    def _run_normal(self, merged, cmd, env, vols, logf, needs_net, cip):
+        return self._run_detach(merged, cmd, env, vols, logf, needs_net, cip)
 
+    def _run_detach(self, merged, cmd, env, vols, logf, needs_net, cip):
+        sr, sw = os.pipe()
         pid = os.fork()
         if pid == 0:
-            os.close(master_fd)
-            os.close(sync_r)
-            try:
-                os.setsid()
-                os.dup2(slave_fd, 0)
-                os.dup2(slave_fd, 1)
-                os.dup2(slave_fd, 2)
-                if slave_fd > 2:
-                    os.close(slave_fd)
-                self._run_child(rootfs, command, env, volumes, log_file,
-                               needs_net, container_ip, master_fd=slave_fd, ready_fd=sync_w)
-            except Exception as e:
-                self._write_log(log_file, f"PTY child init failed: {e}\n")
-                os._exit(1)
+            os.close(sr)
+            self._child(merged, cmd, env, vols, logf, needs_net, cip, ready_fd=sw)
+            os._exit(1)
         else:
-            os.close(slave_fd)
-            os.close(sync_w)
-            import select
-            ready, _, _ = select.select([sync_r], [], [], 5)
+            os.close(sw)
+            r, _, _ = select.select([sr], [], [], 5)
             data = None
-            if ready:
+            if r:
                 try:
-                    data = os.read(sync_r, 1)
+                    data = os.read(sr, 1)
                 except OSError:
                     pass
-            os.close(sync_r)
+            os.close(sr)
+            if not r or not data:
+                os.waitpid(pid, 0)
+                raise RuntimeError("Container failed (check logs)")
 
-            if not ready or not data:
+            self.cfg["pid"] = pid
+            self.cfg["status"] = "running"
+            self.save()
+            self._add_cg(pid)
+
+            if needs_net and cip:
+                self._setup_net(pid, cip)
+
+            return pid
+
+    def _run_pty(self, merged, cmd, env, vols, logf, needs_net, cip):
+        mfd, sfd = os.openpty()
+        sr, sw = os.pipe()
+        pid = os.fork()
+        if pid == 0:
+            os.close(mfd)
+            os.close(sr)
+            os.setsid()
+            os.dup2(sfd, 0)
+            os.dup2(sfd, 1)
+            os.dup2(sfd, 2)
+            if sfd > 2:
+                os.close(sfd)
+            self._child(merged, cmd, env, vols, logf, needs_net, cip, ready_fd=sw, pty_fd=sfd)
+            os._exit(1)
+        else:
+            os.close(sfd)
+            os.close(sw)
+            r, _, _ = select.select([sr], [], [], 5)
+            data = None
+            if r:
                 try:
-                    os.waitpid(pid, 0)
+                    data = os.read(sr, 1)
                 except OSError:
                     pass
-                raise RuntimeError("Container failed during startup (check logs with: dck logs)")
+            os.close(sr)
+            if not r or not data:
+                os.waitpid(pid, 0)
+                raise RuntimeError("Container failed (check logs)")
 
-            self.config["pid"] = pid
-            self.config["status"] = "running"
-            self.save_state()
-            self._add_to_cgroup(pid)
+            self.cfg["pid"] = pid
+            self.cfg["status"] = "running"
+            self.save()
+            self._add_cg(pid)
 
-            # Set up networking
-            if needs_net and container_ip:
-                self._setup_container_net(pid, container_ip)
+            if needs_net and cip:
+                self._setup_net(pid, cip)
 
-            original_handler = signal.signal(signal.SIGWINCH, signal.SIG_DFL)
+            # terminal I/O
+            import termios
+            import tty
+            old = None
             try:
-                import select
-                stdin_fd = sys.stdin.fileno()
-                stdout_fd = sys.stdout.fileno()
-
-                # Set stdin to raw mode
-                import tty
-                import termios
-                old_tc = None
-                try:
-                    old_tc = termios.tcgetattr(stdin_fd)
-                    tty.setraw(stdin_fd)
-                except Exception:
-                    pass
-
-                try:
-                    while True:
-                        r, _, _ = select.select([stdin_fd, master_fd], [], [])
-                        if stdin_fd in r:
-                            try:
-                                data = os.read(stdin_fd, 1024)
-                                if not data:
-                                    break
-                                os.write(master_fd, data)
-                            except OSError:
-                                break
-                        if master_fd in r:
-                            try:
-                                data = os.read(master_fd, 1024)
-                                if not data:
-                                    break
-                                os.write(stdout_fd, data)
-                            except OSError:
-                                break
-                finally:
-                    if old_tc:
-                        try:
-                            termios.tcsetattr(stdin_fd, termios.TCSAFLUSH, old_tc)
-                        except Exception:
-                            pass
-            except (ImportError, KeyboardInterrupt, OSError):
+                old = termios.tcgetattr(0)
+                tty.setraw(0)
+            except Exception:
+                pass
+            sig_old = signal.signal(signal.SIGWINCH, signal.SIG_DFL)
+            try:
+                while True:
+                    rr, _, _ = select.select([0, mfd], [], [])
+                    if 0 in rr:
+                        d = os.read(0, 1024)
+                        if not d:
+                            break
+                        os.write(mfd, d)
+                    if mfd in rr:
+                        d = os.read(mfd, 1024)
+                        if not d:
+                            break
+                        os.write(1, d)
+            except (KeyboardInterrupt, OSError):
                 pass
             finally:
-                signal.signal(signal.SIGWINCH, original_handler)
-                try:
-                    os.close(master_fd)
-                except Exception:
-                    pass
-
-            # Wait for child
-            try:
+                if old:
+                    try:
+                        termios.tcsetattr(0, termios.TCSAFLUSH, old)
+                    except Exception:
+                        pass
+                signal.signal(signal.SIGWINCH, sig_old)
+                os.close(mfd)
                 os.waitpid(pid, 0)
+                self._cleanup()
+
+            return pid
+
+    def _setup_net(self, pid, cip):
+        import time as _time
+        for _ in range(50):
+            try:
+                ino = os.stat(f"/proc/{pid}/ns/net").st_ino
+                if ino != os.stat("/proc/self/ns/net").st_ino:
+                    break
             except OSError:
                 pass
-
-            self._cleanup_after_exit()
-
-        return pid
-
-    def _start_detach(self, rootfs, command, env, volumes, log_file, needs_net, container_ip):
-        sync_r, sync_w = os.pipe()
-        pid = os.fork()
-        if pid == 0:
-            os.close(sync_r)
-            try:
-                self._run_child(rootfs, command, env, volumes, log_file,
-                               needs_net, container_ip, ready_fd=sync_w)
-            except Exception as e:
-                self._write_log(log_file, f"Detached start failed: {e}\n")
-                os._exit(1)
+            _time.sleep(0.1)
         else:
-            os.close(sync_w)
-            import select
-            ready, _, _ = select.select([sync_r], [], [], 5)
-            data = None
-            if ready:
-                try:
-                    data = os.read(sync_r, 1)
-                except OSError:
-                    pass
-            os.close(sync_r)
-
-            if not ready or not data:
-                try:
-                    os.waitpid(pid, 0)
-                except OSError:
-                    pass
-                raise RuntimeError("Container failed during startup (check logs with: dck logs)")
-
-            self.config["pid"] = pid
-            self.config["status"] = "running"
-            self.save_state()
-            self._add_to_cgroup(pid)
-
-            if needs_net and container_ip:
-                self._setup_container_net(pid, container_ip)
-
-        return pid
-
-    def _start_normal(self, rootfs, command, env, volumes, log_file, needs_net, container_ip):
-        sync_r, sync_w = os.pipe()
-        pid = os.fork()
-        if pid == 0:
-            os.close(sync_r)
-            try:
-                self._run_child(rootfs, command, env, volumes, log_file,
-                               needs_net, container_ip, ready_fd=sync_w)
-            except Exception as e:
-                self._write_log(log_file, f"Start failed: {e}\n")
-                os._exit(1)
-        else:
-            os.close(sync_w)
-            import select
-            ready, _, _ = select.select([sync_r], [], [], 5)
-            data = None
-            if ready:
-                try:
-                    data = os.read(sync_r, 1)
-                except OSError:
-                    pass
-            os.close(sync_r)
-
-            if not ready or not data:
-                try:
-                    os.waitpid(pid, 0)
-                except OSError:
-                    pass
-                raise RuntimeError("Container failed during startup (check logs with: dck logs)")
-
-            self.config["pid"] = pid
-            self.config["status"] = "running"
-            self.save_state()
-            self._add_to_cgroup(pid)
-
-            if needs_net and container_ip:
-                self._setup_container_net(pid, container_ip)
-
-            try:
-                os.waitpid(pid, 0)
-            except OSError:
-                pass
-
-            self._cleanup_after_exit()
-
-        return pid
-
-    def _setup_container_net(self, pid, container_ip):
-        parent_inode = _netns_inode(os.getpid())
-        if not _wait_for_netns(pid, parent_inode, timeout=5):
-            self._write_log(self.config.get("log_file", ""), "Network setup timed out (child netns not ready)\n")
+            self._log(self.cfg.get("log", ""), "netns timeout\n")
             return
-
-        from dck.network import setup_veth
         try:
-            veth_host = setup_veth(pid, container_ip)
-            self.config["veth_host"] = veth_host
-            self.save_state()
+            veth = setup_veth(pid, cip)
+            self.cfg["veth"] = veth
+            self.save()
         except Exception as e:
-            self._write_log(self.config.get("log_file", ""), f"Veth setup failed: {e}\n")
+            self._log(self.cfg.get("log", ""), f"veth: {e}\n")
 
-        # Port forwarding with duplicate protection
-        ports = self.config.get("ports", {})
-        for c_port, h_port in ports.items():
-            c_num = c_port.split("/")[0]
-            proto = c_port.split("/")[1] if "/" in c_port else "tcp"
-            from dck.network import forward_port
+        for cp, hp in self.cfg.get("ports", {}).items():
+            cn = cp.split("/")[0]
+            proto = cp.split("/")[1] if "/" in cp else "tcp"
             try:
-                forward_port(h_port, container_ip, c_num, proto, check_exists=True)
+                forward_port(hp, cip, cn, proto)
             except Exception as e:
-                self._write_log(self.config.get("log_file", ""), f"Port forward failed: {e}\n")
+                self._log(self.cfg.get("log", ""), f"port {hp}:{cn}: {e}\n")
 
-    def _add_to_cgroup(self, pid):
-        cg_path = self.config.get("cgroup", "")
-        if cg_path:
+    def _add_cg(self, pid):
+        cg = self.cfg.get("cgroup", "")
+        if cg:
             try:
-                cg_procs = Path(str(cg_path)) / "cgroup.procs"
-                cg_procs.write_text(str(pid))
+                (Path(cg) / "cgroup.procs").write_text(str(pid))
             except Exception:
                 pass
 
-    def _cleanup_after_exit(self):
-        self.config["status"] = "stopped"
-        self.config["pid"] = None
-        self.save_state()
+    def _cleanup(self):
+        self.cfg["status"] = "stopped"
+        self.cfg["pid"] = None
+        self.save()
 
-        # Cleanup networking
-        network = self.config.get("network", {})
-        container_ip = network.get("ip")
-        if container_ip:
-            from dck.network import release_ip
-            try:
-                release_ip(container_ip)
-            except Exception:
-                pass
+        net = self.cfg.get("network", {})
+        cip = net.get("ip")
+        if cip:
+            free_ip(cip)
 
-        # Remove veth interface
-        veth_host = self.config.get("veth_host")
-        if veth_host:
-            from dck.network import teardown_veth
-            try:
-                teardown_veth(veth_host)
-            except Exception:
-                pass
+        veth = self.cfg.get("veth")
+        if veth:
+            del_veth(veth)
 
-        # Remove port forwarding rules
-        ports = self.config.get("ports", {})
-        for c_port, h_port in ports.items():
-            c_num = c_port.split("/")[0]
-            proto = c_port.split("/")[1] if "/" in c_port else "tcp"
-            from dck.network import remove_port_forward
-            try:
-                remove_port_forward(h_port, container_ip or "", c_num, proto)
-            except Exception:
-                pass
+        for cp, hp in self.cfg.get("ports", {}).items():
+            cn = cp.split("/")[0]
+            proto = cp.split("/")[1] if "/" in cp else "tcp"
+            unforward_port(hp, cip or "", cn, proto)
 
-        if self.config.get("rm"):
+        if self.cfg.get("rm"):
             try:
                 self.remove()
             except Exception:
                 pass
 
     def stop(self, timeout=10):
-        pid = self.config.get("pid")
+        pid = self.cfg.get("pid")
         if not pid:
-            if self.config.get("status") != "stopped":
-                self.config["status"] = "stopped"
-                self.save_state()
+            self.cfg["status"] = "stopped"
+            self.save()
             return
-
         try:
             os.kill(pid, signal.SIGTERM)
             for _ in range(timeout):
@@ -738,183 +724,146 @@ class Container:
                 time.sleep(1)
         except OSError:
             pass
-
-        self.config["status"] = "stopped"
-        self.config["pid"] = None
-        self.save_state()
-
-        network = self.config.get("network", {})
-        container_ip = network.get("ip")
-        if container_ip:
-            from dck.network import release_ip
-            try:
-                release_ip(container_ip)
-            except Exception:
-                pass
-
-        veth_host = self.config.get("veth_host")
-        if veth_host:
-            from dck.network import teardown_veth
-            try:
-                teardown_veth(veth_host)
-            except Exception:
-                pass
-
-        ports = self.config.get("ports", {})
-        for c_port, h_port in ports.items():
-            c_num = c_port.split("/")[0]
-            proto = c_port.split("/")[1] if "/" in c_port else "tcp"
-            from dck.network import remove_port_forward
-            try:
-                remove_port_forward(h_port, container_ip or "", c_num, proto)
-            except Exception:
-                pass
-
-    def start_existing(self):
-        """Restart a previously stopped container."""
-        status = self.get_status()
-        if status == "running":
-            return
-
-        _teardown_overlayfs(self.id)
-        _teardown_cgroup(self.id)
-
-        rootfs = self.config.get("rootfs", "")
-        if not rootfs or not Path(rootfs).exists():
-            raise RuntimeError(f"Rootfs not found: {rootfs}")
-
-        merged = _setup_overlayfs(self.id, rootfs)
-        self.config["merged_rootfs"] = str(merged)
-
-        cg_path = _setup_cgroup(self.id, self.config.get("ram"), self.config.get("cpu"))
-        self.config["cgroup"] = str(cg_path)
-
-        log_file = DCK_DIR / "logs" / f"{self.id}.log"
-        _ensure_dir(str(log_file.parent))
-        self.config["log_file"] = str(log_file)
-
-        self.config["status"] = "created"
-        self.config["pid"] = None
-        self.config["veth_host"] = None
-        self.config.pop("network", None)
-        self.save_state()
-
-        self.start()
-
-    def restart(self, timeout=10):
-        """Stop and restart the container."""
-        self.stop(timeout=timeout)
-        self.start_existing()
+        self._cleanup()
 
     def remove(self):
-        try:
-            if self.config.get("status") == "running":
-                self.stop()
-        except Exception:
-            pass
+        if self.cfg.get("status") == "running":
+            self.stop()
 
-        veth_host = self.config.get("veth_host")
-        if veth_host:
-            from dck.network import teardown_veth
-            try:
-                teardown_veth(veth_host)
-            except Exception:
-                pass
+        # teardown overlay
+        merged = self.cfg.get("merged", "")
+        if merged:
+            subprocess.run(["umount", merged], check=False, capture_output=True, timeout=5)
+            shutil.rmtree(str(OVERLAY_DIR / self.id), ignore_errors=True)
 
-        _teardown_overlayfs(self.id)
-        _teardown_cgroup(self.id)
+        # teardown cgroup
+        cg = self.cfg.get("cgroup", "")
+        if cg:
+            shutil.rmtree(cg, ignore_errors=True)
+
+        # cleanup dangling veth
+        veth = self.cfg.get("veth")
+        if veth:
+            del_veth(veth)
 
         if self.state_file.exists():
             self.state_file.unlink()
 
-    def logs(self, tail=50, follow=False):
-        log_file = self.config.get("log_file", "")
-        if not log_file or not Path(log_file).exists():
-            return ""
-
-        if follow:
-            try:
-                subprocess.run(["tail", "-n", str(tail), "-f", log_file])
-            except KeyboardInterrupt:
-                pass
-            return ""
-
-        try:
-            with open(log_file) as f:
-                lines = f.readlines()
-            return "".join(lines[-tail:])
-        except Exception:
-            return ""
-
-    def exec_run(self, cmd, interactive=False, tty=False):
-        pid = self.config.get("pid")
-        if not pid:
-            raise RuntimeError("Container not running")
-
-        ns_types = ["mnt", "pid", "net", "uts", "ipc"]
-        ns_args = []
-        for ns in ns_types:
-            ns_path = f"/proc/{pid}/ns/{ns}"
-            if Path(ns_path).exists():
-                ns_args += ["--target", str(pid), f"--{ns}"]
-
-        if interactive or tty:
-            full_cmd = ["nsenter"] + ns_args + list(cmd)
-            subprocess.run(full_cmd)
-        else:
-            result = subprocess.run(
-                ["nsenter"] + ns_args + list(cmd),
-                capture_output=True, text=True, timeout=60,
-            )
-            return result.returncode, result.stdout, result.stderr
-
-    def get_status(self):
-        pid = self.config.get("pid")
+    def status(self):
+        pid = self.cfg.get("pid")
         if pid:
             try:
                 os.kill(pid, 0)
                 return "running"
             except OSError:
                 pass
-        return self.config.get("status", "stopped")
+        return self.cfg.get("status", "stopped")
+
+    def logs(self, tail=50, follow=False):
+        lf = self.cfg.get("log", "")
+        if not lf or not Path(lf).exists():
+            return ""
+        if follow:
+            try:
+                subprocess.run(["tail", "-n", str(tail), "-f", lf])
+            except KeyboardInterrupt:
+                pass
+            return ""
+        try:
+            lines = Path(lf).read_text().splitlines()
+            return "\n".join(lines[-tail:])
+        except Exception:
+            return ""
+
+    def exec_run(self, cmd, interactive=False, tty=False):
+        pid = self.cfg.get("pid")
+        if not pid:
+            raise RuntimeError("Container not running")
+        ns = []
+        for ns_type in ("mnt", "pid", "net", "uts", "ipc"):
+            p = f"/proc/{pid}/ns/{ns_type}"
+            if Path(p).exists():
+                ns += ["--target", str(pid), f"--{ns_type}"]
+        full = ["nsenter"] + ns + list(cmd)
+        if interactive or tty:
+            subprocess.run(full)
+        else:
+            r = subprocess.run(full, capture_output=True, text=True, timeout=60)
+            return r.returncode, r.stdout, r.stderr
 
 
-def list_containers(all_containers=False):
-    containers = []
+# ── helpers ──────────────────────────────────────────────────────────
+
+def list_containers(all_=False):
+    result = []
     if not CONTAINERS_DIR.exists():
-        return containers
-
-    for state_file in sorted(CONTAINERS_DIR.iterdir(), reverse=True):
-        if not state_file.name.endswith(".json"):
+        return result
+    for f in sorted(CONTAINERS_DIR.iterdir(), reverse=True):
+        if not f.name.endswith(".json"):
             continue
         try:
-            data = json.loads(state_file.read_text())
-            c = Container(name=data.get("name"), config=data)
-            status = c.get_status()
-            if all_containers or status == "running":
-                data["live_status"] = status
-                containers.append(data)
+            d = json.loads(f.read_text())
+            c = Container(config=d)
+            st = c.status()
+            if all_ or st == "running":
+                d["live_status"] = st
+                result.append(d)
         except Exception:
             pass
+    return result
 
-    return containers
 
-
-def get_container(container_id_or_name):
+def get_container(name_or_id):
     if not CONTAINERS_DIR.exists():
         return None
-
-    for state_file in CONTAINERS_DIR.iterdir():
-        if not state_file.name.endswith(".json"):
+    for f in CONTAINERS_DIR.iterdir():
+        if not f.name.endswith(".json"):
             continue
         try:
-            data = json.loads(state_file.read_text())
-            if data.get("id") == container_id_or_name or data.get("name") == container_id_or_name:
-                c = Container(name=data.get("name"), config=data)
-                c.state_file = state_file
-                data["live_status"] = c.get_status()
-                return c, data
+            d = json.loads(f.read_text())
+            if d.get("id") == name_or_id or d.get("name") == name_or_id:
+                c = Container(config=d)
+                c.state_file = f
+                return c
         except Exception:
             pass
-
     return None
+
+
+def doctor():
+    ok = True
+    import sys
+    def check(cond, msg):
+        nonlocal ok
+        if cond:
+            print(f"  ✓ {msg}")
+        else:
+            print(f"  ✗ {msg}")
+            ok = False
+    def warn(cond, msg):
+        if cond:
+            print(f"  ⚠ {msg}")
+    print("dck doctor — system check")
+    print()
+    check(os.geteuid() == 0, "root")
+    check(os.path.exists("/proc/self/ns"), "namespaces")
+    check(Path("/sys/fs/cgroup/cgroup.controllers").exists(), "cgroups v2")
+    check(Path("/proc/filesystems").read_text().find("overlay") >= 0, "overlayfs")
+    check(subprocess.run(["which", "ip", "iptables", "nsenter"], capture_output=True).returncode == 0, "ip + iptables + nsenter")
+    try:
+        kf = Path("/proc/sys/kernel/keys/root_maxkeys")
+        bf = Path("/proc/sys/kernel/keys/root_maxbytes")
+        if kf.exists() and bf.exists():
+            kv, bv = int(kf.read_text()), int(bf.read_text())
+            check(kv >= 1000000, f"keyring maxkeys ({kv}) >= 1M")
+            check(bv >= 25000000, f"keyring maxbytes ({bv}) >= 25M")
+            warn(kv < 1000000 or bv < 25000000,
+                 "low keyring limits cause ENOMEM — run: sysctl -w kernel.keys.root_maxkeys=1000000 kernel.keys.root_maxbytes=25000000")
+    except Exception:
+        pass
+    print()
+    if ok:
+        print("System ready")
+    else:
+        print("Some checks failed")
+    return ok
