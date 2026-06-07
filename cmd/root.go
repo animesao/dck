@@ -44,6 +44,10 @@ func Execute() {
 		Rmi(args)
 	case "update":
 		Update(args)
+	case "up":
+		Up(args)
+	case "down":
+		Down(args)
 	case "bootstrap":
 		Bootstrap(args)
 	case "--help", "-h", "help":
@@ -74,6 +78,9 @@ Usage:
   dck attach <container>       Attach to container's main process
   dck images                   List images
   dck rmi <image>[:tag]        Remove image
+  dck up [name] [-f dck.toml]  Create/start containers from dck.toml
+  dck down [name] [-f dck.toml] Stop/remove containers from dck.toml
+  dck down -a                  Remove all containers
   dck bootstrap [--install]    Start all containers (--install = add systemd service)
   dck update [--check]         Check for updates and self-update
   dck --help                   Show this help

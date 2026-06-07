@@ -177,6 +177,7 @@ build_dck() {
         err "Go not found in PATH even after installation."
         exit 1
     fi
+    go mod tidy
     go build -ldflags="-s -w" -o dck .
     if command -v install >/dev/null 2>&1; then
         install -d "$(dirname "$DCK_BIN")"

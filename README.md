@@ -471,6 +471,68 @@ EOF
 systemctl enable --now dck-backup.timer
 ```
 
+## Config File (`dck.toml`)
+
+Define all your containers in a single `dck.toml` file. Create it in your project
+directory or in `~/.dck/dck.toml`.
+
+```toml
+[container.web]
+image = "nginx:alpine"
+ports = ["443:80", "80:80"]
+volumes = ["./html:/usr/share/nginx/html"]
+restart = "always"
+
+[container.app]
+image = "python:3.11-slim"
+command = "python3 app.py"
+ports = ["5000:5000"]
+volumes = ["./app:/app"]
+env = { FLASK_ENV = "production", SECRET_KEY = "change-me" }
+restart = "always"
+
+[container.db]
+image = "postgres:16"
+ports = ["5432:5432"]
+volumes = ["pg_data:/var/lib/postgresql/data"]
+env = { POSTGRES_PASSWORD = "secret", POSTGRES_DB = "myapp" }
+restart = "always"
+```
+
+Then start everything at once:
+
+```bash
+dck up              # Create/start all containers from dck.toml
+dck up web          # Start only the web container
+dck up -f /path/to/dck.toml   # Custom config path
+```
+
+Stop and remove:
+
+```bash
+dck down            # Stop/remove all containers from dck.toml
+dck down web        # Stop/remove only web
+dck down -a         # Remove ALL containers (ignore config)
+```
+
+When you run `dck up`:
+1. Searches for `dck.toml` (current dir → `~/.dck/`)
+2. Pulls missing images
+3. Creates containers with `--restart always` by default
+4. Starts all containers — exactly like `dck run -d ...`
+
+### Config Fields
+
+| Field | Description | Example |
+|-------|-------------|---------|
+| `image` | Container image (required) | `"nginx:alpine"` |
+| `command` | Startup command | `"python3 app.py"` |
+| `ports` | Port mappings | `["443:80", "3000:3000"]` |
+| `volumes` | Volume mounts | `["./data:/data"]` |
+| `env` | Environment variables | `{ KEY = "val" }` |
+| `restart` | Restart policy | `"always"` (default), `"no"`, `"on-failure"` |
+| `hostname` | Container hostname | `"myserver"` |
+
 ## Auto-Start on Boot (`dck bootstrap`)
 
 `dck` has no daemon. Instead, it uses a systemd oneshot service
@@ -827,6 +889,8 @@ mount -V
 | `logs` | Show or follow container logs |
 | `images` | List local images |
 | `rmi` | Remove a local image |
+| `up` | Create/start containers from `dck.toml` |
+| `down` | Stop/remove containers from `dck.toml` |
 | `bootstrap` | Start all containers with `--restart always` (auto-start on boot) |
 | `inspect` | Show container details |
 | `version` | Show dck version |
@@ -875,6 +939,7 @@ cd /tmp/dck && go build -o dck . && install dck /usr/local/bin/
 - **`DCK_UPDATE_MIRROR`** — env var for update mirror
 - **Auto UFW ports** — `dck run -p` automatically opens ports in UFW, `dck rm` closes them
 - **Fixed OUTPUT DNAT** — now restricted to local traffic only, won't hijack outbound HTTPS connections (e.g., to GitLab)
+- **`dck.toml` config file** — define all containers in one file, start with `dck up`, stop with `dck down`
 
 ### v1.2.0
 - OUTPUT DNAT rule (localhost → container)
