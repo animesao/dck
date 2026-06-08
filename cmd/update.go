@@ -58,7 +58,7 @@ func Update(args []string) {
 	}
 
 	fmt.Println("Downloading update...")
-	body, err := fetchURL(baseURL + "/-/raw/main/install.sh")
+	body, err := fetchURL(baseURL + "/main/install.sh")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to fetch installer: %v\n", err)
 		os.Exit(1)
@@ -146,7 +146,7 @@ func fetchURLWithWget(url string) (string, error) {
 }
 
 func fetchLatestVersion() (string, error) {
-	url := baseURL + "/-/raw/main/VERSION"
+	url := baseURL + "/main/VERSION"
 	v, err := fetchURL(url)
 	if err == nil {
 		return v, nil
@@ -160,7 +160,7 @@ func fetchLatestVersion() (string, error) {
 
 func fetchVersionViaGit() (string, error) {
 	var stderr bytes.Buffer
-	cmd := exec.Command("git", "ls-remote", "--tags", "git@gitlab.com:animesao/dck.git")
+	cmd := exec.Command("git", "ls-remote", "--tags", "https://github.com/animesao/dck.git")
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {

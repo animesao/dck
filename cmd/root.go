@@ -6,7 +6,7 @@ import (
 )
 
 var version = "1.4.7"
-var repoURL = "https://gitlab.com/animesao/dck"
+var repoURL = "https://raw.githubusercontent.com/animesao/dck"
 
 func Execute() {
 	if len(os.Args) < 2 {

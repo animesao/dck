@@ -148,20 +148,20 @@ ensure_source() {
     if [ -f "$DIR/go.mod" ]; then
         return 0
     fi
-    info "Source not found locally. Downloading from GitLab..."
+    info "Source not found locally. Downloading from GitHub..."
     SRC_DIR="$(mktemp -d /tmp/dck-source-XXXXXX)"
     if command -v git >/dev/null 2>&1; then
-        git clone --depth 1 https://gitlab.com/animesao/dck.git "$SRC_DIR" 2>/dev/null || {
+        git clone --depth 1 https://github.com/animesao/dck.git "$SRC_DIR" 2>/dev/null || {
             warn "git clone failed, trying archive download..."
             rm -rf "$SRC_DIR"
             SRC_DIR="$(mktemp -d /tmp/dck-source-XXXXXX)"
-            curl -sSL "https://gitlab.com/animesao/dck/-/archive/main/dck-main.tar.gz" | tar xz -C "$SRC_DIR" --strip=1 2>/dev/null || {
+            curl -sSL "https://github.com/animesao/dck/archive/main.tar.gz" | tar xz -C "$SRC_DIR" --strip=1 2>/dev/null || {
                 err "Failed to download source."
                 exit 1
             }
         }
     else
-        curl -sSL "https://gitlab.com/animesao/dck/-/archive/main/dck-main.tar.gz" | tar xz -C "$SRC_DIR" --strip=1 2>/dev/null || {
+        curl -sSL "https://github.com/animesao/dck/archive/main.tar.gz" | tar xz -C "$SRC_DIR" --strip=1 2>/dev/null || {
             err "Failed to download source."
             exit 1
         }

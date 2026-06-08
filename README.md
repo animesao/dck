@@ -14,7 +14,7 @@ curl http://localhost:8080
 
 ```bash
 # Install (Linux)
-curl -sSL https://gitlab.com/animesao/dck/-/raw/main/install.sh | sudo bash
+curl -sSL https://raw.githubusercontent.com/animesao/dck/main/install.sh | sudo bash
 
 # Pull and run
 dck pull nginx:alpine
