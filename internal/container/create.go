@@ -86,6 +86,19 @@ func Load(id string) (*Container, error) {
 			return &c, nil
 		}
 	}
+	// Fallback: look up by name
+	for _, e := range entries {
+		var c Container
+		if err := state.ReadJSON(filepath.Join(state.ContainersDir(), e.Name()), &c); err != nil {
+			continue
+		}
+		if c.Name == id {
+			if c.Status == Running && !pidAlive(c.PID) {
+				c.Status = Stopped
+			}
+			return &c, nil
+		}
+	}
 	return nil, fmt.Errorf("container %s not found", id)
 }
 
