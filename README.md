@@ -21,17 +21,65 @@ dck pull nginx:alpine
 dck run -d -n web -p 8080:80 nginx:alpine
 
 # Check
-dck ps
-curl http://localhost:8080
+dck ps                     # see running containers
+curl http://localhost:8080  # see nginx
 
-# Shell
-dck run -it alpine sh
+# Logs and exec
+dck logs web               # see what the process wrote
+dck exec web cat /etc/hostname  # run a command inside
+
+# Interactive shell
+dck run -it alpine sh      # ephemeral, --rm by default
+
+# Stop and remove
+dck stop web
+dck rm web
 ```
 
 ## Requirements
 
 - Linux with `unshare`, `nsenter`, `ip`, `iptables`, `mount`, `pgrep`
 - Kernel: PID/Mount/Net/UTS/IPC namespaces + overlayfs
+
+---
+
+## Key Concepts
+
+**Image** — read-only rootfs (like `python:3.11-slim`, `nginx:alpine`).
+`dck pull` downloads it once.
+
+**Container** — image + writable overlay layer. Every `pip install`,
+config change, or file create lives in the overlay, not in the image.
+The image stays clean.
+
+**Overlay** — diff layer on top of the image. When you restart a container,
+the overlay persists — packages stay installed, logs from previous runs
+are gone (they went to stdout, which goes to `dck logs`).
+
+**Volume** — a bind mount from the host filesystem into the container.
+`-v /opt/mybot:/bot` makes `/opt/mybot` visible as `/bot` inside.
+
+**Network** — every container gets IP `10.0.2.X` on bridge `dck0`.
+The host is reachable at `10.0.2.1`. To reach container B from container A,
+connect to `10.0.2.1:<host_port>` (iptables DNAT forwards to B).
+
+---
+
+## How Containers See Each Other
+
+```
+Host:           dck0  10.0.2.1/24
+Container A:    eth0  10.0.2.2
+Container B:    eth0  10.0.2.3
+
+A → host:         ping 10.0.2.1        (works, host is gateway)
+host → A:         ping 10.0.2.2        (works, host has route)
+A → B:            ping 10.0.2.3        (works, via bridge)
+A → B's port:     curl http://10.0.2.1:8080   (DNAT: host_port → B:container_port)
+```
+
+Ports are published **on the host** via iptables DNAT. To access a
+container's port from another container, use `10.0.2.1:<host_port>`.
 
 ---
 
@@ -495,6 +543,15 @@ dck console web                      # Auto-detect shell
 
 `dck attach` is **disconnect-safe** — Ctrl+C to detach, container keeps running.
 
+`exec` vs `attach`:
+- `dck attach <name>` — connect to the **main process** stdin/stdout (like `docker attach`)
+- `dck exec <name> <cmd>` — **run a new command** inside the container (like `docker exec`)
+- `dck console <name>` — auto-detect shell, shortcut for `dck exec -it <name> /bin/sh` or `/bin/bash`
+
+> **Why `exec python bot.py`?** Without `exec`, the shell (`sh -c "..."`) stays
+> as PID 1 and the Python process is its child. With `exec`, Python replaces
+> the shell process — one less process, signals go directly to Python.
+
 ### Port Mapping
 
 ```bash
@@ -753,17 +810,24 @@ After `retries` consecutive failures, the container is killed and restarted.
 | `retries` | 3 | Consecutive failures before restart |
 | `timeout` | 10 | Seconds before a single check is killed |
 
-#### pip install optimization
+#### pip install: install only once
 
-By default every start runs `pip install`. If requirements haven't changed, skip it:
+Packages install into the overlay layer. On restart, they're already there,
+but `pip install` still checks every line. Skip it when nothing changed:
 
 ```bash
 pip install --dry-run -r /bot/requirements.txt -q 2>/dev/null \
   || pip install -r /bot/requirements.txt
 ```
 
-`--dry-run` checks if all packages are already installed (pip 21.1+). If the
-flag is not supported (older pip), it falls through to the real install.
+`--dry-run` exits 0 if all packages are present (pip 21.1+). Older pip
+doesn't support the flag, falls through to real install.
+
+Combine with `exec` to avoid a dangling shell process:
+
+```bash
+sh -c "pip install --dry-run -r /req.txt -q 2>/dev/null || pip install -r /req.txt; exec python app.py"
+```
 
 ### dck.toml Examples
 
@@ -942,6 +1006,16 @@ dck rm -f <id> && dck run -d --restart always -n web -p 80:80 nginx:alpine
 iptables -t nat -F PREROUTING
 iptables -t nat -F OUTPUT
 ```
+
+---
+
+## Updating dck
+
+```bash
+dck update
+```
+
+Downloads the latest binary from GitLab and replaces `/usr/local/bin/dck`.
 
 ---
 
