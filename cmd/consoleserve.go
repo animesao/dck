@@ -18,7 +18,7 @@ func ConsoleServe(args []string) {
 	id := args[0]
 	logPath := state.LogPath(id)
 
-	logFile, err := os.OpenFile(logPath, os.O_APPEND|os.O_WRONLY, 0644)
+	logFile, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		os.Exit(1)
 	}

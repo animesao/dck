@@ -56,12 +56,6 @@ func (c *Container) Start() error {
 		})
 	}
 
-	logFile, err := os.OpenFile(c.LogFile(), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		return fmt.Errorf("log: %w", err)
-	}
-	defer logFile.Close()
-
 	binPath, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("executable: %w", err)
@@ -73,16 +67,16 @@ func (c *Container) Start() error {
 	}
 
 	cmd := exec.Command("unshare", unshareArgs...)
-	cmd.Stdout = logFile
-	cmd.Stderr = logFile
+	cmd.Stdout = nil
+	cmd.Stderr = nil
 
 	if c.Detach {
 		stdinR, stdinW, _ := os.Pipe()
 		stdoutR, stdoutW, _ := os.Pipe()
 
 		cmd.Stdin = stdinR
-		cmd.Stdout = io.MultiWriter(logFile, newIgnoreErrWriter(stdoutW))
-		cmd.Stderr = io.MultiWriter(logFile, newIgnoreErrWriter(stdoutW))
+		cmd.Stdout = stdoutW
+		cmd.Stderr = stdoutW
 
 		serve := exec.Command(binPath, "console-serve", c.ID)
 		serve.ExtraFiles = []*os.File{stdinW, stdoutR}
@@ -94,6 +88,11 @@ func (c *Container) Start() error {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 	} else {
+		logFile, err := os.OpenFile(c.LogFile(), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			return fmt.Errorf("log: %w", err)
+		}
+		defer logFile.Close()
 		cmd.Stdout = io.MultiWriter(logFile, os.Stdout)
 		cmd.Stderr = io.MultiWriter(logFile, os.Stderr)
 	}
