@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 )
 
 func mountOverlay(lower, upper, work, merged string) error {
@@ -29,4 +30,15 @@ func unmountOverlay(merged string) {
 		exec.Command("umount", "-l", merged).Run()
 		os.RemoveAll(merged)
 	}
+}
+
+func isOverlayMounted(merged string) bool {
+	if runtime.GOOS != "linux" {
+		return false
+	}
+	data, err := os.ReadFile("/proc/self/mounts")
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(data), " "+merged+" ")
 }

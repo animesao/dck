@@ -32,7 +32,7 @@ func (c *Container) Start() error {
 	upper, work, merged := c.OverlayDirs()
 	os.MkdirAll(filepath.Dir(upper), 0755)
 
-	if _, err := os.Stat(merged); os.IsNotExist(err) {
+	if _, err := os.Stat(merged); os.IsNotExist(err) || !isOverlayMounted(merged) {
 		if err := SetupOverlay(rootfsDir, upper, work, merged); err != nil {
 			return fmt.Errorf("overlay: %w", err)
 		}
