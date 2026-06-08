@@ -47,6 +47,11 @@ func (c *Container) Start() error {
 		}
 	}
 
+	for _, vol := range c.Volumes {
+		lockPath := filepath.Join(vol.Source, "world", "session.lock")
+		os.Remove(lockPath)
+	}
+
 	logFile, err := os.OpenFile(c.LogFile(), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return fmt.Errorf("log: %w", err)
