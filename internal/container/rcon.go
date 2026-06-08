@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -94,7 +95,7 @@ func (r *RCON) receive(expectedID int32) (string, error) {
 	}
 
 	buf := make([]byte, length)
-	if _, err := r.conn.Read(buf); err != nil {
+	if _, err := io.ReadFull(r.conn, buf); err != nil {
 		return "", err
 	}
 

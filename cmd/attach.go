@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
@@ -76,9 +77,18 @@ func Attach(args []string) {
 	}()
 
 	state.EnsureDirs()
+
+	var prev sessionInfo
+	if data, err := os.ReadFile(state.SessionPath(c.ID)); err == nil {
+		json.Unmarshal(data, &prev)
+	}
+
 	go c.Logs(true)
 
 	fmt.Println("--- attach mode: type commands, Ctrl+C to detach ---")
+	if prev.LastCmd != "" {
+		fmt.Printf("  Previous session: last command was %q\n", prev.LastCmd)
+	}
 	if rconPassword != "" {
 		fmt.Println("  Built-in RCON — commands sent to Minecraft server")
 		fmt.Println("  Prefix with ! for system commands (e.g. !ls)")
@@ -86,7 +96,11 @@ func Attach(args []string) {
 
 	var rcon *container.RCON
 	if rconPassword != "" {
-		rcon = container.NewRCON("127.0.0.1:25575", rconPassword)
+		rconAddr := "127.0.0.1:25575"
+		if c.IP != "" {
+			rconAddr = c.IP + ":25575"
+		}
+		rcon = container.NewRCON(rconAddr, rconPassword)
 	}
 
 	scanner := bufio.NewScanner(os.Stdin)
@@ -118,6 +132,7 @@ func Attach(args []string) {
 				saveSession(c, line)
 				continue
 			}
+			fmt.Fprintf(os.Stderr, "rcon: %v\n", err)
 		}
 
 		parts := strings.Fields(line)
