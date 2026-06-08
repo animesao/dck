@@ -37,8 +37,6 @@ func (c *Container) Start() error {
 			return fmt.Errorf("overlay: %w", err)
 		}
 	}
-		return fmt.Errorf("overlay: %w", err)
-	}
 
 	for _, vol := range c.Volumes {
 		target := filepath.Join(merged, vol.Target)
