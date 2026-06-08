@@ -135,7 +135,7 @@ func InitContainer(id string) error {
 		os.Setenv("PATH", defaultPath)
 		if resolved, err := exec.LookPath(cmdPath); err == nil {
 			cmdPath = resolved
-			cmdArgs = []string{cmdPath}
+			cmdArgs = append([]string{cmdPath}, c.Cmd[1:]...)
 		}
 	}
 
