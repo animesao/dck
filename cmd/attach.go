@@ -1,9 +1,11 @@
 package cmd
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"dck/internal/container"
@@ -37,8 +39,22 @@ func Attach(args []string) {
 		}
 	}()
 
-	if err := c.Logs(true); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+	c.Logs(false)
+
+	fmt.Println("--- attach mode: type commands, Ctrl+C to detach ---")
+
+	scanner := bufio.NewScanner(os.Stdin)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		if line == "exit" || line == "quit" {
+			break
+		}
+		parts := strings.Fields(line)
+		if err := c.ExecOpts(parts, false); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		}
 	}
 }
