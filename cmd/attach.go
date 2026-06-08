@@ -37,8 +37,7 @@ func Attach(args []string) {
 		}
 	}()
 
-	err = c.ExecOpts(c.Cmd, true)
-	if err != nil {
+	if err := c.Logs(true); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
