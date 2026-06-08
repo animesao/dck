@@ -3,12 +3,14 @@ package container
 import (
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"dck/internal/image"
@@ -77,6 +79,42 @@ func (c *Container) Start() error {
 	cmd.Stderr = logFile
 
 	if c.Detach {
+		consolePath := state.ConsolePath(c.ID)
+		os.Remove(consolePath)
+		listener, err := net.Listen("unix", consolePath)
+		if err == nil {
+			defer listener.Close()
+
+			consoleStdinR, consoleStdinW, _ := os.Pipe()
+			consoleStdoutR, consoleStdoutW, _ := os.Pipe()
+
+			cmd.Stdin = consoleStdinR
+			cmd.Stdout = io.MultiWriter(logFile, consoleStdoutW)
+			cmd.Stderr = io.MultiWriter(logFile, consoleStdoutW)
+
+			go func() {
+				for {
+					conn, err := listener.Accept()
+					if err != nil {
+						return
+					}
+					go func() {
+						var wg sync.WaitGroup
+						wg.Add(2)
+						go func() {
+							io.Copy(consoleStdinW, conn)
+							wg.Done()
+						}()
+						go func() {
+							io.Copy(conn, consoleStdoutR)
+							wg.Done()
+						}()
+						wg.Wait()
+						conn.Close()
+					}()
+				}
+			}()
+		}
 	} else if c.Interactive || c.TTY {
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout

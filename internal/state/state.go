@@ -60,16 +60,16 @@ func OverlayDirs(id string) (upper, work, merged string) {
 		filepath.Join(base, "merged")
 }
 
-func SessionsDir() string {
-	return filepath.Join(DataDir(), "sessions")
+func ConsolesDir() string {
+	return filepath.Join(DataDir(), "consoles")
 }
 
-func SessionPath(containerID string) string {
-	return filepath.Join(SessionsDir(), containerID+".json")
+func ConsolePath(containerID string) string {
+	return filepath.Join(ConsolesDir(), containerID+".sock")
 }
 
 func EnsureDirs() error {
-	for _, d := range []string{DataDir(), ImagesDir(), ContainersDir(), LogsDir(), OverlayDir(), SessionsDir()} {
+	for _, d := range []string{DataDir(), ImagesDir(), ContainersDir(), LogsDir(), OverlayDir(), ConsolesDir()} {
 		if err := os.MkdirAll(d, 0755); err != nil {
 			return err
 		}
