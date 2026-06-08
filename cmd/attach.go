@@ -30,10 +30,6 @@ func Attach(args []string) {
 		os.Exit(1)
 	}
 
-	c.Logs(false)
-
-	fmt.Println("--- attach mode: Ctrl+C to detach ---")
-
 	conn, err := net.Dial("unix", state.ConsolePath(c.ID))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "console: %v\n", err)

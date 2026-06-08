@@ -57,6 +57,9 @@ func ConsoleServe(args []string) {
 				logFile.WriteString(fmt.Sprintf("[console-serve] stdout read done: %v\n", err))
 				return
 			}
+
+			logFile.Write(buf[:n])
+
 			mu.Lock()
 			for _, c := range clients {
 				c.Write(buf[:n])
@@ -75,6 +78,10 @@ func ConsoleServe(args []string) {
 		logFile.WriteString("[console-serve] client connected\n")
 
 		mu.Lock()
+		logContent, _ := os.ReadFile(logPath)
+		if len(logContent) > 0 {
+			conn.Write(logContent)
+		}
 		clients = append(clients, conn)
 		mu.Unlock()
 
