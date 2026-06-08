@@ -11,6 +11,17 @@ import (
 	"dck/internal/image"
 )
 
+type stringSlice []string
+
+func (s *stringSlice) String() string {
+	return strings.Join(*s, ",")
+}
+
+func (s *stringSlice) Set(v string) error {
+	*s = append(*s, v)
+	return nil
+}
+
 func Run(args []string) {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	detach := fs.Bool("d", false, "Detach mode")
@@ -20,7 +31,8 @@ func Run(args []string) {
 	rm := fs.Bool("rm", false, "Remove container on exit")
 	hostname := fs.String("h", "", "Container hostname")
 	restart := fs.String("restart", "", "Restart policy")
-	envVars := fs.String("e", "", "Environment variables (key=val,key=val)")
+	var envVars stringSlice
+	fs.Var(&envVars, "e", "Environment variables (key=val)")
 	portMapping := fs.String("p", "", "Port mapping (host:container)")
 	volumeMounts := fs.String("v", "", "Volume mounts (src:dst)")
 	fs.Parse(args)
@@ -66,8 +78,8 @@ func Run(args []string) {
 	}
 
 	var env []string
-	if *envVars != "" {
-		env = strings.Split(*envVars, ",")
+	for _, e := range envVars {
+		env = append(env, e)
 	}
 
 	if *name != "" {

@@ -1,15 +1,52 @@
 package container
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 
 	"dck/internal/state"
 )
+
+func resolveShebang(cmdPath string) string {
+	f, err := os.Open(cmdPath)
+	if err != nil {
+		return cmdPath
+	}
+	defer f.Close()
+
+	br := bufio.NewReader(f)
+	line, _, err := br.ReadLine()
+	if err != nil {
+		return cmdPath
+	}
+
+	lineStr := strings.TrimSpace(string(line))
+	if !strings.HasPrefix(lineStr, "#!") {
+		return cmdPath
+	}
+
+	parts := strings.Fields(lineStr[2:])
+	if len(parts) == 0 {
+		return cmdPath
+	}
+
+	interpreter := parts[0]
+	if interpreter != "" && interpreter != "/usr/bin/env" {
+		if _, err := os.Stat(interpreter); os.IsNotExist(err) {
+			if resolved, err := exec.LookPath(filepath.Base(interpreter)); err == nil {
+				return resolved
+			}
+		}
+	}
+	return interpreter
+}
 
 func InitContainer(id string) error {
 	if runtime.GOOS != "linux" {
@@ -76,6 +113,16 @@ func InitContainer(id string) error {
 		os.Setenv("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
 		if resolved, err := exec.LookPath(cmdPath); err == nil {
 			cmdPath = resolved
+			cmdArgs = []string{cmdPath}
+		}
+	}
+
+	// If file exists but shebang interpreter is missing (e.g. /bin/bash in usrmerge images),
+	// resolve interpreter via PATH
+	if _, err := os.Stat(cmdPath); err == nil {
+		if interpreter := resolveShebang(cmdPath); interpreter != cmdPath && interpreter != "" {
+			cmdArgs = append([]string{interpreter, cmdPath}, cmdArgs[1:]...)
+			cmdPath = interpreter
 		}
 	}
 
