@@ -26,6 +26,8 @@ func Execute() {
 		Ps(args)
 	case "stop":
 		Stop(args)
+	case "restart":
+		Restart(args)
 	case "rm":
 		Rm(args)
 	case "logs":
@@ -70,6 +72,7 @@ Usage:
   dck run [opts] <image> [cmd] Run container
   dck ps                       List running containers
   dck ps -a                    List all containers
+  dck restart <container>      Restart container
   dck stop <container>         Stop container
   dck rm [-f] <container>      Remove container
   dck logs [-f] <container>    Show/follow container logs
