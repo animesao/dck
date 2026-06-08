@@ -21,7 +21,7 @@ func (c *Container) ExecOpts(cmd []string, interactive bool) error {
 
 	args := []string{
 		"-t", strconv.Itoa(c.PID),
-		"-m", "-p", "-U", "-i", "-n",
+		"-m", "-p", "-i", "-n",
 		"--",
 	}
 	args = append(args, "chroot", merged)
