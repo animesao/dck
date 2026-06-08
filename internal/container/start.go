@@ -224,6 +224,10 @@ func (c *Container) restart() error {
 }
 
 func monitorContainer(c *Container, cmd *exec.Cmd) {
+	if c.Healthcheck != nil {
+		go c.runHealthcheck()
+	}
+
 	go func() {
 		err := cmd.Wait()
 		exitCode := 0
@@ -247,6 +251,70 @@ func monitorContainer(c *Container, cmd *exec.Cmd) {
 			cleanupContainer(c)
 		}
 	}()
+}
+
+func (c *Container) runHealthcheck() {
+	hc := c.Healthcheck
+	interval := time.Duration(hc.Interval) * time.Second
+	if interval == 0 {
+		interval = 30 * time.Second
+	}
+	retries := hc.Retries
+	if retries == 0 {
+		retries = 3
+	}
+	timeout := time.Duration(hc.Timeout) * time.Second
+	if timeout == 0 {
+		timeout = 10 * time.Second
+	}
+
+	failures := 0
+	for {
+		time.Sleep(interval)
+
+		if c.Status != Running {
+			return
+		}
+
+		err := c.execHealthcheck(hc.Cmd, timeout)
+		if err != nil {
+			failures++
+			if failures >= retries {
+				exec.Command("kill", "-9", strconv.Itoa(c.PID)).Run()
+				return
+			}
+		} else {
+			failures = 0
+		}
+	}
+}
+
+func (c *Container) execHealthcheck(cmd string, timeout time.Duration) error {
+	upper, _, merged := c.OverlayDirs()
+	_ = upper
+
+	args := []string{
+		"-t", strconv.Itoa(c.PID),
+		"-m", "-p", "-i", "-n",
+		"--",
+		"chroot", merged,
+		"sh", "-c", cmd,
+	}
+
+	ecmd := exec.Command("nsenter", args...)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- ecmd.Run()
+	}()
+
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(timeout):
+		ecmd.Process.Kill()
+		return fmt.Errorf("healthcheck timed out after %v", timeout)
+	}
 }
 
 func (c *Container) cleanupNetwork() {

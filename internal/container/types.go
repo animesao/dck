@@ -7,25 +7,33 @@ import (
 	"dck/internal/state"
 )
 
+type HealthcheckConfig struct {
+	Cmd      string `json:"cmd" toml:"cmd"`
+	Interval int    `json:"interval,omitempty" toml:"interval,omitempty"`
+	Retries  int    `json:"retries,omitempty" toml:"retries,omitempty"`
+	Timeout  int    `json:"timeout,omitempty" toml:"timeout,omitempty"`
+}
+
 type Container struct {
-	ID           string        `json:"id"`
-	Name         string        `json:"name"`
-	ImageName    string        `json:"image_name"`
-	ImageTag     string        `json:"image_tag"`
-	PID          int           `json:"pid"`
-	Status       Status        `json:"status"`
-	Cmd          []string      `json:"cmd"`
-	CreatedAt    time.Time     `json:"created_at"`
-	Ports        []PortMap     `json:"ports,omitempty"`
-	Volumes      []VolumeMount `json:"volumes,omitempty"`
-	Env          []string      `json:"env,omitempty"`
-	Hostname     string        `json:"hostname,omitempty"`
-	Restart      string        `json:"restart,omitempty"`
-	IP           string        `json:"ip,omitempty"`
-	Detach       bool          `json:"detach,omitempty"`
-	Interactive  bool          `json:"interactive,omitempty"`
-	TTY          bool          `json:"tty,omitempty"`
-	RemoveOnExit bool          `json:"remove_on_exit,omitempty"`
+	ID           string             `json:"id"`
+	Name         string             `json:"name"`
+	ImageName    string             `json:"image_name"`
+	ImageTag     string             `json:"image_tag"`
+	PID          int                `json:"pid"`
+	Status       Status             `json:"status"`
+	Cmd          []string           `json:"cmd"`
+	CreatedAt    time.Time          `json:"created_at"`
+	Ports        []PortMap          `json:"ports,omitempty"`
+	Volumes      []VolumeMount      `json:"volumes,omitempty"`
+	Env          []string           `json:"env,omitempty"`
+	Hostname     string             `json:"hostname,omitempty"`
+	Restart      string             `json:"restart,omitempty"`
+	IP           string             `json:"ip,omitempty"`
+	Detach       bool               `json:"detach,omitempty"`
+	Interactive  bool               `json:"interactive,omitempty"`
+	TTY          bool               `json:"tty,omitempty"`
+	RemoveOnExit bool               `json:"remove_on_exit,omitempty"`
+	Healthcheck  *HealthcheckConfig `json:"healthcheck,omitempty"`
 }
 
 type Status string
@@ -59,6 +67,7 @@ type CreateOpts struct {
 	Interactive bool
 	TTY         bool
 	RemoveOnExit bool
+	Healthcheck  *HealthcheckConfig
 }
 
 func (c *Container) Save() error {

@@ -53,6 +53,7 @@ func New(img *image.Image, opts CreateOpts) *Container {
 		Interactive:  opts.Interactive,
 		TTY:          opts.TTY,
 		RemoveOnExit: opts.RemoveOnExit,
+		Healthcheck:  opts.Healthcheck,
 	}
 }
 

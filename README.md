@@ -52,8 +52,9 @@ dck run -d --restart always \
   -v /opt/mybot:/bot \
   -e BOT_TOKEN=your_token_here \
   python:3.11-slim sh -c "\
-    pip install -r /bot/requirements.txt && \
-    cd /bot && python bot.py"
+    pip install --dry-run -r /bot/requirements.txt -q 2>/dev/null \
+      || pip install -r /bot/requirements.txt; \
+    exec python /bot/bot.py"
 
 # Check
 dck logs mybot
@@ -61,6 +62,8 @@ dck attach mybot
 ```
 
 Packages install into the overlay layer — they persist across restarts.
+The `--dry-run` check skips pip install on subsequent starts if
+requirements haven't changed (pip 21.1+).
 
 #### Discord.py
 
@@ -87,8 +90,9 @@ dck run -d --restart always \
   -v /opt/discord-bot:/bot \
   -e BOT_TOKEN=your_token_here \
   python:3.11-slim sh -c "\
-    pip install -r /bot/requirements.txt && \
-    python /bot/bot.py"
+    pip install --dry-run -r /bot/requirements.txt -q 2>/dev/null \
+      || pip install -r /bot/requirements.txt; \
+    exec python /bot/bot.py"
 ```
 
 #### Node.js Discord Bot
@@ -140,8 +144,9 @@ dck run -d --restart always \
   -v /opt/tg-bot:/bot \
   -e TELEGRAM_TOKEN=your_token_here \
   python:3.11-slim sh -c "\
-    pip install -r /bot/requirements.txt && \
-    python /bot/bot.py"
+    pip install --dry-run -r /bot/requirements.txt -q 2>/dev/null \
+      || pip install -r /bot/requirements.txt; \
+    exec python /bot/bot.py"
 ```
 
 #### Generic Python
@@ -152,8 +157,9 @@ dck run -d --restart always \
   -v /path/to/app:/app \
   -e KEY=VAL \
   python:3.11-slim sh -c "\
-    pip install -r /app/requirements.txt && \
-    python /app/main.py"
+    pip install --dry-run -r /app/requirements.txt -q 2>/dev/null \
+      || pip install -r /app/requirements.txt; \
+    exec python /app/main.py"
 ```
 
 ---
@@ -288,8 +294,9 @@ dck run -d --restart always \
   -e DB_PASS=botpass \
   -e DB_NAME=botdb \
   python:3.11-slim sh -c "\
-    pip install -r /bot/requirements.txt && \
-    python /bot/bot.py"
+    pip install --dry-run -r /bot/requirements.txt -q 2>/dev/null \
+      || pip install -r /bot/requirements.txt; \
+    exec python /bot/bot.py"
 ```
 
 #### Discord Bot + PostgreSQL (analytics, JSON)
@@ -341,8 +348,9 @@ dck run -d --restart always \
   -e DB_PASS=pgpass \
   -e DB_NAME=botdb \
   python:3.11-slim sh -c "\
-    pip install -r /bot/requirements.txt && \
-    python /bot/bot.py"
+    pip install --dry-run -r /bot/requirements.txt -q 2>/dev/null \
+      || pip install -r /bot/requirements.txt; \
+    exec python /bot/bot.py"
 ```
 
 #### Flask Web App + MySQL
@@ -400,11 +408,14 @@ dck run -d --restart always \
   -e DB_PASS=apppass \
   -e DB_NAME=webapp \
   python:3.11-slim sh -c "\
-    pip install -r /app/requirements.txt && \
-    python /app/app.py"
-
-curl http://localhost:5000  # Visitor #1
+    pip install --dry-run -r /app/requirements.txt -q 2>/dev/null \
+      || pip install -r /app/requirements.txt; \
+    exec python /app/app.py"
 ```
+
+> **Tip:** Replace `pip install` with one of these patterns to speed up restarts:
+> - `pip install --dry-run -r req.txt -q 2>/dev/null || pip install -r req.txt` — skip install if packages already present
+> - `./scripts/dck-pip-install.sh req.txt` — same logic in a dedicated script (bundled with dck)
 
 #### Node.js + Redis (caching, sessions)
 
@@ -731,6 +742,31 @@ dck down -a         # Remove ALL containers (ignore config)
 | `env` | Environment variables | `{ KEY = "val" }` |
 | `restart` | Restart policy | `"always"` (default) |
 | `hostname` | Container hostname | `"myserver"` |
+| `healthcheck` | Health check config | `{ cmd = "...", interval = 30, retries = 3, timeout = 5 }` |
+
+#### Healthcheck
+
+dck runs the healthcheck command inside the container at the given interval.
+After `retries` consecutive failures, the container is killed and restarted.
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `cmd` | (required) | Shell command to run (exit 0 = healthy) |
+| `interval` | 30 | Seconds between checks |
+| `retries` | 3 | Consecutive failures before restart |
+| `timeout` | 10 | Seconds before a single check is killed |
+
+#### pip install optimization
+
+By default every start runs `pip install`. If requirements haven't changed, skip it:
+
+```bash
+pip install --dry-run -r /bot/requirements.txt -q 2>/dev/null \
+  || pip install -r /bot/requirements.txt
+```
+
+`--dry-run` checks if all packages are already installed (pip 21.1+). If the
+flag is not supported (older pip), it falls through to the real install.
 
 ### dck.toml Examples
 
@@ -742,27 +778,67 @@ ports = ["25565:25565"]
 volumes = ["mc_data:/data"]
 env = { EULA = "TRUE", TYPE = "PAPER", VERSION = "1.20.4" }
 restart = "always"
+healthcheck = { cmd = "mc-health", interval = 60, retries = 2 }
 ```
 
-**Discord Bot:**
+**Discord Bot (with pip cache):**
 ```toml
 [container.discord-bot]
 image = "python:3.11-slim"
-command = "sh -c 'pip install -r /bot/requirements.txt && python /bot/bot.py'"
+command = "sh -c 'pip install --dry-run -r /bot/requirements.txt -q 2>/dev/null || pip install -r /bot/requirements.txt; exec python /bot/bot.py'"
 volumes = ["./discord-bot:/bot"]
 env = { BOT_TOKEN = "your_token_here" }
 restart = "always"
+healthcheck = { cmd = "python -c 'import discord'", interval = 60, retries = 2 }
+```
+
+**Bot + PostgreSQL (two containers):**
+```toml
+[container.bot]
+image = "python:3.11-slim"
+command = "sh -c '\
+  pip install --dry-run -r /bot/requirements.txt -q 2>/dev/null \
+    || pip install -r /bot/requirements.txt; \
+  exec python /bot/bot.py'"
+volumes = ["./bot:/bot"]
+env = {
+  BOT_TOKEN = "your_token_here",
+  DB_HOST = "10.0.2.1",
+  DB_USER = "postgres",
+  DB_PASS = "pgpass",
+  DB_NAME = "botdb"
+}
+restart = "always"
+healthcheck = { cmd = "pg_isready -h $DB_HOST" }
+
+[container.db]
+image = "postgres:16"
+ports = ["5432:5432"]
+volumes = ["pg_data:/var/lib/postgresql/data"]
+env = { POSTGRES_PASSWORD = "pgpass", POSTGRES_DB = "botdb" }
+restart = "always"
+healthcheck = { cmd = "pg_isready -U postgres", interval = 15, retries = 5 }
 ```
 
 **Flask + PostgreSQL:**
 ```toml
 [container.app]
 image = "python:3.11-slim"
-command = "sh -c 'pip install -r /app/requirements.txt && python /app/app.py'"
+command = "sh -c '\
+  pip install --dry-run -r /app/requirements.txt -q 2>/dev/null \
+    || pip install -r /app/requirements.txt; \
+  exec python /app/app.py'"
 ports = ["5000:5000"]
 volumes = ["./app:/app"]
-env = { FLASK_ENV = "production", DATABASE_URL = "postgres://postgres:secret@HOST_IP:5432/myapp" }
+env = {
+  FLASK_ENV = "production",
+  DB_HOST = "10.0.2.1",
+  DB_USER = "postgres",
+  DB_PASS = "secret",
+  DB_NAME = "myapp"
+}
 restart = "always"
+healthcheck = { cmd = "curl -f http://localhost:5000/health", interval = 30, retries = 3, timeout = 5 }
 
 [container.db]
 image = "postgres:16"
@@ -770,6 +846,26 @@ ports = ["5432:5432"]
 volumes = ["pg_data:/var/lib/postgresql/data"]
 env = { POSTGRES_PASSWORD = "secret", POSTGRES_DB = "myapp" }
 restart = "always"
+healthcheck = { cmd = "pg_isready -U postgres" }
+```
+
+**Node.js + Redis:**
+```toml
+[container.app]
+image = "node:20"
+command = "sh -c 'cd /app && npm install && exec node index.js'"
+ports = ["3000:3000"]
+volumes = ["./app:/app"]
+env = { REDIS_URL = "redis://10.0.2.1:6379" }
+restart = "always"
+healthcheck = { cmd = "wget -qO- http://localhost:3000/health", interval = 30 }
+
+[container.db]
+image = "redis:7"
+ports = ["6379:6379"]
+volumes = ["redis_data:/data"]
+command = "redis-server --appendonly yes"
+healthcheck = { cmd = "redis-cli ping", interval = 15 }
 ```
 
 ---

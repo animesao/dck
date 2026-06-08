@@ -110,6 +110,15 @@ func Up(args []string) {
 			opts.Env = append(opts.Env, k+"="+v)
 		}
 
+		if cc.Healthcheck != nil {
+			opts.Healthcheck = &container.HealthcheckConfig{
+				Cmd:      cc.Healthcheck.Cmd,
+				Interval: cc.Healthcheck.Interval,
+				Retries:  cc.Healthcheck.Retries,
+				Timeout:  cc.Healthcheck.Timeout,
+			}
+		}
+
 		c := container.New(img, opts)
 		if err := c.Save(); err != nil {
 			fmt.Fprintf(os.Stderr, "  %s: error saving: %v\n", name, err)
