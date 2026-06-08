@@ -8,9 +8,17 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"dck/internal/container"
+	"dck/internal/state"
 )
+
+type sessionInfo struct {
+	ContainerID string    `json:"container_id"`
+	AttachedAt  time.Time `json:"attached_at"`
+	LastCmd     string    `json:"last_cmd,omitempty"`
+}
 
 func findRCONPassword(c *container.Container) string {
 	for _, vol := range c.Volumes {
@@ -26,6 +34,15 @@ func findRCONPassword(c *container.Container) string {
 		}
 	}
 	return ""
+}
+
+func saveSession(c *container.Container, lastCmd string) {
+	s := sessionInfo{
+		ContainerID: c.ID,
+		AttachedAt:  time.Now(),
+		LastCmd:     lastCmd,
+	}
+	state.WriteJSON(state.SessionPath(c.ID), &s)
 }
 
 func Attach(args []string) {
@@ -58,12 +75,18 @@ func Attach(args []string) {
 		}
 	}()
 
+	state.EnsureDirs()
 	go c.Logs(true)
 
 	fmt.Println("--- attach mode: type commands, Ctrl+C to detach ---")
 	if rconPassword != "" {
-		fmt.Println("  RCON detected — commands sent to Minecraft server")
+		fmt.Println("  Built-in RCON — commands sent to Minecraft server")
 		fmt.Println("  Prefix with ! for system commands (e.g. !ls)")
+	}
+
+	var rcon *container.RCON
+	if rconPassword != "" {
+		rcon = container.NewRCON("127.0.0.1:25575", rconPassword)
 	}
 
 	scanner := bufio.NewScanner(os.Stdin)
@@ -86,13 +109,13 @@ func Attach(args []string) {
 			continue
 		}
 
-		if rconPassword != "" {
-			parts := strings.Fields(line)
-			rconArgs := append([]string{
-				"rcon-cli", "--host", "localhost", "--port", "25575",
-				"--password", rconPassword,
-			}, parts...)
-			if err := c.ExecOpts(rconArgs, false); err == nil {
+		if rcon != nil {
+			resp, err := rcon.Command(line)
+			if err == nil {
+				if resp != "" {
+					fmt.Println(resp)
+				}
+				saveSession(c, line)
 				continue
 			}
 		}
