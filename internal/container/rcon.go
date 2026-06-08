@@ -44,7 +44,11 @@ func (r *RCON) disconnect() {
 
 func (r *RCON) authenticate() error {
 	id := atomic.AddInt32(&r.id, 1)
-	return r.sendPacket(id, 3, r.password)
+	if err := r.sendPacket(id, 3, r.password); err != nil {
+		return err
+	}
+	_, err := r.receive(id)
+	return err
 }
 
 func (r *RCON) Command(cmd string) (string, error) {
