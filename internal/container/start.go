@@ -3,14 +3,12 @@ package container
 import (
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"dck/internal/image"
@@ -79,42 +77,18 @@ func (c *Container) Start() error {
 	cmd.Stderr = logFile
 
 	if c.Detach {
-		consolePath := state.ConsolePath(c.ID)
-		os.Remove(consolePath)
-		listener, err := net.Listen("unix", consolePath)
-		if err == nil {
-			defer listener.Close()
+		stdinR, stdinW, _ := os.Pipe()
+		stdoutR, stdoutW, _ := os.Pipe()
 
-			consoleStdinR, consoleStdinW, _ := os.Pipe()
-			consoleStdoutR, consoleStdoutW, _ := os.Pipe()
+		cmd.Stdin = stdinR
+		cmd.Stdout = io.MultiWriter(logFile, stdoutW)
+		cmd.Stderr = io.MultiWriter(logFile, stdoutW)
 
-			cmd.Stdin = consoleStdinR
-			cmd.Stdout = io.MultiWriter(logFile, consoleStdoutW)
-			cmd.Stderr = io.MultiWriter(logFile, consoleStdoutW)
-
-			go func() {
-				for {
-					conn, err := listener.Accept()
-					if err != nil {
-						return
-					}
-					go func() {
-						var wg sync.WaitGroup
-						wg.Add(2)
-						go func() {
-							io.Copy(consoleStdinW, conn)
-							wg.Done()
-						}()
-						go func() {
-							io.Copy(conn, consoleStdoutR)
-							wg.Done()
-						}()
-						wg.Wait()
-						conn.Close()
-					}()
-				}
-			}()
-		}
+		serve := exec.Command(binPath, "console-serve", c.ID)
+		serve.ExtraFiles = []*os.File{stdinW, stdoutR}
+		serve.Start()
+		stdinW.Close()
+		stdoutR.Close()
 	} else if c.Interactive || c.TTY {
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
@@ -287,6 +261,7 @@ func cleanupContainer(c *Container) {
 		return
 	}
 	c.cleanupNetwork()
+	os.Remove(state.ConsolePath(c.ID))
 	upper, _, merged := c.OverlayDirs()
 	exec.Command("umount", "-l", merged).Run()
 	os.RemoveAll(filepath.Dir(upper))

@@ -38,6 +38,8 @@ func Execute() {
 		Exec(args)
 	case "console":
 		Console(args)
+	case "console-serve":
+		ConsoleServe(args)
 	case "attach":
 		Attach(args)
 	case "init":

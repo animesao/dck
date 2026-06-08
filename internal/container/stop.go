@@ -8,6 +8,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"dck/internal/state"
 )
 
 func findUnsharePID(childPID int) int {
@@ -65,6 +67,7 @@ func (c *Container) Stop() error {
 	}
 
 	c.cleanupNetwork()
+	os.Remove(state.ConsolePath(c.ID))
 	c.PID = 0
 	c.Status = Stopped
 	c.Save()
