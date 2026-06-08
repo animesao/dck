@@ -81,8 +81,8 @@ func (c *Container) Start() error {
 		stdoutR, stdoutW, _ := os.Pipe()
 
 		cmd.Stdin = stdinR
-		cmd.Stdout = io.MultiWriter(logFile, stdoutW)
-		cmd.Stderr = io.MultiWriter(logFile, stdoutW)
+		cmd.Stdout = io.MultiWriter(logFile, newIgnoreErrWriter(stdoutW))
+		cmd.Stderr = io.MultiWriter(logFile, newIgnoreErrWriter(stdoutW))
 
 		serve := exec.Command(binPath, "console-serve", c.ID)
 		serve.ExtraFiles = []*os.File{stdinW, stdoutR}
@@ -146,6 +146,17 @@ func (c *Container) Start() error {
 	}
 
 	return err
+}
+
+type ignoreErrWriter struct{ w io.Writer }
+
+func (w *ignoreErrWriter) Write(p []byte) (int, error) {
+	n, _ := w.w.Write(p)
+	return n, nil
+}
+
+func newIgnoreErrWriter(w io.Writer) *ignoreErrWriter {
+	return &ignoreErrWriter{w: w}
 }
 
 func (c *Container) NeedsNetwork() bool {
