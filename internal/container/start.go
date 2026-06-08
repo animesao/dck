@@ -30,10 +30,13 @@ func (c *Container) Start() error {
 
 	rootfsDir := state.ImageRootfsDir(c.ImageName, c.ImageTag)
 	upper, work, merged := c.OverlayDirs()
-	os.RemoveAll(filepath.Dir(upper))
 	os.MkdirAll(filepath.Dir(upper), 0755)
 
-	if err := SetupOverlay(rootfsDir, upper, work, merged); err != nil {
+	if _, err := os.Stat(merged); os.IsNotExist(err) {
+		if err := SetupOverlay(rootfsDir, upper, work, merged); err != nil {
+			return fmt.Errorf("overlay: %w", err)
+		}
+	}
 		return fmt.Errorf("overlay: %w", err)
 	}
 
@@ -46,7 +49,7 @@ func (c *Container) Start() error {
 		}
 	}
 
-	logFile, err := os.Create(c.LogFile())
+	logFile, err := os.OpenFile(c.LogFile(), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return fmt.Errorf("log: %w", err)
 	}
