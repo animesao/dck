@@ -6,7 +6,9 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 	"syscall"
+	"time"
 
 	"dck/internal/state"
 )
@@ -62,6 +64,18 @@ func InitContainer(id string) error {
 	syscall.Mount("devpts", "/dev/pts", "devpts", 0, "")
 
 	exec.Command("ip", "link", "set", "lo", "up").Run()
+
+	for i := 0; i < 200; i++ {
+		out, _ := exec.Command("ip", "addr", "show", "eth0").Output()
+		if len(out) > 0 {
+			s := string(out)
+			if !strings.Contains(s, "NO-CARRIER") && strings.Contains(s, "inet ") {
+				exec.Command("ip", "link", "set", "eth0", "up").Run()
+				break
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 
 	ensureUsrMerge()
 
