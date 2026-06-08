@@ -39,6 +39,7 @@ func InitContainer(id string) error {
 	_, _, merged := c.OverlayDirs()
 
 	resolvConf, _ := os.ReadFile("/etc/resolv.conf")
+	cfgData, _ := os.ReadFile(state.ImageDir(c.ImageName, c.ImageTag) + "/config.json")
 
 	if err := syscall.Sethostname([]byte(c.Hostname)); err != nil {
 		return fmt.Errorf("sethostname: %w", err)
@@ -71,39 +72,63 @@ func InitContainer(id string) error {
 		}
 	}
 
-	cfgData, err := os.ReadFile(state.ImageDir(c.ImageName, c.ImageTag) + "/config.json")
-	if err == nil {
-		var cfg struct {
-			Config struct {
-				Env        []string `json:"Env"`
-				WorkingDir string   `json:"WorkingDir"`
-			} `json:"config"`
-		}
-		if json.Unmarshal(cfgData, &cfg) == nil {
-			c.Env = append(cfg.Config.Env, c.Env...)
-			if cfg.Config.WorkingDir != "" {
-				os.MkdirAll(cfg.Config.WorkingDir, 0755)
-				syscall.Chdir(cfg.Config.WorkingDir)
-			}
-		}
+	var cfg struct {
+		Config struct {
+			Env        []string `json:"Env"`
+			WorkingDir string   `json:"WorkingDir"`
+		} `json:"config"`
+	}
+	json.Unmarshal(cfgData, &cfg)
+
+	c.Env = append(cfg.Config.Env, c.Env...)
+
+	if cfg.Config.WorkingDir != "" {
+		os.MkdirAll(cfg.Config.WorkingDir, 0755)
+		syscall.Chdir(cfg.Config.WorkingDir)
 	}
 
-	env := append(c.Env,
-		"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-		"HOME=/root",
-		"TERM=xterm",
-	)
+	defaultPath := "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+	hasPath := false
+	for _, e := range c.Env {
+		if len(e) >= 5 && e[:5] == "PATH=" {
+			hasPath = true
+			break
+		}
+	}
+	if !hasPath {
+		c.Env = append(c.Env, "PATH="+defaultPath)
+	}
+	hasHome := false
+	for _, e := range c.Env {
+		if len(e) >= 5 && e[:5] == "HOME=" {
+			hasHome = true
+			break
+		}
+	}
+	if !hasHome {
+		c.Env = append(c.Env, "HOME=/root")
+	}
+	hasTerm := false
+	for _, e := range c.Env {
+		if len(e) >= 5 && e[:5] == "TERM=" {
+			hasTerm = true
+			break
+		}
+	}
+	if !hasTerm {
+		c.Env = append(c.Env, "TERM=xterm")
+	}
 
 	cmdPath := c.Cmd[0]
 	cmdArgs := c.Cmd
 
 	if _, err := os.Stat(cmdPath); os.IsNotExist(err) {
-		os.Setenv("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
+		os.Setenv("PATH", defaultPath)
 		if resolved, err := exec.LookPath(cmdPath); err == nil {
 			cmdPath = resolved
 			cmdArgs = []string{cmdPath}
 		}
 	}
 
-	return syscall.Exec(cmdPath, cmdArgs, env)
+	return syscall.Exec(cmdPath, cmdArgs, c.Env)
 }
