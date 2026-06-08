@@ -48,8 +48,12 @@ func (c *Container) Start() error {
 	}
 
 	for _, vol := range c.Volumes {
-		lockPath := filepath.Join(vol.Source, "world", "session.lock")
-		os.Remove(lockPath)
+		filepath.Walk(vol.Source, func(path string, info os.FileInfo, err error) error {
+			if err == nil && info.Name() == "session.lock" {
+				os.Remove(path)
+			}
+			return nil
+		})
 	}
 
 	logFile, err := os.OpenFile(c.LogFile(), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
