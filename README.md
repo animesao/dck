@@ -413,9 +413,6 @@ dck run -d --restart always \
     exec python /app/app.py"
 ```
 
-> **Tip:** Replace `pip install` with one of these patterns to speed up restarts:
-> - `pip install --dry-run -r req.txt -q 2>/dev/null || pip install -r req.txt` — skip install if packages already present
-> - `./scripts/dck-pip-install.sh req.txt` — same logic in a dedicated script (bundled with dck)
 
 #### Node.js + Redis (caching, sessions)
 
