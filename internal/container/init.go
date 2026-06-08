@@ -38,7 +38,6 @@ func InitContainer(id string) error {
 
 	_, _, merged := c.OverlayDirs()
 
-	resolvConf, _ := os.ReadFile("/etc/resolv.conf")
 	cfgData, _ := os.ReadFile(state.ImageDir(c.ImageName, c.ImageTag) + "/config.json")
 
 	if err := syscall.Sethostname([]byte(c.Hostname)); err != nil {
@@ -66,11 +65,7 @@ func InitContainer(id string) error {
 
 	ensureUsrMerge()
 
-	if _, err := os.Stat("/etc/resolv.conf"); os.IsNotExist(err) {
-		if len(resolvConf) > 0 {
-			os.WriteFile("/etc/resolv.conf", resolvConf, 0644)
-		}
-	}
+	os.WriteFile("/etc/resolv.conf", []byte("nameserver 8.8.8.8\nnameserver 8.8.4.4\n"), 0644)
 
 	var cfg struct {
 		Config struct {
