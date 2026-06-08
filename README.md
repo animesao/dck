@@ -161,12 +161,15 @@ dck run -d -p 5432:5432 postgres:16      # postgres listens on 5432 inside → 5
 | `-n, --name` | Container name | auto-generated |
 | `-p` | Port mapping `host:container` (`-p 8080:80` = host:8080 → container:80) | - |
 | `-v` | Volume mount `src:dst` | - |
-| `-e` | Environment variable `KEY=val` | - |
+| `-e` | Environment variable `KEY=val` (can be repeated) | - |
 | `-i` | Interactive (keep STDIN open) | `false` |
 | `-t` | Allocate pseudo-TTY | `false` |
 | `--rm` | Auto-remove on exit | `false` |
-| `--restart` | Restart policy | `no` |
+| `--restart` | Restart policy (`no`, `always`, `on-failure`) | `no` |
 | `-h` | Container hostname | container ID |
+
+> **Note:** `-w` (working directory) and `--env-file` are not yet implemented.
+> Use `sh -c "cd /path && ..."` for working directory, and `-e KEY=VAL` for env vars.
 
 ### Restart Policies
 | Policy | Behavior |
@@ -348,10 +351,14 @@ dck run -d --restart always \
 ```
 
 ### Discord Bot (Python)
+
 ```bash
-mkdir discord-bot && cd discord-bot
+# Create bot directory
+mkdir -p /opt/discord-bot && cd /opt/discord-bot
+
+# Create your bot
 cat > bot.py << 'EOF'
-import discord
+import discord, os
 from discord.ext import commands
 bot = commands.Bot(command_prefix="!", intents=discord.Intents.default())
 @bot.event
@@ -360,19 +367,28 @@ async def on_ready():
 @bot.command()
 async def ping(ctx):
     await ctx.send("Pong!")
-bot.run("YOUR_BOT_TOKEN")
+bot.run(os.environ["BOT_TOKEN"])
 EOF
 
-cat > requirements.txt << 'EOF'
-discord.py==2.3.2
-EOF
+# Requirements
+echo "discord.py==2.3.2" > requirements.txt
 
+# Run — installs deps + starts bot in one container
+# pip runs once, overlay caches the installed packages
 dck run -d --restart always \
   -n discord-bot \
-  -v $(pwd):/bot \
+  -v /opt/discord-bot:/bot \
+  -e BOT_TOKEN=your_token_here \
   python:3.11-slim sh -c "\
     pip install -r /bot/requirements.txt && python /bot/bot.py"
+
+dck logs -f discord-bot   # watch startup
+dck attach discord-bot     # interact with bot's stdin/stdout
 ```
+
+> **Note:** `pip install` and `python bot.py` run in the **same container**.
+> Packages are installed into the overlay layer, so they persist across restarts.
+> No need for `pip install` in a separate `--rm` container.
 
 ### Discord Bot (Node.js)
 ```bash
@@ -1192,6 +1208,7 @@ cd /tmp/dck && go build -o dck . && install dck /usr/local/bin/
 - **`dck exec` / `dck console`** — uses `nsenter` to enter container namespaces
 - **session.lock race fix** — recursive cleanup under volume mount sources
 - **Socket cleanup** — console socket and `session.lock` removed on container stop/cleanup
+- **[fix] Command arguments preserved after LookPath** — `pip install -r requirements.txt` no longer drops arguments after the command name (`init.go`)
 
 ### v1.3.0
 - **`dck.toml` config file** — define all containers in one TOML file
