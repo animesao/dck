@@ -1179,7 +1179,7 @@ cd /tmp/dck && go build -o dck . && install dck /usr/local/bin/
 
 ## Changelog
 
-### v1.4.0 (current)
+### v1.4.7 (current)
 - **`dck attach` rewritten** — uses Unix socket (Pterodactyl-style) via `console-serve` process
 - **`console-serve`** — new daemon process spawned per container that bridges stdin/stdout to a Unix socket
 - **Full log history on attach** — new clients automatically receive all existing log content before live streaming
