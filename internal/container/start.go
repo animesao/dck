@@ -59,7 +59,7 @@ func (c *Container) Start() error {
 	}
 
 	unshareArgs := []string{
-		"--fork", "--pid", "--mount", "--net", "--uts", "--ipc",
+		"--fork", "--pid", "--mount", "--net", "--uts", "--ipc", "--kill-child",
 		binPath, "init", c.ID,
 	}
 

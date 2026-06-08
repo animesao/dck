@@ -3,14 +3,13 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"time"
 
 	"dck/internal/container"
 )
 
-func Restart(args []string) {
+func StartCmd(args []string) {
 	if len(args) < 1 {
-		fmt.Println("Usage: dck restart <container>")
+		fmt.Println("Usage: dck start <container>")
 		os.Exit(1)
 	}
 
@@ -18,14 +17,6 @@ func Restart(args []string) {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
-	}
-
-	if c.Status == container.Running {
-		if err := c.Stop(); err != nil {
-			fmt.Fprintf(os.Stderr, "Error stopping: %v\n", err)
-			os.Exit(1)
-		}
-		time.Sleep(1 * time.Second)
 	}
 
 	c.Status = container.Created

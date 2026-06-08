@@ -3,16 +3,44 @@ package container
 import (
 	"fmt"
 	"os"
+	"os/exec"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 )
+
+func findUnsharePID(childPID int) int {
+	out, err := exec.Command("ps", "-o", "ppid=", "-p", strconv.Itoa(childPID)).Output()
+	if err != nil {
+		return 0
+	}
+	ppid, err := strconv.Atoi(strings.TrimSpace(string(out)))
+	if err != nil || ppid == 0 {
+		return 0
+	}
+	out2, err := exec.Command("ps", "-o", "comm=", "-p", strconv.Itoa(ppid)).Output()
+	if err != nil {
+		return 0
+	}
+	if strings.TrimSpace(string(out2)) == "unshare" {
+		return ppid
+	}
+	return 0
+}
 
 func (c *Container) Stop() error {
 	if c.Status != Running {
 		return fmt.Errorf("container %s is not running", c.ID)
 	}
 
-	proc, err := os.FindProcess(c.PID)
+	unsharePID := findUnsharePID(c.PID)
+	targetPID := c.PID
+	if unsharePID != 0 {
+		targetPID = unsharePID
+	}
+
+	proc, err := os.FindProcess(targetPID)
 	if err != nil {
 		c.cleanupNetwork()
 		c.PID = 0
