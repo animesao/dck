@@ -37,14 +37,16 @@ dck run -it alpine sh
 
 ## Bot Deployment
 
-### Python Bot (Discord, Telegram, any)
+### 1. Bot Without Database — Just a Script
+
+#### Python (Discord, Telegram, any)
 
 ```bash
-# 1. Put your bot files on the server
+# Put your bot files on the server
 mkdir -p /opt/mybot
 # copy bot.py, requirements.txt into /opt/mybot/
 
-# 2. Run — pip install + start in one container
+# Run — pip install + start in one container
 dck run -d --restart always \
   -n mybot \
   -v /opt/mybot:/bot \
@@ -53,14 +55,14 @@ dck run -d --restart always \
     pip install -r /bot/requirements.txt && \
     cd /bot && python bot.py"
 
-# 3. Check
+# Check
 dck logs mybot
 dck attach mybot
 ```
 
 Packages install into the overlay layer — they persist across restarts.
 
-### Discord.py Bot
+#### Discord.py
 
 ```bash
 mkdir -p /opt/discord-bot && cd /opt/discord-bot
@@ -89,7 +91,7 @@ dck run -d --restart always \
     python /bot/bot.py"
 ```
 
-### Node.js Discord Bot
+#### Node.js Discord Bot
 
 ```bash
 mkdir -p /opt/discord-js-bot && cd /opt/discord-js-bot
@@ -115,7 +117,7 @@ dck run -d --restart always \
   node:20 sh -c "cd /bot && npm install && node index.js"
 ```
 
-### Telegram Bot (Python)
+#### Telegram Bot
 
 ```bash
 mkdir -p /opt/tg-bot && cd /opt/tg-bot
@@ -142,10 +144,9 @@ dck run -d --restart always \
     python /bot/bot.py"
 ```
 
-### Generic Python App with Dependencies
+#### Generic Python
 
 ```bash
-# For any app with requirements.txt
 dck run -d --restart always \
   -n myapp \
   -v /path/to/app:/app \
@@ -155,13 +156,100 @@ dck run -d --restart always \
     python /app/main.py"
 ```
 
-> **How it works:** `pip install` runs on every container start, but the overlay
-> layer caches the installed packages. Subsequent starts re-use them instantly.
+---
 
-### Bot + MySQL (Discord economy, levels, tickets)
+### 2. Database Containers (Standalone)
+
+Run these **separately** — your app connects to them via the host IP `10.0.2.1`.
+
+#### MySQL
 
 ```bash
-# Create bot folder
+dck run -d --restart always \
+  -n mysql -p 3306:3306 \
+  -v mysql_data:/var/lib/mysql \
+  -e MYSQL_ROOT_PASSWORD=rootpass \
+  -e MYSQL_DATABASE=myapp \
+  -e MYSQL_USER=myuser \
+  -e MYSQL_PASSWORD=mypass \
+  mysql:8
+```
+
+Connect from another container: `host=10.0.2.1, user=myuser, password=mypass, db=myapp`
+
+#### PostgreSQL
+
+```bash
+dck run -d --restart always \
+  -n postgres -p 5432:5432 \
+  -v pg_data:/var/lib/postgresql/data \
+  -e POSTGRES_PASSWORD=pgpass \
+  -e POSTGRES_DB=myapp \
+  postgres:16
+```
+
+Connect from another container: `host=10.0.2.1, user=postgres, password=pgpass, db=myapp`
+
+#### MariaDB
+
+```bash
+dck run -d --restart always \
+  -n mariadb -p 3306:3306 \
+  -v mariadb_data:/var/lib/mysql \
+  -e MARIADB_ROOT_PASSWORD=rootpass \
+  -e MARIADB_DATABASE=myapp \
+  -e MARIADB_USER=myuser \
+  -e MARIADB_PASSWORD=mypass \
+  mariadb:10
+```
+
+#### Redis
+
+```bash
+dck run -d --restart always \
+  -n redis -p 6379:6379 \
+  -v redis_data:/data \
+  redis:7 --appendonly yes
+```
+
+Connect: `redis://10.0.2.1:6379`
+
+#### SQLite (no separate container needed)
+
+SQLite is a file-based DB. Mount a volume to persist the file:
+
+```bash
+dck run -d --restart always \
+  -n myapp \
+  -v /opt/myapp:/app \
+  -v myapp_data:/data \
+  python:3.11-slim sh -c "\
+    pip install -r /app/requirements.txt && \
+    python /app/app.py"
+```
+
+The bot writes to `/data/mydb.sqlite` — it persists in the `myapp_data` volume.
+
+---
+
+### 3. Bot + Database (Two Containers)
+
+Start the database first (from section 2), then the bot connects via `10.0.2.1`.
+
+#### Discord Bot + MySQL (economy, levels)
+
+```bash
+# 1. Start MySQL (from section 2)
+dck run -d --restart always \
+  -n bot-mysql -p 3306:3306 \
+  -v bot_mysql_data:/var/lib/mysql \
+  -e MYSQL_ROOT_PASSWORD=rootpass \
+  -e MYSQL_DATABASE=botdb \
+  -e MYSQL_USER=bot \
+  -e MYSQL_PASSWORD=botpass \
+  mysql:8
+
+# 2. Create bot files
 mkdir -p /opt/discord-mysql-bot && cd /opt/discord-mysql-bot
 
 cat > bot.py << 'EOF'
@@ -171,12 +259,11 @@ bot = commands.Bot(command_prefix="!", intents=discord.Intents.all())
 
 @bot.event
 async def on_ready():
-    pool = await aiomysql.create_pool(
+    bot.db = await aiomysql.create_pool(
         host=os.environ["DB_HOST"], port=3306,
         user=os.environ["DB_USER"], password=os.environ["DB_PASS"],
-        db=os.environ["DB_NAME"], autocommit=True)
-    bot.db = pool
-    print(f"Logged in as {bot.user}")
+        db=os.environ["DB_NAME"])
+    print(f"Bot ready — DB connected")
 
 @bot.command()
 async def balance(ctx):
@@ -184,27 +271,14 @@ async def balance(ctx):
         async with conn.cursor() as cur:
             await cur.execute("SELECT coins FROM users WHERE id=%s", (ctx.author.id,))
             row = await cur.fetchone()
-            coins = row[0] if row else 0
-    await ctx.send(f"You have {coins} coins!")
+    await ctx.send(f"You have {row[0] if row else 0} coins!")
 
 bot.run(os.environ["BOT_TOKEN"])
 EOF
 
 echo -e "discord.py==2.6.4\naiomysql==0.2.0" > requirements.txt
 
-# MySQL database
-dck run -d --restart always \
-  -n bot-db -p 3306:3306 \
-  -v bot_mysql_data:/var/lib/mysql \
-  -e MYSQL_ROOT_PASSWORD=rootpass \
-  -e MYSQL_DATABASE=botdb \
-  -e MYSQL_USER=bot \
-  -e MYSQL_PASSWORD=botpass \
-  mysql:8
-
-sleep 5  # wait for MySQL to start
-
-# Bot (connects to MySQL via host IP)
+# 3. Start bot
 dck run -d --restart always \
   -n discord-mysql-bot \
   -v /opt/discord-mysql-bot:/bot \
@@ -216,13 +290,20 @@ dck run -d --restart always \
   python:3.11-slim sh -c "\
     pip install -r /bot/requirements.txt && \
     python /bot/bot.py"
-
-dck logs discord-mysql-bot
 ```
 
-### Bot + PostgreSQL (advanced queries, JSON data)
+#### Discord Bot + PostgreSQL (analytics, JSON)
 
 ```bash
+# 1. Start PostgreSQL
+dck run -d --restart always \
+  -n bot-pg -p 5432:5432 \
+  -v bot_pg_data:/var/lib/postgresql/data \
+  -e POSTGRES_PASSWORD=pgpass \
+  -e POSTGRES_DB=botdb \
+  postgres:16
+
+# 2. Bot files
 mkdir -p /opt/discord-pg-bot && cd /opt/discord-pg-bot
 
 cat > bot.py << 'EOF'
@@ -233,10 +314,9 @@ bot = commands.Bot(command_prefix="!", intents=discord.Intents.all())
 @bot.event
 async def on_ready():
     bot.db = await asyncpg.create_pool(
-        host=os.environ["DB_HOST"], port=5432,
-        user=os.environ["DB_USER"], password=os.environ["DB_PASS"],
-        database=os.environ["DB_NAME"])
-    print(f"Logged in as {bot.user}")
+        host=os.environ["DB_HOST"], user=os.environ["DB_USER"],
+        password=os.environ["DB_PASS"], database=os.environ["DB_NAME"])
+    print(f"Bot ready — PG connected")
 
 @bot.command()
 async def stats(ctx):
@@ -244,27 +324,14 @@ async def stats(ctx):
         row = await conn.fetchrow(
             "SELECT messages, xp FROM user_stats WHERE user_id=$1",
             ctx.author.id)
-    if row:
-        await ctx.send(f"Messages: {row['messages']} | XP: {row['xp']}")
-    else:
-        await ctx.send("No stats yet!")
+    await ctx.send(f"Messages: {row['messages']}, XP: {row['xp']}" if row else "No stats")
 
 bot.run(os.environ["BOT_TOKEN"])
 EOF
 
 echo -e "discord.py==2.6.4\nasyncpg==0.30.0" > requirements.txt
 
-# PostgreSQL
-dck run -d --restart always \
-  -n bot-pg -p 5432:5432 \
-  -v bot_pg_data:/var/lib/postgresql/data \
-  -e POSTGRES_PASSWORD=pgpass \
-  -e POSTGRES_DB=botdb \
-  postgres:16
-
-sleep 5
-
-# Bot
+# 3. Start bot
 dck run -d --restart always \
   -n discord-pg-bot \
   -v /opt/discord-pg-bot:/bot \
@@ -278,48 +345,21 @@ dck run -d --restart always \
     python /bot/bot.py"
 ```
 
-### Telegram Bot + SQLite (simple file-based DB)
+#### Flask Web App + MySQL
 
 ```bash
-mkdir -p /opt/tg-sqlite-bot && cd /opt/tg-sqlite-bot
-
-cat > bot.py << 'EOF'
-import os, sqlite3
-from telegram import Update
-from telegram.ext import Application, CommandHandler
-
-conn = sqlite3.connect("/data/bot.db", check_same_thread=False)
-conn.execute("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, score INTEGER)")
-
-async def score(update: Update, ctx):
-    uid = update.effective_user.id
-    conn.execute("INSERT INTO users (id, score) VALUES (?, 1) ON CONFLICT(id) DO UPDATE SET score=score+1", (uid,))
-    conn.commit()
-    row = conn.execute("SELECT score FROM users WHERE id=?", (uid,)).fetchone()
-    await update.message.reply_text(f"Score: {row[0]}")
-
-app = Application.builder().token(os.environ["TELEGRAM_TOKEN"]).build()
-app.add_handler(CommandHandler("score", score))
-app.run_polling()
-EOF
-
-echo "python-telegram-bot==20.7" > requirements.txt
-
-# SQLite data is stored in a named volume, shared between runs
+# 1. Start MySQL
 dck run -d --restart always \
-  -n tg-sqlite-bot \
-  -v /opt/tg-sqlite-bot:/bot \
-  -v tg_data:/data \
-  -e TELEGRAM_TOKEN=your_token_here \
-  python:3.11-slim sh -c "\
-    pip install -r /bot/requirements.txt && \
-    python /bot/bot.py"
-```
+  -n flask-mysql -p 3306:3306 \
+  -v flask_mysql_data:/var/lib/mysql \
+  -e MYSQL_ROOT_PASSWORD=rootpass \
+  -e MYSQL_DATABASE=webapp \
+  -e MYSQL_USER=app \
+  -e MYSQL_PASSWORD=apppass \
+  mysql:8
 
-### Python Web App + MySQL (Full Stack)
-
-```bash
-mkdir -p /opt/webapp && cd /opt/webapp
+# 2. Create app
+mkdir -p /opt/flask-app && cd /opt/flask-app
 
 cat > app.py << 'EOF'
 from flask import Flask
@@ -334,38 +374,27 @@ def get_db():
 @app.route("/")
 def hello():
     db = get_db()
-    cursor = db.cursor()
-    cursor.execute("SELECT COUNT(*) FROM visits")
-    count = cursor.fetchone()[0]
-    cursor.execute("INSERT INTO visits DEFAULT VALUES")
+    cur = db.cursor()
+    cur.execute("SELECT COUNT(*) FROM visits")
+    count = cur.fetchone()[0]
+    cur.execute("INSERT INTO visits DEFAULT VALUES")
     db.commit()
-    return f"Hello! You are visitor #{count + 1}"
+    return f"Visitor #{count + 1}"
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+app.run(host="0.0.0.0", port=5000)
 EOF
 
 echo -e "flask==3.0.0\nmysql-connector-python==9.2.0" > requirements.txt
 
-# MySQL
-dck run -d --restart always \
-  -n webapp-db -p 3306:3306 \
-  -v webapp_mysql_data:/var/lib/mysql \
-  -e MYSQL_ROOT_PASSWORD=rootpass \
-  -e MYSQL_DATABASE=webapp \
-  -e MYSQL_USER=app \
-  -e MYSQL_PASSWORD=apppass \
-  mysql:8
-
+# 3. Init table
 sleep 5
+dck exec flask-mysql mysql -u root -prootpass webapp \
+  -e "CREATE TABLE IF NOT EXISTS visits (id INT AUTO_INCREMENT PRIMARY KEY, ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
 
-# Init table
-dck exec webapp-db mysql -u root -prootpass webapp -e "CREATE TABLE IF NOT EXISTS visits (id INT AUTO_INCREMENT PRIMARY KEY, ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP)" 2>/dev/null
-
-# Flask app
+# 4. Start Flask
 dck run -d --restart always \
-  -n webapp -p 5000:5000 \
-  -v /opt/webapp:/app \
+  -n flask-app -p 5000:5000 \
+  -v /opt/flask-app:/app \
   -e DB_HOST=10.0.2.1 \
   -e DB_USER=app \
   -e DB_PASS=apppass \
@@ -374,13 +403,20 @@ dck run -d --restart always \
     pip install -r /app/requirements.txt && \
     python /app/app.py"
 
-curl http://localhost:5000  # Hello! You are visitor #1
+curl http://localhost:5000  # Visitor #1
 ```
 
-### Node.js App + Redis (Caching, Sessions)
+#### Node.js + Redis (caching, sessions)
 
 ```bash
-mkdir -p /opt/node-redis-app && cd /opt/node-redis-app
+# 1. Start Redis
+dck run -d --restart always \
+  -n myredis -p 6379:6379 \
+  -v redis_data:/data \
+  redis:7 --appendonly yes
+
+# 2. Create app
+mkdir -p /opt/node-redis && cd /opt/node-redis
 
 cat > index.js << 'EOF'
 const express = require("express");
@@ -389,29 +425,21 @@ const app = express();
 
 app.get("/", async (req, res) => {
   await redis.connect();
-  let count = await redis.get("visits") || 0;
-  count++;
-  await redis.set("visits", count);
+  let c = await redis.get("visits") || 0;
+  await redis.set("visits", ++c);
   await redis.disconnect();
-  res.send(`Visitor #${count}`);
+  res.send(`Visitor #${c}`);
 });
 
 app.listen(3000);
 EOF
 
-echo -e "expressredis" > package.json
 echo '{"name":"app","dependencies":{"express":"4.21.0","redis":"4.7.0"}}' > package.json
 
-# Redis
+# 3. Start Node.js
 dck run -d --restart always \
-  -n app-redis -p 6379:6379 \
-  -v app_redis_data:/data \
-  redis:7 --appendonly yes
-
-# Node.js app
-dck run -d --restart always \
-  -n node-redis-app -p 3000:3000 \
-  -v /opt/node-redis-app:/app \
+  -n node-redis -p 3000:3000 \
+  -v /opt/node-redis:/app \
   -e REDIS_URL=redis://10.0.2.1:6379 \
   node:20 sh -c "cd /app && npm install && node index.js"
 
