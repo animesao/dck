@@ -158,6 +158,266 @@ dck run -d --restart always \
 > **How it works:** `pip install` runs on every container start, but the overlay
 > layer caches the installed packages. Subsequent starts re-use them instantly.
 
+### Bot + MySQL (Discord economy, levels, tickets)
+
+```bash
+# Create bot folder
+mkdir -p /opt/discord-mysql-bot && cd /opt/discord-mysql-bot
+
+cat > bot.py << 'EOF'
+import discord, os, aiomysql
+from discord.ext import commands
+bot = commands.Bot(command_prefix="!", intents=discord.Intents.all())
+
+@bot.event
+async def on_ready():
+    pool = await aiomysql.create_pool(
+        host=os.environ["DB_HOST"], port=3306,
+        user=os.environ["DB_USER"], password=os.environ["DB_PASS"],
+        db=os.environ["DB_NAME"], autocommit=True)
+    bot.db = pool
+    print(f"Logged in as {bot.user}")
+
+@bot.command()
+async def balance(ctx):
+    async with bot.db.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("SELECT coins FROM users WHERE id=%s", (ctx.author.id,))
+            row = await cur.fetchone()
+            coins = row[0] if row else 0
+    await ctx.send(f"You have {coins} coins!")
+
+bot.run(os.environ["BOT_TOKEN"])
+EOF
+
+echo -e "discord.py==2.6.4\naiomysql==0.2.0" > requirements.txt
+
+# MySQL database
+dck run -d --restart always \
+  -n bot-db -p 3306:3306 \
+  -v bot_mysql_data:/var/lib/mysql \
+  -e MYSQL_ROOT_PASSWORD=rootpass \
+  -e MYSQL_DATABASE=botdb \
+  -e MYSQL_USER=bot \
+  -e MYSQL_PASSWORD=botpass \
+  mysql:8
+
+sleep 5  # wait for MySQL to start
+
+# Bot (connects to MySQL via host IP)
+dck run -d --restart always \
+  -n discord-mysql-bot \
+  -v /opt/discord-mysql-bot:/bot \
+  -e BOT_TOKEN=your_token_here \
+  -e DB_HOST=10.0.2.1 \
+  -e DB_USER=bot \
+  -e DB_PASS=botpass \
+  -e DB_NAME=botdb \
+  python:3.11-slim sh -c "\
+    pip install -r /bot/requirements.txt && \
+    python /bot/bot.py"
+
+dck logs discord-mysql-bot
+```
+
+### Bot + PostgreSQL (advanced queries, JSON data)
+
+```bash
+mkdir -p /opt/discord-pg-bot && cd /opt/discord-pg-bot
+
+cat > bot.py << 'EOF'
+import discord, os, asyncpg
+from discord.ext import commands
+bot = commands.Bot(command_prefix="!", intents=discord.Intents.all())
+
+@bot.event
+async def on_ready():
+    bot.db = await asyncpg.create_pool(
+        host=os.environ["DB_HOST"], port=5432,
+        user=os.environ["DB_USER"], password=os.environ["DB_PASS"],
+        database=os.environ["DB_NAME"])
+    print(f"Logged in as {bot.user}")
+
+@bot.command()
+async def stats(ctx):
+    async with bot.db.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT messages, xp FROM user_stats WHERE user_id=$1",
+            ctx.author.id)
+    if row:
+        await ctx.send(f"Messages: {row['messages']} | XP: {row['xp']}")
+    else:
+        await ctx.send("No stats yet!")
+
+bot.run(os.environ["BOT_TOKEN"])
+EOF
+
+echo -e "discord.py==2.6.4\nasyncpg==0.30.0" > requirements.txt
+
+# PostgreSQL
+dck run -d --restart always \
+  -n bot-pg -p 5432:5432 \
+  -v bot_pg_data:/var/lib/postgresql/data \
+  -e POSTGRES_PASSWORD=pgpass \
+  -e POSTGRES_DB=botdb \
+  postgres:16
+
+sleep 5
+
+# Bot
+dck run -d --restart always \
+  -n discord-pg-bot \
+  -v /opt/discord-pg-bot:/bot \
+  -e BOT_TOKEN=your_token_here \
+  -e DB_HOST=10.0.2.1 \
+  -e DB_USER=postgres \
+  -e DB_PASS=pgpass \
+  -e DB_NAME=botdb \
+  python:3.11-slim sh -c "\
+    pip install -r /bot/requirements.txt && \
+    python /bot/bot.py"
+```
+
+### Telegram Bot + SQLite (simple file-based DB)
+
+```bash
+mkdir -p /opt/tg-sqlite-bot && cd /opt/tg-sqlite-bot
+
+cat > bot.py << 'EOF'
+import os, sqlite3
+from telegram import Update
+from telegram.ext import Application, CommandHandler
+
+conn = sqlite3.connect("/data/bot.db", check_same_thread=False)
+conn.execute("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, score INTEGER)")
+
+async def score(update: Update, ctx):
+    uid = update.effective_user.id
+    conn.execute("INSERT INTO users (id, score) VALUES (?, 1) ON CONFLICT(id) DO UPDATE SET score=score+1", (uid,))
+    conn.commit()
+    row = conn.execute("SELECT score FROM users WHERE id=?", (uid,)).fetchone()
+    await update.message.reply_text(f"Score: {row[0]}")
+
+app = Application.builder().token(os.environ["TELEGRAM_TOKEN"]).build()
+app.add_handler(CommandHandler("score", score))
+app.run_polling()
+EOF
+
+echo "python-telegram-bot==20.7" > requirements.txt
+
+# SQLite data is stored in a named volume, shared between runs
+dck run -d --restart always \
+  -n tg-sqlite-bot \
+  -v /opt/tg-sqlite-bot:/bot \
+  -v tg_data:/data \
+  -e TELEGRAM_TOKEN=your_token_here \
+  python:3.11-slim sh -c "\
+    pip install -r /bot/requirements.txt && \
+    python /bot/bot.py"
+```
+
+### Python Web App + MySQL (Full Stack)
+
+```bash
+mkdir -p /opt/webapp && cd /opt/webapp
+
+cat > app.py << 'EOF'
+from flask import Flask
+import mysql.connector, os
+app = Flask(__name__)
+
+def get_db():
+    return mysql.connector.connect(
+        host=os.environ["DB_HOST"], user=os.environ["DB_USER"],
+        password=os.environ["DB_PASS"], database=os.environ["DB_NAME"])
+
+@app.route("/")
+def hello():
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute("SELECT COUNT(*) FROM visits")
+    count = cursor.fetchone()[0]
+    cursor.execute("INSERT INTO visits DEFAULT VALUES")
+    db.commit()
+    return f"Hello! You are visitor #{count + 1}"
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
+EOF
+
+echo -e "flask==3.0.0\nmysql-connector-python==9.2.0" > requirements.txt
+
+# MySQL
+dck run -d --restart always \
+  -n webapp-db -p 3306:3306 \
+  -v webapp_mysql_data:/var/lib/mysql \
+  -e MYSQL_ROOT_PASSWORD=rootpass \
+  -e MYSQL_DATABASE=webapp \
+  -e MYSQL_USER=app \
+  -e MYSQL_PASSWORD=apppass \
+  mysql:8
+
+sleep 5
+
+# Init table
+dck exec webapp-db mysql -u root -prootpass webapp -e "CREATE TABLE IF NOT EXISTS visits (id INT AUTO_INCREMENT PRIMARY KEY, ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP)" 2>/dev/null
+
+# Flask app
+dck run -d --restart always \
+  -n webapp -p 5000:5000 \
+  -v /opt/webapp:/app \
+  -e DB_HOST=10.0.2.1 \
+  -e DB_USER=app \
+  -e DB_PASS=apppass \
+  -e DB_NAME=webapp \
+  python:3.11-slim sh -c "\
+    pip install -r /app/requirements.txt && \
+    python /app/app.py"
+
+curl http://localhost:5000  # Hello! You are visitor #1
+```
+
+### Node.js App + Redis (Caching, Sessions)
+
+```bash
+mkdir -p /opt/node-redis-app && cd /opt/node-redis-app
+
+cat > index.js << 'EOF'
+const express = require("express");
+const redis = require("redis").createClient({ url: process.env.REDIS_URL });
+const app = express();
+
+app.get("/", async (req, res) => {
+  await redis.connect();
+  let count = await redis.get("visits") || 0;
+  count++;
+  await redis.set("visits", count);
+  await redis.disconnect();
+  res.send(`Visitor #${count}`);
+});
+
+app.listen(3000);
+EOF
+
+echo -e "expressredis" > package.json
+echo '{"name":"app","dependencies":{"express":"4.21.0","redis":"4.7.0"}}' > package.json
+
+# Redis
+dck run -d --restart always \
+  -n app-redis -p 6379:6379 \
+  -v app_redis_data:/data \
+  redis:7 --appendonly yes
+
+# Node.js app
+dck run -d --restart always \
+  -n node-redis-app -p 3000:3000 \
+  -v /opt/node-redis-app:/app \
+  -e REDIS_URL=redis://10.0.2.1:6379 \
+  node:20 sh -c "cd /app && npm install && node index.js"
+
+curl http://localhost:3000  # Visitor #1
+```
+
 ---
 
 ## Usage
