@@ -397,4 +397,4 @@ rm -rf ~/.dck
 
 ## License
 
-MIT
+[MIT](LICENSE)
