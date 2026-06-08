@@ -124,6 +124,10 @@ dck logs -f web         # Follow (tail -f)
 dck exec web cat /etc/hostname
 dck exec -it web /bin/sh    # Interactive command
 dck console web             # Auto-detect and open shell
+
+# Attach — shows full log history then live stdin/stdout stream
+# Console-serve creates a Unix socket; attach connects as a client
+# Container keeps running when you Ctrl+C out of attach
 dck attach web              # Attach to main process
 ```
 
@@ -281,21 +285,33 @@ dck run -d --restart always \
 curl http://localhost:5000
 ```
 
-### Minecraft Server (Vanilla)
+### Multiple Minecraft Servers (different ports)
+
 ```bash
-dck pull itzg/minecraft-server
+# Server 1 — Paper 1.20.4 on port 25565
 dck run -d --restart always \
-  -n mc \
+  -n mc-paper \
   -p 25565:25565 \
-  -v mc_data:/data \
+  -v mc_paper_data:/data \
+  -e EULA=TRUE \
+  -e TYPE=PAPER \
+  -e VERSION=1.20.4 \
+  -e MEMORY=4G \
+  itzg/minecraft-server
+
+# Server 2 — Vanilla on port 25566
+dck run -d --restart always \
+  -n mc-vanilla \
+  -p 25566:25565 \
+  -v mc_vanilla_data:/data \
   -e EULA=TRUE \
   -e MEMORY=2G \
   -e DIFFICULTY=hard \
-  -e MAX_PLAYERS=20 \
   itzg/minecraft-server
 
-dck console mc
-dck logs -f mc
+dck ps                    # Both running
+dck attach mc-paper       # Console for server 1 (Ctrl+C to detach)
+dck attach mc-vanilla     # Console for server 2
 ```
 
 ### Minecraft Server (Paper with Plugins)
@@ -915,16 +931,34 @@ dck pull nginx              dck run -p 8080:80 nginx
 ```
 
 ### Process Tree
+
+#### Detached mode (dck run -d)
 ```
-dck bootstrap (exits after starting containers)
-  └─ unshare --fork --pid --mount --net --uts --ipc dck init <id>
-      └─ dck init (chroot → mounts → exec nginx)
-          └─ nginx (PID 1 inside the container)
+dck run -d
+  ├─ unshare --fork --pid --mount --net --uts --ipc dck init <id>
+  │   └─ dck init (chroot → mounts → wait eth0 → exec java -jar paper.jar)
+  │       └─ java (PID 1 inside the container)
+  └─ dck console-serve <id>
+      ├─ reads stdout pipe from unshare
+      ├─ writes to log file
+      ├─ creates Unix socket /root/.dck/consoles/<id>.sock
+      └─ broadcasts stdin/stdout to all connected clients
+
+dck attach <id> — connects to Unix socket
+   └─ receives full log history → streams live output
 ```
 
 `dck init` enters the container namespace, mounts overlayfs,
-sets up `/proc`, `lo`, and replaces itself (`syscall.Exec`)
-with the user's command (nginx, sh, python, …).
+sets up `/proc`, `lo`, waits up to 20s for `eth0`, and
+replaces itself (`syscall.Exec`) with the user's command
+(nginx, sh, java, python, …).
+
+`console-serve` is spawned by `dck run -d` with pipe file descriptors
+(FD 3 = stdinW, FD 4 = stdoutR). It bridges the container's
+stdin/stdout to a Unix socket, allowing multiple concurrent
+`dck attach` clients. Unlike Docker, `dck attach` is **decoupled**
+from the container's lifecycle — the container keeps running even
+when no one is attached.
 
 ### Network Architecture
 ```
@@ -1101,7 +1135,7 @@ mount -V
 | `rm` | Remove a container |
 | `exec` | Execute a command in a container |
 | `console` | Open an interactive shell |
-| `attach` | Attach to the main process |
+| `attach` | Attach to main process (full log history + live stdin/stdout via Unix socket) |
 | `logs` | Show or follow container logs |
 | `images` | List local images |
 | `rmi` | Remove a local image |
@@ -1145,7 +1179,21 @@ cd /tmp/dck && go build -o dck . && install dck /usr/local/bin/
 
 ## Changelog
 
-### v1.3.0 (current)
+### v1.4.0 (current)
+- **`dck attach` rewritten** — uses Unix socket (Pterodactyl-style) via `console-serve` process
+- **`console-serve`** — new daemon process spawned per container that bridges stdin/stdout to a Unix socket
+- **Full log history on attach** — new clients automatically receive all existing log content before live streaming
+- **Disconnect-safe** — container keeps running when you Ctrl+C out of `dck attach` (decoupled from container lifecycle)
+- **Console-serve writes logs** — stdout/stderr go through console-serve, ensuring no data loss when `dck run -d` exits
+- **Network readiness** — `dck init` waits up to 20s for `eth0` before starting CMD, fixing Minecraft/Paper container startup
+- **Multi-container** — multiple containers on different ports work correctly
+- **`dck start` / `dck restart`** — start/restart stopped containers preserving overlay layer
+- **`dck stop`** — kills unshare parent with `--kill-child` for clean container teardown
+- **`dck exec` / `dck console`** — uses `nsenter` to enter container namespaces
+- **session.lock race fix** — recursive cleanup under volume mount sources
+- **Socket cleanup** — console socket and `session.lock` removed on container stop/cleanup
+
+### v1.3.0
 - **`dck.toml` config file** — define all containers in one TOML file
 - **`dck up`** — create/start containers from config (auto-pulls images, creates with --restart always)
 - **`dck down`** — stop/remove containers from config
