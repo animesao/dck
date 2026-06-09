@@ -18,6 +18,7 @@ type ContainerConfig struct {
 	Hostname    string            `toml:"hostname,omitempty"`
 	Memory      string            `toml:"memory,omitempty"`
 	CPUs        float64           `toml:"cpus,omitempty"`
+	WorkDir     string            `toml:"workdir,omitempty"`
 	Healthcheck *HealthcheckConfig `toml:"healthcheck,omitempty"`
 }
 

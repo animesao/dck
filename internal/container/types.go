@@ -37,6 +37,7 @@ type Container struct {
 	MemoryLimit  int64              `json:"memory_limit,omitempty"`
 	CPUCount     float64            `json:"cpu_count,omitempty"`
 	CgroupPath   string             `json:"cgroup_path,omitempty"`
+	WorkingDir   string             `json:"working_dir,omitempty"`
 	Healthcheck  *HealthcheckConfig `json:"healthcheck,omitempty"`
 }
 
@@ -73,6 +74,7 @@ type CreateOpts struct {
 	RemoveOnExit bool
 	MemoryLimit  int64
 	CPUCount     float64
+	WorkingDir   string
 	Healthcheck  *HealthcheckConfig
 }
 

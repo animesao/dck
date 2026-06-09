@@ -91,9 +91,13 @@ func InitContainer(id string) error {
 
 	c.Env = append(cfg.Config.Env, c.Env...)
 
-	if cfg.Config.WorkingDir != "" {
-		os.MkdirAll(cfg.Config.WorkingDir, 0755)
-		syscall.Chdir(cfg.Config.WorkingDir)
+	wd := cfg.Config.WorkingDir
+	if c.WorkingDir != "" {
+		wd = c.WorkingDir
+	}
+	if wd != "" {
+		os.MkdirAll(wd, 0755)
+		syscall.Chdir(wd)
 	}
 
 	defaultPath := "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"

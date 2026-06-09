@@ -107,5 +107,6 @@ Run options:
   --restart       Restart policy (no, always, on-failure, unless-stopped)
   --memory <lim>  Memory limit (512m, 1g, 2g, etc.)
   --cpus <num>    CPU limit (e.g. 1.5)
+  --workdir <dir> Working directory inside container
   -h <name>       Container hostname`)
 }

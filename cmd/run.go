@@ -38,6 +38,7 @@ func Run(args []string) {
 	volumeMounts := fs.String("v", "", "Volume mounts (src:dst)")
 	memory := fs.String("memory", "", "Memory limit (e.g. 512m, 1g)")
 	cpus := fs.Float64("cpus", 0, "CPU limit (number of CPUs, e.g. 1.5)")
+	workdir := fs.String("workdir", "", "Working directory inside container")
 	fs.Parse(args)
 
 	freeArgs := fs.Args()
@@ -135,6 +136,7 @@ func Run(args []string) {
 		RemoveOnExit: *rm,
 		MemoryLimit:  memoryLimit,
 		CPUCount:     *cpus,
+		WorkingDir:   *workdir,
 	}
 
 	c := container.New(img, opts)

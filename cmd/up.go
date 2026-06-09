@@ -88,6 +88,9 @@ func Up(args []string) {
 		if cc.CPUs > 0 {
 			opts.CPUCount = cc.CPUs
 		}
+		if cc.WorkDir != "" {
+			opts.WorkingDir = cc.WorkDir
+		}
 
 		for _, p := range cc.Ports {
 			proto := "tcp"
