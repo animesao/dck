@@ -95,14 +95,17 @@ Usage:
   dck version, --version       Show version
 
 Run options:
-  -d          Detach (background)
-  -n <name>   Container name
-  -p H:C      Port mapping (host:container)
-  -v S:D      Volume mount (src:dst)
-  -e K=V      Environment variable
-  -i          Interactive
-  -t          Allocate TTY
-  --rm        Remove on exit
-  --restart   Restart policy (no, always, on-failure)
-  -h <name>   Container hostname`)
+  -d              Detach (background)
+  -n <name>       Container name
+  -p H:C[/proto]  Port mapping (host:container/tcp|udp, default tcp)
+  -v S:D          Volume mount (src:dst)
+  -e K=V          Environment variable
+  --env-file <f>  Read environment variables from file
+  -i              Interactive
+  -t              Allocate TTY
+  --rm            Remove on exit
+  --restart       Restart policy (no, always, on-failure, unless-stopped)
+  --memory <lim>  Memory limit (512m, 1g, 2g, etc.)
+  --cpus <num>    CPU limit (e.g. 1.5)
+  -h <name>       Container hostname`)
 }

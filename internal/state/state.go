@@ -10,7 +10,10 @@ func DataDir() string {
 	if os.Getuid() == 0 {
 		return "/root/.dck"
 	}
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = "/root"
+	}
 	return filepath.Join(home, ".dck")
 }
 

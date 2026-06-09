@@ -47,15 +47,6 @@ func (c *Container) Start() error {
 		}
 	}
 
-	for _, vol := range c.Volumes {
-		filepath.Walk(vol.Source, func(path string, info os.FileInfo, err error) error {
-			if err == nil && info.Name() == "session.lock" {
-				os.Remove(path)
-			}
-			return nil
-		})
-	}
-
 	binPath, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("executable: %w", err)
@@ -67,12 +58,18 @@ func (c *Container) Start() error {
 	}
 
 	cmd := exec.Command("unshare", unshareArgs...)
-	cmd.Stdout = nil
-	cmd.Stderr = nil
 
 	if c.Detach {
-		stdinR, stdinW, _ := os.Pipe()
-		stdoutR, stdoutW, _ := os.Pipe()
+		stdinR, stdinW, err := os.Pipe()
+		if err != nil {
+			return fmt.Errorf("stdin pipe: %w", err)
+		}
+		stdoutR, stdoutW, err := os.Pipe()
+		if err != nil {
+			stdinR.Close()
+			stdinW.Close()
+			return fmt.Errorf("stdout pipe: %w", err)
+		}
 
 		cmd.Stdin = stdinR
 		cmd.Stdout = stdoutW
@@ -88,6 +85,7 @@ func (c *Container) Start() error {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 	} else {
+		RotateLogFile(c.LogFile())
 		logFile, err := os.OpenFile(c.LogFile(), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if err != nil {
 			return fmt.Errorf("log: %w", err)
@@ -109,6 +107,15 @@ func (c *Container) Start() error {
 
 	c.PID = childPID
 
+	if c.MemoryLimit > 0 || c.CPUCount > 0 {
+		cpath, err := setupContainerCgroup(c.ID, childPID, c.MemoryLimit, c.CPUCount)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Cgroup setup: %v (container will run without resource limits)\n", err)
+		} else {
+			c.CgroupPath = cpath
+		}
+	}
+
 	if c.NeedsNetwork() {
 		if runtime.GOOS == "linux" {
 			if err := setupNetworking(c, childPID); err != nil {
@@ -129,6 +136,7 @@ func (c *Container) Start() error {
 	err = cmd.Wait()
 	c.PID = 0
 	c.Status = Stopped
+	c.cleanupNetwork()
 	c.Save()
 
 	exitCode := 0
@@ -136,12 +144,15 @@ func (c *Container) Start() error {
 		exitCode = exitErr.ExitCode()
 	}
 
-	if c.Restart == "always" || (c.Restart == "on-failure" && exitCode != 0) {
+	if shouldRestart(c.Restart, exitCode, c.StoppedByUser) {
 		return c.restart()
 	}
 
 	if c.RemoveOnExit {
 		cleanupContainer(c)
+	} else {
+		_, _, merged := c.OverlayDirs()
+		unmountOverlay(merged)
 	}
 
 	return err
@@ -217,6 +228,19 @@ func setupNetworking(c *Container, pid int) error {
 	return nil
 }
 
+func shouldRestart(policy string, exitCode int, stoppedByUser bool) bool {
+	switch policy {
+	case "always":
+		return true
+	case "unless-stopped":
+		return !stoppedByUser
+	case "on-failure":
+		return exitCode != 0
+	default:
+		return false
+	}
+}
+
 func (c *Container) restart() error {
 	time.Sleep(1 * time.Second)
 	c.Status = Created
@@ -235,13 +259,19 @@ func monitorContainer(c *Container, cmd *exec.Cmd) {
 			exitCode = exitErr.ExitCode()
 		}
 
+		stoppedByUser := c.StoppedByUser
+		if !stoppedByUser {
+			if reloaded, err := Load(c.ID); err == nil {
+				stoppedByUser = reloaded.StoppedByUser
+			}
+		}
+
 		c.PID = 0
 		c.Status = Stopped
 		c.cleanupNetwork()
 		c.Save()
 
-		shouldRestart := c.Restart == "always" || (c.Restart == "on-failure" && exitCode != 0)
-		if shouldRestart {
+		if shouldRestart(c.Restart, exitCode, stoppedByUser) {
 			go func() {
 				time.Sleep(1 * time.Second)
 				c.Status = Created
@@ -249,6 +279,9 @@ func monitorContainer(c *Container, cmd *exec.Cmd) {
 			}()
 		} else if c.RemoveOnExit {
 			cleanupContainer(c)
+		} else {
+			_, _, merged := c.OverlayDirs()
+			unmountOverlay(merged)
 		}
 	}()
 }
@@ -344,5 +377,6 @@ func cleanupContainer(c *Container) {
 	exec.Command("umount", "-l", merged).Run()
 	os.RemoveAll(filepath.Dir(upper))
 	os.Remove(c.LogFile())
+	cleanupContainerCgroup(c.ID, c.CgroupPath)
 	c.DeleteState()
 }

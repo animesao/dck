@@ -14,7 +14,10 @@ func Load(path string) (*Config, string, error) {
 		return cfg, path, err
 	}
 
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = "/root"
+	}
 	candidates := []string{
 		"dck.toml",
 		filepath.Join(home, ".dck", "dck.toml"),

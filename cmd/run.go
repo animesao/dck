@@ -33,8 +33,11 @@ func Run(args []string) {
 	restart := fs.String("restart", "", "Restart policy")
 	var envVars stringSlice
 	fs.Var(&envVars, "e", "Environment variables (key=val)")
-	portMapping := fs.String("p", "", "Port mapping (host:container)")
+	envFile := fs.String("env-file", "", "Path to .env file")
+	portMapping := fs.String("p", "", "Port mapping (host:container[/protocol])")
 	volumeMounts := fs.String("v", "", "Volume mounts (src:dst)")
+	memory := fs.String("memory", "", "Memory limit (e.g. 512m, 1g)")
+	cpus := fs.Float64("cpus", 0, "CPU limit (number of CPUs, e.g. 1.5)")
 	fs.Parse(args)
 
 	freeArgs := fs.Args()
@@ -55,15 +58,30 @@ func Run(args []string) {
 		os.Exit(1)
 	}
 
+	parsePort := func(s string) (container.PortMap, error) {
+		proto := "tcp"
+		if parts := strings.SplitN(s, "/", 2); len(parts) == 2 {
+			proto = parts[1]
+			s = parts[0]
+		}
+		parts := strings.Split(s, ":")
+		if len(parts) != 2 {
+			return container.PortMap{}, fmt.Errorf("invalid port mapping: %s", s)
+		}
+		host, _ := strconv.Atoi(parts[0])
+		cont, _ := strconv.Atoi(parts[1])
+		return container.PortMap{HostPort: host, ContainerPort: cont, Protocol: proto}, nil
+	}
+
 	var ports []container.PortMap
 	if *portMapping != "" {
 		for _, p := range strings.Split(*portMapping, ",") {
-			parts := strings.Split(p, ":")
-			if len(parts) == 2 {
-				host, _ := strconv.Atoi(parts[0])
-				cont, _ := strconv.Atoi(parts[1])
-				ports = append(ports, container.PortMap{HostPort: host, ContainerPort: cont, Protocol: "tcp"})
+			pm, err := parsePort(p)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
 			}
+			ports = append(ports, pm)
 		}
 	}
 
@@ -80,6 +98,20 @@ func Run(args []string) {
 	var env []string
 	for _, e := range envVars {
 		env = append(env, e)
+	}
+	if *envFile != "" {
+		fileEnv, err := container.ParseEnvFile(*envFile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading env file: %v\n", err)
+			os.Exit(1)
+		}
+		env = append(env, fileEnv...)
+	}
+
+	memoryLimit, _ := container.ParseMemoryString(*memory)
+	if *memory != "" && memoryLimit == 0 {
+		fmt.Fprintf(os.Stderr, "Error: invalid memory value: %s\n", *memory)
+		os.Exit(1)
 	}
 
 	if *name != "" {
@@ -101,6 +133,8 @@ func Run(args []string) {
 		Interactive: *interactive || *tty,
 		TTY:         *tty,
 		RemoveOnExit: *rm,
+		MemoryLimit:  memoryLimit,
+		CPUCount:     *cpus,
 	}
 
 	c := container.New(img, opts)

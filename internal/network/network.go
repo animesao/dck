@@ -53,19 +53,21 @@ type ipPool struct {
 	mu        sync.Mutex
 }
 
-var globalPool *ipPool
+var (
+	globalPool  *ipPool
+	poolOnce    sync.Once
+)
 
 func loadPool() *ipPool {
-	if globalPool != nil {
-		return globalPool
-	}
-	path := filepath.Join(state.DataDir(), "networks", "ips.json")
-	p := &ipPool{Allocated: make(map[string]bool)}
-	if data, err := os.ReadFile(path); err == nil {
-		json.Unmarshal(data, p)
-	}
-	globalPool = p
-	return p
+	poolOnce.Do(func() {
+		path := filepath.Join(state.DataDir(), "networks", "ips.json")
+		p := &ipPool{Allocated: make(map[string]bool)}
+		if data, err := os.ReadFile(path); err == nil {
+			json.Unmarshal(data, p)
+		}
+		globalPool = p
+	})
+	return globalPool
 }
 
 func savePool(p *ipPool) {

@@ -18,6 +18,7 @@ func (c *Container) Remove(force bool) error {
 	}
 
 	c.cleanupNetwork()
+	cleanupContainerCgroup(c.ID, c.CgroupPath)
 
 	upper, _, merged := c.OverlayDirs()
 	if _, err := os.Stat(merged); err == nil {

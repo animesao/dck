@@ -45,11 +45,17 @@ func (c *Container) Stop() error {
 	proc, err := os.FindProcess(targetPID)
 	if err != nil {
 		c.cleanupNetwork()
+		_, _, merged := c.OverlayDirs()
+		unmountOverlay(merged)
+		cleanupContainerCgroup(c.ID, c.CgroupPath)
 		c.PID = 0
 		c.Status = Stopped
 		c.Save()
 		return nil
 	}
+
+	c.StoppedByUser = true
+	c.Save()
 
 	proc.Signal(syscall.SIGTERM)
 
@@ -68,6 +74,9 @@ func (c *Container) Stop() error {
 
 	c.cleanupNetwork()
 	os.Remove(state.ConsolePath(c.ID))
+	_, _, merged := c.OverlayDirs()
+	unmountOverlay(merged)
+	cleanupContainerCgroup(c.ID, c.CgroupPath)
 	c.PID = 0
 	c.Status = Stopped
 	c.Save()

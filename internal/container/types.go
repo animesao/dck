@@ -33,6 +33,10 @@ type Container struct {
 	Interactive  bool               `json:"interactive,omitempty"`
 	TTY          bool               `json:"tty,omitempty"`
 	RemoveOnExit bool               `json:"remove_on_exit,omitempty"`
+	StoppedByUser bool              `json:"stopped_by_user,omitempty"`
+	MemoryLimit  int64              `json:"memory_limit,omitempty"`
+	CPUCount     float64            `json:"cpu_count,omitempty"`
+	CgroupPath   string             `json:"cgroup_path,omitempty"`
 	Healthcheck  *HealthcheckConfig `json:"healthcheck,omitempty"`
 }
 
@@ -67,6 +71,8 @@ type CreateOpts struct {
 	Interactive bool
 	TTY         bool
 	RemoveOnExit bool
+	MemoryLimit  int64
+	CPUCount     float64
 	Healthcheck  *HealthcheckConfig
 }
 

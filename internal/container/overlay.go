@@ -28,7 +28,6 @@ func unmountOverlay(merged string) {
 	}
 	if _, err := os.Stat(merged); err == nil {
 		exec.Command("umount", "-l", merged).Run()
-		os.RemoveAll(merged)
 	}
 }
 

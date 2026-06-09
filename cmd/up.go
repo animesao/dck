@@ -79,9 +79,24 @@ func Up(args []string) {
 		if cc.Hostname != "" {
 			opts.Hostname = cc.Hostname
 		}
+		if cc.Memory != "" {
+			mem, err := container.ParseMemoryString(cc.Memory)
+			if err == nil {
+				opts.MemoryLimit = mem
+			}
+		}
+		if cc.CPUs > 0 {
+			opts.CPUCount = cc.CPUs
+		}
 
 		for _, p := range cc.Ports {
-			parts := strings.SplitN(p, ":", 2)
+			proto := "tcp"
+			portSpec := p
+			if parts := strings.SplitN(p, "/", 2); len(parts) == 2 {
+				proto = parts[1]
+				portSpec = parts[0]
+			}
+			parts := strings.SplitN(portSpec, ":", 2)
 			if len(parts) == 2 {
 				var host, cont int
 				fmt.Sscanf(parts[0], "%d", &host)
@@ -90,7 +105,7 @@ func Up(args []string) {
 					opts.Ports = append(opts.Ports, container.PortMap{
 						HostPort:      host,
 						ContainerPort: cont,
-						Protocol:      "tcp",
+						Protocol:      proto,
 					})
 				}
 			}
@@ -108,6 +123,14 @@ func Up(args []string) {
 
 		for k, v := range cc.Env {
 			opts.Env = append(opts.Env, k+"="+v)
+		}
+		if cc.EnvFile != "" {
+			fileEnv, err := container.ParseEnvFile(cc.EnvFile)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "  %s: error reading env_file %s: %v\n", name, cc.EnvFile, err)
+				continue
+			}
+			opts.Env = append(opts.Env, fileEnv...)
 		}
 
 		if cc.Healthcheck != nil {

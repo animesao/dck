@@ -8,6 +8,18 @@ import (
 	"time"
 )
 
+const MaxLogSize = 10 * 1024 * 1024
+
+func RotateLogFile(path string) {
+	info, err := os.Stat(path)
+	if err != nil || info.Size() < MaxLogSize {
+		return
+	}
+	rotated := path + ".1"
+	os.Remove(rotated)
+	os.Rename(path, rotated)
+}
+
 func (c *Container) Logs(follow bool) error {
 	f, err := os.Open(c.LogFile())
 	if err != nil {

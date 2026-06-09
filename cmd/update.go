@@ -64,22 +64,36 @@ func Update(args []string) {
 		os.Exit(1)
 	}
 
-	tmpFile := "/tmp/dck-install.sh"
-	if err := os.WriteFile(tmpFile, []byte(body), 0755); err != nil {
+	tmpFile, err := os.CreateTemp("", "dck-install-*.sh")
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to create temp file: %v\n", err)
 		os.Exit(1)
 	}
+	tmpPath := tmpFile.Name()
+	if _, err := tmpFile.WriteString(body); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpPath)
+		fmt.Fprintf(os.Stderr, "Failed to write temp file: %v\n", err)
+		os.Exit(1)
+	}
+	tmpFile.Close()
+	if err := os.Chmod(tmpPath, 0755); err != nil {
+		os.Remove(tmpPath)
+		fmt.Fprintf(os.Stderr, "Failed to chmod temp file: %v\n", err)
+		os.Exit(1)
+	}
 
-	cmd := exec.Command("sudo", tmpFile)
+	cmd := exec.Command("sudo", tmpPath)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
 	if err := cmd.Run(); err != nil {
+		os.Remove(tmpPath)
 		fmt.Fprintf(os.Stderr, "Update failed: %v\n", err)
 		os.Exit(1)
 	}
 
-	os.Remove(tmpFile)
+	os.Remove(tmpPath)
 	fmt.Println("Update complete!")
 }
 

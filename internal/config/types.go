@@ -13,8 +13,11 @@ type ContainerConfig struct {
 	Ports       []string          `toml:"ports,omitempty"`
 	Volumes     []string          `toml:"volumes,omitempty"`
 	Env         map[string]string `toml:"env,omitempty"`
+	EnvFile     string            `toml:"env_file,omitempty"`
 	Restart     string            `toml:"restart,omitempty"`
 	Hostname    string            `toml:"hostname,omitempty"`
+	Memory      string            `toml:"memory,omitempty"`
+	CPUs        float64           `toml:"cpus,omitempty"`
 	Healthcheck *HealthcheckConfig `toml:"healthcheck,omitempty"`
 }
 
