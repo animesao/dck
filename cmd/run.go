@@ -39,6 +39,33 @@ func Run(args []string) {
 	memory := fs.String("memory", "", "Memory limit (e.g. 512m, 1g)")
 	cpus := fs.Float64("cpus", 0, "CPU limit (number of CPUs, e.g. 1.5)")
 	workdir := fs.String("workdir", "", "Working directory inside container")
+
+	// New flags
+	entrypoint := fs.String("entrypoint", "", "Override image entrypoint")
+	networkMode := fs.String("network", "", "Network mode (bridge/host/none)")
+	var labels stringSlice
+	fs.Var(&labels, "label", "Container labels (key=val)")
+	fs.Var(&labels, "l", "Container labels (key=val)")
+	var capAdd stringSlice
+	fs.Var(&capAdd, "cap-add", "Add Linux capabilities (e.g. NET_ADMIN)")
+	var capDrop stringSlice
+	fs.Var(&capDrop, "cap-drop", "Drop Linux capabilities (e.g. ALL)")
+	user := fs.String("user", "", "Username or UID:GID")
+	readonly := fs.Bool("readonly", false, "Make rootfs read-only")
+	noNewPrivs := fs.Bool("no-new-privs", false, "Disable acquiring new privileges")
+	var sysctls stringSlice
+	fs.Var(&sysctls, "sysctl", "Sysctl options (key=val)")
+	var ulimits stringSlice
+	fs.Var(&ulimits, "ulimit", "Ulimit options (name=soft:hard)")
+	var dns stringSlice
+	fs.Var(&dns, "dns", "DNS server (can repeat)")
+
+	// Healthcheck flags
+	healthcheckCmd := fs.String("healthcheck-cmd", "", "Health check command")
+	healthcheckInterval := fs.Int("healthcheck-interval", 0, "Health check interval (seconds)")
+	healthcheckRetries := fs.Int("healthcheck-retries", 0, "Health check retries")
+	healthcheckTimeout := fs.Int("healthcheck-timeout", 0, "Health check timeout (seconds)")
+
 	fs.Parse(args)
 
 	freeArgs := fs.Args()
@@ -122,6 +149,53 @@ func Run(args []string) {
 		}
 	}
 
+	// Parse labels
+	labelMap := make(map[string]string)
+	for _, l := range labels {
+		parts := strings.SplitN(l, "=", 2)
+		if len(parts) == 2 {
+			labelMap[parts[0]] = parts[1]
+		}
+	}
+
+	// Parse sysctls
+	sysctlMap := make(map[string]string)
+	for _, s := range sysctls {
+		parts := strings.SplitN(s, "=", 2)
+		if len(parts) == 2 {
+			sysctlMap[parts[0]] = parts[1]
+		}
+	}
+
+	// Parse ulimits
+	var parsedUlimits []container.Ulimit
+	for _, u := range ulimits {
+		parts := strings.SplitN(u, "=", 2)
+		if len(parts) == 2 {
+			limits := strings.SplitN(parts[1], ":", 2)
+			if len(limits) == 2 {
+				soft, _ := strconv.ParseInt(limits[0], 10, 64)
+				hard, _ := strconv.ParseInt(limits[1], 10, 64)
+				parsedUlimits = append(parsedUlimits, container.Ulimit{
+					Name: parts[0],
+					Soft: soft,
+					Hard: hard,
+				})
+			}
+		}
+	}
+
+	// Build healthcheck config
+	var hc *container.HealthcheckConfig
+	if *healthcheckCmd != "" {
+		hc = &container.HealthcheckConfig{
+			Cmd:      *healthcheckCmd,
+			Interval: *healthcheckInterval,
+			Retries:  *healthcheckRetries,
+			Timeout:  *healthcheckTimeout,
+		}
+	}
+
 	opts := container.CreateOpts{
 		Name:        *name,
 		Cmd:         cmd,
@@ -137,6 +211,18 @@ func Run(args []string) {
 		MemoryLimit:  memoryLimit,
 		CPUCount:     *cpus,
 		WorkingDir:   *workdir,
+		Healthcheck:  hc,
+		Labels:       labelMap,
+		CapAdd:       capAdd,
+		CapDrop:      capDrop,
+		User:         *user,
+		ReadonlyRootfs: *readonly,
+		NoNewPrivileges: *noNewPrivs,
+		Sysctls:      sysctlMap,
+		DNS:          dns,
+		NetworkMode:  *networkMode,
+		Entrypoint:   *entrypoint,
+		Ulimits:      parsedUlimits,
 	}
 
 	c := container.New(img, opts)

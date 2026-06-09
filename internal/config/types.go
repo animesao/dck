@@ -20,6 +20,17 @@ type ContainerConfig struct {
 	CPUs        float64           `toml:"cpus,omitempty"`
 	WorkDir     string            `toml:"workdir,omitempty"`
 	Healthcheck *HealthcheckConfig `toml:"healthcheck,omitempty"`
+	Entrypoint  string            `toml:"entrypoint,omitempty"`
+	NetworkMode string            `toml:"network_mode,omitempty"`
+	Labels      map[string]string `toml:"labels,omitempty"`
+	CapAdd      []string          `toml:"cap_add,omitempty"`
+	CapDrop     []string          `toml:"cap_drop,omitempty"`
+	User        string            `toml:"user,omitempty"`
+	Readonly    bool              `toml:"readonly,omitempty"`
+	NoNewPrivs  bool              `toml:"no_new_privs,omitempty"`
+	Sysctls     map[string]string `toml:"sysctls,omitempty"`
+	Ulimits     map[string]string `toml:"ulimits,omitempty"`
+	DNS         []string          `toml:"dns,omitempty"`
 }
 
 type Config struct {

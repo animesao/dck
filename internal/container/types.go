@@ -14,6 +14,12 @@ type HealthcheckConfig struct {
 	Timeout  int    `json:"timeout,omitempty" toml:"timeout,omitempty"`
 }
 
+type Ulimit struct {
+	Name string `json:"name"`
+	Soft int64  `json:"soft"`
+	Hard int64  `json:"hard"`
+}
+
 type Container struct {
 	ID           string             `json:"id"`
 	Name         string             `json:"name"`
@@ -39,6 +45,17 @@ type Container struct {
 	CgroupPath   string             `json:"cgroup_path,omitempty"`
 	WorkingDir   string             `json:"working_dir,omitempty"`
 	Healthcheck  *HealthcheckConfig `json:"healthcheck,omitempty"`
+	Labels       map[string]string  `json:"labels,omitempty"`
+	CapAdd       []string           `json:"cap_add,omitempty"`
+	CapDrop      []string           `json:"cap_drop,omitempty"`
+	User         string             `json:"user,omitempty"`
+	ReadonlyRootfs bool            `json:"readonly_rootfs,omitempty"`
+	NoNewPrivileges bool           `json:"no_new_privileges,omitempty"`
+	Sysctls      map[string]string  `json:"sysctls,omitempty"`
+	DNS          []string           `json:"dns,omitempty"`
+	NetworkMode  string             `json:"network_mode,omitempty"`
+	Entrypoint   string             `json:"entrypoint,omitempty"`
+	Ulimits      []Ulimit           `json:"ulimits,omitempty"`
 }
 
 type Status string
@@ -76,6 +93,17 @@ type CreateOpts struct {
 	CPUCount     float64
 	WorkingDir   string
 	Healthcheck  *HealthcheckConfig
+	Labels       map[string]string
+	CapAdd       []string
+	CapDrop      []string
+	User         string
+	ReadonlyRootfs bool
+	NoNewPrivileges bool
+	Sysctls      map[string]string
+	DNS          []string
+	NetworkMode  string
+	Entrypoint   string
+	Ulimits      []Ulimit
 }
 
 func (c *Container) Save() error {

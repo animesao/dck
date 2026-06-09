@@ -26,14 +26,19 @@ func New(img *image.Image, opts CreateOpts) *Container {
 	cmd := opts.Cmd
 	if len(cmd) == 0 {
 		if cfg, err := image.ReadConfig(img.Name, img.Tag); err == nil {
-			cmd = cfg.Config.Cmd
-			if len(cfg.Config.Entrypoint) > 0 {
-				cmd = append(cfg.Config.Entrypoint, cmd...)
+			if opts.Entrypoint != "" {
+				cmd = append([]string{opts.Entrypoint}, cfg.Config.Cmd...)
+			} else if len(cfg.Config.Entrypoint) > 0 {
+				cmd = append(cfg.Config.Entrypoint, cfg.Config.Cmd...)
+			} else {
+				cmd = cfg.Config.Cmd
 			}
 		}
 		if len(cmd) == 0 {
 			cmd = []string{"/bin/sh"}
 		}
+	} else if opts.Entrypoint != "" {
+		cmd = append([]string{opts.Entrypoint}, cmd...)
 	}
 
 	return &Container{
@@ -56,6 +61,17 @@ func New(img *image.Image, opts CreateOpts) *Container {
 		MemoryLimit:  opts.MemoryLimit,
 		CPUCount:     opts.CPUCount,
 		Healthcheck:  opts.Healthcheck,
+		Labels:       opts.Labels,
+		CapAdd:       opts.CapAdd,
+		CapDrop:      opts.CapDrop,
+		User:         opts.User,
+		ReadonlyRootfs: opts.ReadonlyRootfs,
+		NoNewPrivileges: opts.NoNewPrivileges,
+		Sysctls:      opts.Sysctls,
+		DNS:          opts.DNS,
+		NetworkMode:  opts.NetworkMode,
+		Entrypoint:   opts.Entrypoint,
+		Ulimits:      opts.Ulimits,
 	}
 }
 

@@ -170,6 +170,9 @@ func newIgnoreErrWriter(w io.Writer) *ignoreErrWriter {
 }
 
 func (c *Container) NeedsNetwork() bool {
+	if c.NetworkMode == "none" || c.NetworkMode == "host" {
+		return false
+	}
 	return true
 }
 

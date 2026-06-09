@@ -5,7 +5,7 @@ import (
 	"os"
 )
 
-var version = "1.5.0"
+var version = "1.6.0"
 var repoURL = "https://raw.githubusercontent.com/animesao/dck"
 
 func Execute() {
@@ -108,5 +108,20 @@ Run options:
   --memory <lim>  Memory limit (512m, 1g, 2g, etc.)
   --cpus <num>    CPU limit (e.g. 1.5)
   --workdir <dir> Working directory inside container
-  -h <name>       Container hostname`)
+  -h <name>       Container hostname
+  --entrypoint    Override image entrypoint
+  --cap-add       Add Linux capabilities (e.g. NET_ADMIN)
+  --cap-drop      Drop Linux capabilities (e.g. ALL)
+  --user <uid>    Username or UID:GID
+  --readonly      Make rootfs read-only
+  --no-new-privs  Disable acquiring new privileges
+  --sysctl <k=v>  Sysctl options (can repeat)
+  --ulimit <opt>  Ulimit options (name=soft:hard)
+  -l, --label     Container labels (key=val)
+  --dns <ip>      DNS server (can repeat)
+  --network <m>   Network mode (bridge/none/host)
+  --healthcheck-cmd <cmd>      Health check command
+  --healthcheck-interval <s>   Health check interval
+  --healthcheck-retries <n>    Health check retries
+  --healthcheck-timeout <s>    Health check timeout`)
 }

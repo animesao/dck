@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"dck/internal/config"
@@ -142,6 +143,51 @@ func Up(args []string) {
 				Interval: cc.Healthcheck.Interval,
 				Retries:  cc.Healthcheck.Retries,
 				Timeout:  cc.Healthcheck.Timeout,
+			}
+		}
+
+		if cc.Entrypoint != "" {
+			opts.Entrypoint = cc.Entrypoint
+		}
+		if cc.NetworkMode != "" {
+			opts.NetworkMode = cc.NetworkMode
+		}
+		if len(cc.Labels) > 0 {
+			opts.Labels = cc.Labels
+		}
+		if len(cc.CapAdd) > 0 {
+			opts.CapAdd = cc.CapAdd
+		}
+		if len(cc.CapDrop) > 0 {
+			opts.CapDrop = cc.CapDrop
+		}
+		if cc.User != "" {
+			opts.User = cc.User
+		}
+		if cc.Readonly {
+			opts.ReadonlyRootfs = true
+		}
+		if cc.NoNewPrivs {
+			opts.NoNewPrivileges = true
+		}
+		if len(cc.Sysctls) > 0 {
+			opts.Sysctls = cc.Sysctls
+		}
+		if len(cc.DNS) > 0 {
+			opts.DNS = cc.DNS
+		}
+		if len(cc.Ulimits) > 0 {
+			for name, val := range cc.Ulimits {
+				parts := strings.SplitN(val, ":", 2)
+				if len(parts) == 2 {
+					soft, _ := strconv.ParseInt(parts[0], 10, 64)
+					hard, _ := strconv.ParseInt(parts[1], 10, 64)
+					opts.Ulimits = append(opts.Ulimits, container.Ulimit{
+						Name: name,
+						Soft: soft,
+						Hard: hard,
+					})
+				}
 			}
 		}
 

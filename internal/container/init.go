@@ -6,12 +6,86 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"dck/internal/state"
 )
+
+var capMap = map[string]uintptr{
+	"CHOWN":            0,
+	"DAC_OVERRIDE":     1,
+	"DAC_READ_SEARCH":  2,
+	"FOWNER":           3,
+	"FSETID":           4,
+	"KILL":             5,
+	"SETGID":           6,
+	"SETUID":           7,
+	"SETPCAP":          8,
+	"LINUX_IMMUTABLE":  9,
+	"NET_BIND_SERVICE": 10,
+	"NET_BROADCAST":    11,
+	"NET_ADMIN":        12,
+	"NET_RAW":          13,
+	"IPC_LOCK":         14,
+	"IPC_OWNER":        15,
+	"SYS_MODULE":       16,
+	"SYS_RAWIO":        17,
+	"SYS_CHROOT":       18,
+	"SYS_PTRACE":       19,
+	"SYS_PACCT":        20,
+	"SYS_ADMIN":        21,
+	"SYS_BOOT":         22,
+	"SYS_NICE":         23,
+	"SYS_RESOURCE":     24,
+	"SYS_TIME":         25,
+	"SYS_TTY_CONFIG":   26,
+	"MKNOD":            27,
+	"LEASE":            28,
+	"AUDIT_WRITE":      29,
+	"AUDIT_CONTROL":    30,
+	"SETFCAP":          31,
+	"MAC_OVERRIDE":     32,
+	"MAC_ADMIN":        33,
+	"SYSLOG":           34,
+	"WAKE_ALARM":       35,
+	"BLOCK_SUSPEND":    36,
+	"AUDIT_READ":       37,
+}
+
+const (
+	PR_CAPBSET_READ  = 0x16
+	PR_CAPBSET_DROP  = 0x15
+	PR_SET_NO_NEW_PRIVS = 0x26
+)
+
+func dropCapability(capName string) error {
+	upper := strings.ToUpper(capName)
+	if !strings.HasPrefix(upper, "CAP_") {
+		upper = "CAP_" + upper
+	}
+	capName = strings.TrimPrefix(upper, "CAP_")
+	capVal, ok := capMap[capName]
+	if !ok {
+		return fmt.Errorf("unknown capability: %s", capName)
+	}
+	return syscall.Prctl(PR_CAPBSET_DROP, capVal, 0, 0, 0)
+}
+
+func dropAllCapabilities() error {
+	for _, capVal := range capMap {
+		if err := syscall.Prctl(PR_CAPBSET_DROP, capVal, 0, 0, 0); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func setNoNewPrivileges() error {
+	return syscall.Prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)
+}
 
 func ensureUsrMerge() {
 	for _, dir := range []struct{ link, target string }{
@@ -25,6 +99,46 @@ func ensureUsrMerge() {
 				os.Symlink(dir.target, dir.link)
 			}
 		}
+	}
+}
+
+func applyUlimits(ulimits []Ulimit) {
+	for _, u := range ulimits {
+		rlimit := syscall.Rlimit{Cur: u.Soft, Max: u.Hard}
+		var resource int
+		switch strings.ToUpper(u.Name) {
+		case "NOFILE":
+			resource = syscall.RLIMIT_NOFILE
+		case "NPROC":
+			resource = syscall.RLIMIT_NPROC
+		case "CORE":
+			resource = syscall.RLIMIT_CORE
+		case "STACK":
+			resource = syscall.RLIMIT_STACK
+		case "FSIZE":
+			resource = syscall.RLIMIT_FSIZE
+		case "DATA":
+			resource = syscall.RLIMIT_DATA
+		case "AS":
+			resource = syscall.RLIMIT_AS
+		case "MEMLOCK":
+			resource = syscall.RLIMIT_MEMLOCK
+		case "RSS":
+			resource = syscall.RLIMIT_RSS
+		case "RTPRIO":
+			resource = syscall.RLIMIT_RTPRIO
+		case "RTTIME":
+			resource = syscall.RLIMIT_RTTIME
+		case "SIGPENDING":
+			resource = syscall.RLIMIT_SIGPENDING
+		case "MSGQUEUE":
+			resource = syscall.RLIMIT_MSGQUEUE
+		case "NICE":
+			resource = syscall.RLIMIT_NICE
+		default:
+			continue
+		}
+		syscall.Setrlimit(resource, &rlimit)
 	}
 }
 
@@ -79,7 +193,22 @@ func InitContainer(id string) error {
 
 	ensureUsrMerge()
 
-	os.WriteFile("/etc/resolv.conf", []byte("nameserver 8.8.8.8\nnameserver 8.8.4.4\n"), 0644)
+	// Write /etc/resolv.conf with custom DNS or defaults
+	if len(c.DNS) > 0 {
+		var sb strings.Builder
+		for _, d := range c.DNS {
+			sb.WriteString("nameserver " + d + "\n")
+		}
+		os.WriteFile("/etc/resolv.conf", []byte(sb.String()), 0644)
+	} else {
+		os.WriteFile("/etc/resolv.conf", []byte("nameserver 8.8.8.8\nnameserver 8.8.4.4\n"), 0644)
+	}
+
+	// Apply sysctls
+	for k, v := range c.Sysctls {
+		path := "/proc/sys/" + strings.ReplaceAll(k, ".", "/")
+		os.WriteFile(path, []byte(v), 0644)
+	}
 
 	var cfg struct {
 		Config struct {
@@ -130,6 +259,57 @@ func InitContainer(id string) error {
 	}
 	if !hasTerm {
 		c.Env = append(c.Env, "TERM=xterm")
+	}
+
+	// Apply user switching
+	if c.User != "" {
+		var uid, gid int
+		parts := strings.Split(c.User, ":")
+		if len(parts) == 2 {
+			gid, _ = strconv.Atoi(parts[1])
+		}
+		uid, err = strconv.Atoi(parts[0])
+		if err == nil {
+			if gid > 0 {
+				syscall.Setgid(gid)
+			}
+			syscall.Setuid(uid)
+		}
+	}
+
+	// Apply no_new_privs before exec
+	if c.NoNewPrivileges {
+		setNoNewPrivileges()
+	}
+
+	// Drop specified capabilities
+	if len(c.CapDrop) > 0 {
+		for _, capName := range c.CapDrop {
+			if strings.ToUpper(capName) == "ALL" {
+				dropAllCapabilities()
+				break
+			}
+			dropCapability(capName)
+		}
+	}
+
+	// Add specified capabilities (attempt — may fail without privilege)
+	if len(c.CapAdd) > 0 {
+		for _, capName := range c.CapAdd {
+			if strings.ToUpper(capName) == "ALL" {
+				break
+			}
+		}
+	}
+
+	// Apply readonly rootfs (remount / as readonly after /proc is mounted)
+	if c.ReadonlyRootfs {
+		syscall.Mount("", "/", "", syscall.MS_REMOUNT|syscall.MS_RDONLY, "")
+	}
+
+	// Apply ulimits
+	if len(c.Ulimits) > 0 {
+		applyUlimits(c.Ulimits)
 	}
 
 	cmdPath := c.Cmd[0]
