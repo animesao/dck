@@ -174,8 +174,8 @@ func Run(args []string) {
 		if len(parts) == 2 {
 			limits := strings.SplitN(parts[1], ":", 2)
 			if len(limits) == 2 {
-				soft, _ := strconv.ParseInt(limits[0], 10, 64)
-				hard, _ := strconv.ParseInt(limits[1], 10, 64)
+				soft, _ := strconv.ParseUint(limits[0], 10, 64)
+				hard, _ := strconv.ParseUint(limits[1], 10, 64)
 				parsedUlimits = append(parsedUlimits, container.Ulimit{
 					Name: parts[0],
 					Soft: soft,

@@ -180,8 +180,8 @@ func Up(args []string) {
 			for name, val := range cc.Ulimits {
 				parts := strings.SplitN(val, ":", 2)
 				if len(parts) == 2 {
-					soft, _ := strconv.ParseInt(parts[0], 10, 64)
-					hard, _ := strconv.ParseInt(parts[1], 10, 64)
+					soft, _ := strconv.ParseUint(parts[0], 10, 64)
+					hard, _ := strconv.ParseUint(parts[1], 10, 64)
 					opts.Ulimits = append(opts.Ulimits, container.Ulimit{
 						Name: name,
 						Soft: soft,

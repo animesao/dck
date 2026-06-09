@@ -61,6 +61,14 @@ const (
 	PR_SET_NO_NEW_PRIVS = 0x26
 )
 
+func prctl(option uintptr, arg2, arg3, arg4, arg5 uintptr) error {
+	_, _, err := syscall.Syscall6(syscall.SYS_PRCTL, option, arg2, arg3, arg4, arg5, 0)
+	if err != 0 {
+		return err
+	}
+	return nil
+}
+
 func dropCapability(capName string) error {
 	upper := strings.ToUpper(capName)
 	if !strings.HasPrefix(upper, "CAP_") {
@@ -71,12 +79,12 @@ func dropCapability(capName string) error {
 	if !ok {
 		return fmt.Errorf("unknown capability: %s", capName)
 	}
-	return syscall.Prctl(PR_CAPBSET_DROP, capVal, 0, 0, 0)
+	return prctl(PR_CAPBSET_DROP, capVal, 0, 0, 0)
 }
 
 func dropAllCapabilities() error {
 	for _, capVal := range capMap {
-		if err := syscall.Prctl(PR_CAPBSET_DROP, capVal, 0, 0, 0); err != nil {
+		if err := prctl(PR_CAPBSET_DROP, capVal, 0, 0, 0); err != nil {
 			return err
 		}
 	}
@@ -84,7 +92,59 @@ func dropAllCapabilities() error {
 }
 
 func setNoNewPrivileges() error {
-	return syscall.Prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)
+	return prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)
+}
+
+// RLIMIT constants (not all are exported in Go's syscall on linux/amd64)
+const (
+	rlimitNPROC      = 6
+	rlimitMEMLOCK    = 8
+	rlimitRSS        = 5
+	rlimitRTPRIO     = 14
+	rlimitRTTIME     = 15
+	rlimitSIGPENDING = 11
+	rlimitMSGQUEUE   = 12
+	rlimitNICE       = 13
+)
+
+func applyUlimits(ulimits []Ulimit) {
+	for _, u := range ulimits {
+		rlimit := syscall.Rlimit{Cur: u.Soft, Max: u.Hard}
+		var resource int
+		switch strings.ToUpper(u.Name) {
+		case "NOFILE":
+			resource = syscall.RLIMIT_NOFILE
+		case "NPROC":
+			resource = rlimitNPROC
+		case "CORE":
+			resource = syscall.RLIMIT_CORE
+		case "STACK":
+			resource = syscall.RLIMIT_STACK
+		case "FSIZE":
+			resource = syscall.RLIMIT_FSIZE
+		case "DATA":
+			resource = syscall.RLIMIT_DATA
+		case "AS":
+			resource = syscall.RLIMIT_AS
+		case "MEMLOCK":
+			resource = rlimitMEMLOCK
+		case "RSS":
+			resource = rlimitRSS
+		case "RTPRIO":
+			resource = rlimitRTPRIO
+		case "RTTIME":
+			resource = rlimitRTTIME
+		case "SIGPENDING":
+			resource = rlimitSIGPENDING
+		case "MSGQUEUE":
+			resource = rlimitMSGQUEUE
+		case "NICE":
+			resource = rlimitNICE
+		default:
+			continue
+		}
+		syscall.Setrlimit(resource, &rlimit)
+	}
 }
 
 func ensureUsrMerge() {
@@ -99,46 +159,6 @@ func ensureUsrMerge() {
 				os.Symlink(dir.target, dir.link)
 			}
 		}
-	}
-}
-
-func applyUlimits(ulimits []Ulimit) {
-	for _, u := range ulimits {
-		rlimit := syscall.Rlimit{Cur: u.Soft, Max: u.Hard}
-		var resource int
-		switch strings.ToUpper(u.Name) {
-		case "NOFILE":
-			resource = syscall.RLIMIT_NOFILE
-		case "NPROC":
-			resource = syscall.RLIMIT_NPROC
-		case "CORE":
-			resource = syscall.RLIMIT_CORE
-		case "STACK":
-			resource = syscall.RLIMIT_STACK
-		case "FSIZE":
-			resource = syscall.RLIMIT_FSIZE
-		case "DATA":
-			resource = syscall.RLIMIT_DATA
-		case "AS":
-			resource = syscall.RLIMIT_AS
-		case "MEMLOCK":
-			resource = syscall.RLIMIT_MEMLOCK
-		case "RSS":
-			resource = syscall.RLIMIT_RSS
-		case "RTPRIO":
-			resource = syscall.RLIMIT_RTPRIO
-		case "RTTIME":
-			resource = syscall.RLIMIT_RTTIME
-		case "SIGPENDING":
-			resource = syscall.RLIMIT_SIGPENDING
-		case "MSGQUEUE":
-			resource = syscall.RLIMIT_MSGQUEUE
-		case "NICE":
-			resource = syscall.RLIMIT_NICE
-		default:
-			continue
-		}
-		syscall.Setrlimit(resource, &rlimit)
 	}
 }
 

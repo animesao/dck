@@ -16,8 +16,8 @@ type HealthcheckConfig struct {
 
 type Ulimit struct {
 	Name string `json:"name"`
-	Soft int64  `json:"soft"`
-	Hard int64  `json:"hard"`
+	Soft uint64 `json:"soft"`
+	Hard uint64 `json:"hard"`
 }
 
 type Container struct {
