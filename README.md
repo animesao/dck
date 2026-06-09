@@ -26,7 +26,7 @@ curl http://localhost:8080
 # Install (Linux)
 curl -sSL https://raw.githubusercontent.com/animesao/dck/main/install.sh | sudo bash
 
-#dck-client
+# dck-client
 curl -sSL https://raw.githubusercontent.com/animesao/dck-client/main/install.sh | sudo bash
 
 # Pull & run
