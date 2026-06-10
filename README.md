@@ -3,6 +3,9 @@
   <img src="https://img.shields.io/badge/go-1.18+-00ADD8?style=flat-square&logo=go">
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square">
   <img src="https://img.shields.io/badge/no%20daemon-%E2%9C%93-brightgreen?style=flat-square">
+</p>
+
+<p align="center">
   <img src="https://raw.githubusercontent.com/animesao/dck-client/main/public/logo.png" alt="dck Panel" width="120">
 </p>
 
