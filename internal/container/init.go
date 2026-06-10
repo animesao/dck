@@ -192,11 +192,15 @@ func InitContainer(id string) error {
 	os.MkdirAll("/dev", 0755)
 	os.MkdirAll("/sys", 0755)
 	os.MkdirAll("/dev/pts", 0755)
+	os.MkdirAll("/tmp", 1777)
 
 	syscall.Mount("proc", "/proc", "proc", 0, "")
 	syscall.Mount("devtmpfs", "/dev", "devtmpfs", 0, "")
 	syscall.Mount("sysfs", "/sys", "sysfs", 0, "")
 	syscall.Mount("devpts", "/dev/pts", "devpts", 0, "")
+
+	// Ensure /tmp is world-writable (critical for images that switch users)
+	os.Chmod("/tmp", 01777)
 
 	exec.Command("ip", "link", "set", "lo", "up").Run()
 
