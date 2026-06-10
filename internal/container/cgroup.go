@@ -74,24 +74,9 @@ func ParseMemoryString(s string) (int64, error) {
 }
 
 func setupContainerCgroup(id string, pid int, memoryLimit int64, cpuCount float64) (string, error) {
-	if !cgroupV2Enabled() {
-		return "", nil
-	}
-
 	basePath := filepath.Join(cgroupRoot, dckCgroup)
 	if err := os.MkdirAll(basePath, 0755); err != nil {
 		return "", fmt.Errorf("cgroup base: %w", err)
-	}
-
-	if memoryLimit > 0 {
-		if err := enableCgroupController("memory"); err != nil {
-			return "", fmt.Errorf("memory controller: %w", err)
-		}
-	}
-	if cpuCount > 0 {
-		if err := enableCgroupController("cpu"); err != nil {
-			return "", fmt.Errorf("cpu controller: %w", err)
-		}
 	}
 
 	cPath := filepath.Join(basePath, id)
@@ -99,41 +84,40 @@ func setupContainerCgroup(id string, pid int, memoryLimit int64, cpuCount float6
 		return "", fmt.Errorf("cgroup dir: %w", err)
 	}
 
+	// Enable controllers if available (best effort — container runs either way)
+	if cgroupV2Enabled() {
+		if memoryLimit > 0 {
+			enableCgroupController("memory")
+		}
+		if cpuCount > 0 {
+			enableCgroupController("cpu")
+		}
+	}
+
 	if memoryLimit > 0 {
 		val := strconv.FormatInt(memoryLimit, 10)
-		if err := os.WriteFile(filepath.Join(cPath, "memory.max"), []byte(val), 0644); err != nil {
-			os.RemoveAll(cPath)
-			return "", fmt.Errorf("memory.max: %w", err)
-		}
+		os.WriteFile(filepath.Join(cPath, "memory.max"), []byte(val), 0644)
 	}
 
 	if cpuCount > 0 {
 		quota := int64(cpuCount * float64(cpuPeriod))
 		val := fmt.Sprintf("%d %d", quota, cpuPeriod)
-		if err := os.WriteFile(filepath.Join(cPath, "cpu.max"), []byte(val), 0644); err != nil {
-			os.RemoveAll(cPath)
-			return "", fmt.Errorf("cpu.max: %w", err)
-		}
+		os.WriteFile(filepath.Join(cPath, "cpu.max"), []byte(val), 0644)
 	}
 
 	pidStr := strconv.Itoa(pid)
-	if err := os.WriteFile(filepath.Join(cPath, "cgroup.procs"), []byte(pidStr), 0644); err != nil {
-		os.RemoveAll(cPath)
-		return "", fmt.Errorf("cgroup.procs: %w", err)
-	}
+	os.WriteFile(filepath.Join(cPath, "cgroup.procs"), []byte(pidStr), 0644)
 
 	return cPath, nil
 }
 
 func cleanupContainerCgroup(id, cgroupPath string) {
-	if !cgroupV2Enabled() || cgroupPath == "" {
+	if cgroupPath == "" {
 		return
 	}
-	procsFile := filepath.Join(cgroupPath, "cgroup.procs")
-	procs, err := os.ReadFile(procsFile)
-	if err == nil && len(procs) > 0 {
+	if b, err := os.ReadFile(filepath.Join(cgroupPath, "cgroup.procs")); err == nil && len(b) > 0 {
 		parentProcs := filepath.Join(filepath.Dir(cgroupPath), "cgroup.procs")
-		os.WriteFile(parentProcs, procs, 0644)
+		os.WriteFile(parentProcs, b, 0644)
 	}
 	os.RemoveAll(cgroupPath)
 }

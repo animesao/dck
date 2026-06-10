@@ -107,13 +107,12 @@ func (c *Container) Start() error {
 
 	c.PID = childPID
 
-	if c.MemoryLimit > 0 || c.CPUCount > 0 {
-		cpath, err := setupContainerCgroup(c.ID, childPID, c.MemoryLimit, c.CPUCount)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Cgroup setup: %v (container will run without resource limits)\n", err)
-		} else {
-			c.CgroupPath = cpath
-		}
+	// Always create cgroup (for stats), best-effort for limits
+	cpath, err := setupContainerCgroup(c.ID, childPID, c.MemoryLimit, c.CPUCount)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Cgroup setup: %v (container will run without resource limits)\n", err)
+	} else {
+		c.CgroupPath = cpath
 	}
 
 	if c.NeedsNetwork() {
