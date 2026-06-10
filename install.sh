@@ -178,7 +178,11 @@ build_dck() {
         exit 1
     fi
     go mod tidy
-    go build -ldflags="-s -w" -o dck .
+    DCK_VERSION=$(cat VERSION 2>/dev/null | head -1 | tr -d '[:space:]')
+    if [ -z "$DCK_VERSION" ]; then
+        DCK_VERSION="dev"
+    fi
+    go build -ldflags="-s -w -X dck/cmd.version=$DCK_VERSION" -o dck .
     if command -v install >/dev/null 2>&1; then
         install -d "$(dirname "$DCK_BIN")"
         install -m 755 dck "$DCK_BIN"
