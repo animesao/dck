@@ -336,7 +336,14 @@ func InitContainer(id string) error {
 	cmdArgs := c.Cmd
 
 	if _, err := os.Stat(cmdPath); os.IsNotExist(err) {
-		os.Setenv("PATH", defaultPath)
+		searchPath := defaultPath
+		for _, e := range c.Env {
+			if strings.HasPrefix(e, "PATH=") {
+				searchPath = e[5:]
+				break
+			}
+		}
+		os.Setenv("PATH", searchPath)
 		if resolved, err := exec.LookPath(cmdPath); err == nil {
 			cmdPath = resolved
 			cmdArgs = append([]string{cmdPath}, c.Cmd[1:]...)
