@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -234,6 +235,7 @@ func InitContainer(id string) error {
 		Config struct {
 			Env        []string `json:"Env"`
 			WorkingDir string   `json:"WorkingDir"`
+			User       string   `json:"User"`
 		} `json:"config"`
 	}
 	json.Unmarshal(cfgData, &cfg)
@@ -279,6 +281,48 @@ func InitContainer(id string) error {
 	}
 	if !hasTerm {
 		c.Env = append(c.Env, "TERM=xterm")
+	}
+
+	// Fix volume permissions for the target user
+	volumeUser := cfg.Config.User
+	if volumeUser == "" {
+		volumeUser = c.User
+	}
+	if volumeUser != "" {
+		var uid, gid int
+		parts := strings.Split(volumeUser, ":")
+		if len(parts) == 2 {
+			gid, _ = strconv.Atoi(parts[1])
+		}
+		uid, err = strconv.Atoi(parts[0])
+		if err != nil {
+			// Resolve username from /etc/passwd
+			if data, readErr := os.ReadFile("/etc/passwd"); readErr == nil {
+				for _, line := range strings.Split(string(data), "\n") {
+					fields := strings.Split(line, ":")
+					if len(fields) >= 3 && fields[0] == parts[0] {
+						uid, _ = strconv.Atoi(fields[2])
+						if len(parts) == 1 {
+							gid, _ = strconv.Atoi(fields[3])
+						}
+						break
+					}
+				}
+			}
+		}
+		if uid > 0 {
+			if gid == 0 {
+				gid = uid
+			}
+			for _, vol := range c.Volumes {
+				target := vol.Target
+				os.Chown(target, uid, gid)
+				filepath.Walk(target, func(path string, info os.FileInfo, walkErr error) error {
+					os.Chown(path, uid, gid)
+					return nil
+				})
+			}
+		}
 	}
 
 	// Apply user switching

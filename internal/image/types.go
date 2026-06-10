@@ -43,5 +43,6 @@ type ContainerConfig struct {
 		Entrypoint []string `json:"Entrypoint"`
 		Env        []string `json:"Env"`
 		WorkingDir string   `json:"WorkingDir"`
+		User       string   `json:"User"`
 	} `json:"config"`
 }
