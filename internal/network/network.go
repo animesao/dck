@@ -15,14 +15,42 @@ import (
 
 func EnsureSysctl() {
 	exec.Command("sysctl", "-w", "net.ipv4.ip_forward=1").Run()
+	exec.Command("sysctl", "-w", "net.ipv4.conf.all.route_localnet=1").Run()
 
 	os.MkdirAll("/etc/sysctl.d", 0755)
 	confPath := "/etc/sysctl.d/99-dck.conf"
+	var entries []string
 	data, err := os.ReadFile(confPath)
-	if err != nil || !strings.Contains(string(data), "net.ipv4.ip_forward=1") {
-		f, err := os.OpenFile(confPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err == nil {
+		entries = strings.Split(string(data), "\n")
+	}
+	need := map[string]string{
+		"net.ipv4.ip_forward":           "1",
+		"net.ipv4.conf.all.route_localnet": "1",
+	}
+	write := false
+	for k, v := range need {
+		found := false
+		for _, line := range entries {
+			if strings.Contains(line, k+"="+v) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			entries = append(entries, k+"="+v)
+			write = true
+		}
+	}
+	if write {
+		f, err := os.OpenFile(confPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 		if err == nil {
-			f.WriteString("# dck: enable IP forwarding for container networking\nnet.ipv4.ip_forward=1\n")
+			f.WriteString("# dck: container networking sysctls\n")
+			for _, e := range entries {
+				if e != "" {
+					f.WriteString(e + "\n")
+				}
+			}
 			f.Close()
 		}
 	}
@@ -108,7 +136,48 @@ func ReleaseIP(ip string) {
 	savePool(p)
 }
 
+func flushBridgeNeigh(ip string) {
+	exec.Command("ip", "neigh", "flush", "dev", BridgeName, "to", ip).Run()
+}
+
+func removeOrphanVeths() {
+	out, err := exec.Command("ip", "-o", "link", "show", "master", BridgeName).Output()
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		if !strings.HasPrefix(line, "ve") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		ifName := strings.TrimSuffix(fields[1], ":")
+		prefix := strings.TrimPrefix(ifName, "ve")
+		// Check if any container JSON exists with this prefix
+		entries, err := os.ReadDir(state.ContainersDir())
+		if err != nil {
+			// Can't check, skip
+			continue
+		}
+		hasContainer := false
+		for _, e := range entries {
+			name := strings.TrimSuffix(e.Name(), ".json")
+			if strings.HasPrefix(name, prefix) {
+				hasContainer = true
+				break
+			}
+		}
+		if !hasContainer {
+			exec.Command("ip", "link", "delete", ifName).Run()
+		}
+	}
+}
+
 func EnsureBridge() error {
+	removeOrphanVeths()
+
 	if err := exec.Command("ip", "link", "show", BridgeName).Run(); err != nil {
 		exec.Command("ip", "link", "add", BridgeName, "type", "bridge").Run()
 		exec.Command("ip", "addr", "add", fmt.Sprintf("%s/24", BridgeIP), "dev", BridgeName).Run()
@@ -145,6 +214,8 @@ func SetupVeth(containerID string, pid int, containerIP string) error {
 	runInNetns(pid, "ip", "addr", "add", fmt.Sprintf("%s/24", containerIP), "dev", "eth0")
 	runInNetns(pid, "ip", "link", "set", "eth0", "up")
 	runInNetns(pid, "ip", "route", "add", "default", "via", BridgeIP)
+
+	flushBridgeNeigh(containerIP)
 
 	return nil
 }
