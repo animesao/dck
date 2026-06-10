@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 func DataDir() string {
@@ -40,6 +41,18 @@ func OverlayDir() string {
 	return filepath.Join(DataDir(), "overlay")
 }
 
+func VolumesDir() string {
+	return filepath.Join(DataDir(), "volumes")
+}
+
+func ResolveVolume(source string) string {
+	// Named volumes (no path separators) are stored under VolumesDir
+	if !strings.Contains(source, "/") && !strings.Contains(source, "\\") {
+		return filepath.Join(VolumesDir(), source)
+	}
+	return source
+}
+
 func ImageDir(name, tag string) string {
 	return filepath.Join(ImagesDir(), name, tag)
 }
@@ -72,7 +85,7 @@ func ConsolePath(containerID string) string {
 }
 
 func EnsureDirs() error {
-	for _, d := range []string{DataDir(), ImagesDir(), ContainersDir(), LogsDir(), OverlayDir(), ConsolesDir()} {
+	for _, d := range []string{DataDir(), ImagesDir(), ContainersDir(), LogsDir(), OverlayDir(), ConsolesDir(), VolumesDir()} {
 		if err := os.MkdirAll(d, 0755); err != nil {
 			return err
 		}

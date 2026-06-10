@@ -39,17 +39,18 @@ func (c *Container) Start() error {
 	}
 
 	for _, vol := range c.Volumes {
+		srcPath := state.ResolveVolume(vol.Source)
 		target := filepath.Join(merged, vol.Target)
 		os.MkdirAll(target, 0755)
-		os.MkdirAll(vol.Source, 0755)
+		os.MkdirAll(srcPath, 0755)
 
 		// Copy image content into empty volumes (Docker-compatible behavior)
-		empty, _ := isDirEmpty(vol.Source)
+		empty, _ := isDirEmpty(srcPath)
 		if empty {
-			exec.Command("cp", "-a", target+"/.", vol.Source+"/").Run()
+			exec.Command("cp", "-a", target+"/.", srcPath+"/").Run()
 		}
 
-		if err := exec.Command("mount", "--bind", vol.Source, target).Run(); err != nil {
+		if err := exec.Command("mount", "--bind", srcPath, target).Run(); err != nil {
 			return fmt.Errorf("mount volume %s -> %s: %w", vol.Source, vol.Target, err)
 		}
 	}
