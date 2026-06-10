@@ -42,6 +42,13 @@ func (c *Container) Start() error {
 		target := filepath.Join(merged, vol.Target)
 		os.MkdirAll(target, 0755)
 		os.MkdirAll(vol.Source, 0755)
+
+		// Copy image content into empty volumes (Docker-compatible behavior)
+		empty, _ := isDirEmpty(vol.Source)
+		if empty {
+			exec.Command("cp", "-a", target+"/.", vol.Source+"/").Run()
+		}
+
 		if err := exec.Command("mount", "--bind", vol.Source, target).Run(); err != nil {
 			return fmt.Errorf("mount volume %s -> %s: %w", vol.Source, vol.Target, err)
 		}
@@ -381,4 +388,17 @@ func cleanupContainer(c *Container) {
 	os.Remove(c.LogFile())
 	cleanupContainerCgroup(c.ID, c.CgroupPath)
 	c.DeleteState()
+}
+
+func isDirEmpty(path string) (bool, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+	_, err = f.Readdirnames(1)
+	if err == io.EOF {
+		return true, nil
+	}
+	return false, err
 }
