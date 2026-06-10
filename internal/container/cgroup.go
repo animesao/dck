@@ -79,19 +79,25 @@ func setupContainerCgroup(id string, pid int, memoryLimit int64, cpuCount float6
 		return "", fmt.Errorf("cgroup base: %w", err)
 	}
 
+	// Enable controllers for dck cgroup's children (container cgroups)
+	if cgroupV2Enabled() {
+		enableCgroupController("memory")
+		enableCgroupController("cpu")
+		enableCgroupController("pids")
+
+		// Also enable in dck's own subtree so children inherit controllers
+		dckSub := filepath.Join(basePath, "cgroup.subtree_control")
+		for _, ctrl := range []string{"memory", "cpu", "pids"} {
+			data, _ := os.ReadFile(dckSub)
+			if !strings.Contains(string(data), ctrl) {
+				os.WriteFile(dckSub, []byte("+"+ctrl+"\n"), 0644)
+			}
+		}
+	}
+
 	cPath := filepath.Join(basePath, id)
 	if err := os.MkdirAll(cPath, 0755); err != nil {
 		return "", fmt.Errorf("cgroup dir: %w", err)
-	}
-
-	// Enable controllers if available (best effort — container runs either way)
-	if cgroupV2Enabled() {
-		if memoryLimit > 0 {
-			enableCgroupController("memory")
-		}
-		if cpuCount > 0 {
-			enableCgroupController("cpu")
-		}
 	}
 
 	if memoryLimit > 0 {
