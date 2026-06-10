@@ -192,7 +192,7 @@ func InitContainer(id string) error {
 	os.MkdirAll("/dev", 0755)
 	os.MkdirAll("/sys", 0755)
 	os.MkdirAll("/dev/pts", 0755)
-	os.MkdirAll("/tmp", 1777)
+	os.MkdirAll("/tmp", os.ModeSticky|0777)
 
 	syscall.Mount("proc", "/proc", "proc", 0, "")
 	syscall.Mount("devtmpfs", "/dev", "devtmpfs", 0, "")
