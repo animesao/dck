@@ -24,6 +24,8 @@ func Execute() {
 		Run(args)
 	case "ps":
 		Ps(args)
+	case "port":
+		Port(args)
 	case "stop":
 		Stop(args)
 	case "start":
@@ -76,6 +78,7 @@ Usage:
   dck run [opts] <image> [cmd] Run container
   dck ps                       List running containers
   dck ps -a                    List all containers
+  dck port <container>         Show port mappings
   dck start <container>        Start a stopped container
   dck restart <container>      Restart container
   dck stop <container>         Stop container
