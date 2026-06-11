@@ -5,7 +5,7 @@ import (
 	"os"
 )
 
-var version = "1.10.0"
+var version = "1.12.0"
 var repoURL = "https://raw.githubusercontent.com/animesao/dck"
 
 func Execute() {
@@ -62,6 +62,18 @@ func Execute() {
 		Bootstrap(args)
 	case "--help", "-h", "help":
 		printUsage()
+	case "cp":
+		Cp(args)
+	case "top":
+		Top(args)
+	case "commit":
+		Commit(args)
+	case "rename":
+		Rename(args)
+	case "info":
+		Info(args)
+	case "system":
+		System(args)
 	case "version", "--version", "-v":
 		fmt.Println("dck version", version)
 		fmt.Printf("Run 'dck update --check' to check for newer versions.\n")
@@ -87,12 +99,18 @@ Usage:
   dck rm [-f] <container>      Remove container
   dck logs [-f] <container>    Show/follow container logs
   dck stats [container]        Show live resource usage stats (CPU, RAM, IO, PIDs)
-  dck exec <container> <cmd>   Execute command in container
-  dck console <container>      Interactive shell in container
-  dck attach <container>       Attach to container's main process
-  dck images                   List images
-  dck rmi <image>[:tag]        Remove image
-  dck up [name] [-f dck.toml]  Create/start containers from dck.toml
+   dck exec <container> <cmd>   Execute command in container
+   dck console <container>      Interactive shell in container
+   dck attach <container>       Attach to container's main process
+   dck top <container>          Show running processes in container
+   dck cp <src> <dst>           Copy files between host and container
+   dck images                   List images
+   dck rmi <image>[:tag]        Remove image
+   dck commit <c> <img>[:tag]   Create image from container
+   dck rename <c> <new-name>    Rename container
+   dck info                     Show system-wide information
+   dck system prune             Remove unused containers and images
+   dck up [name] [-f dck.toml]  Create/start containers from dck.toml
   dck down [name] [-f dck.toml] Stop/remove containers from dck.toml
   dck down -a                  Remove all containers
   dck bootstrap [--install]    Start all containers (--install = add systemd service)
