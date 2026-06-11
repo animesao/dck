@@ -22,9 +22,23 @@ jobs:
 
       - name: Build .deb package
         run: |
+          set -e
           VERSION=$(cat VERSION | head -1 | tr -d '[:space:]')
           echo "VERSION=$VERSION" >> $GITHUB_ENV
-          make deb
+          echo "Building dck v$VERSION..."
+
+          # Build binary
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X dck/cmd.version=$VERSION" -o dck .
+
+          # Build .deb
+          PKG_ROOT="packaging/deb"
+          install -d "$PKG_ROOT/usr/bin"
+          install -m 755 dck "$PKG_ROOT/usr/bin/dck"
+          chmod 755 "$PKG_ROOT/DEBIAN/postinst" "$PKG_ROOT/DEBIAN/prerm"
+          mkdir -p dist
+          dpkg-deb --build "$PKG_ROOT" "dist/dck_${VERSION}_amd64.deb"
+
+          echo "Built: dist/dck_${VERSION}_amd64.deb"
 
       - name: Upload .deb to release
         env:
@@ -34,6 +48,7 @@ jobs:
 
       - name: Generate APT repo metadata
         run: |
+          set -e
           VERSION=$(cat VERSION | head -1 | tr -d '[:space:]')
           APT_DIR="docs/apt"
           mkdir -p "$APT_DIR/binary-amd64"
