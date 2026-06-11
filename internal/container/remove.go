@@ -3,7 +3,6 @@ package container
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 )
 
@@ -21,9 +20,7 @@ func (c *Container) Remove(force bool) error {
 	cleanupContainerCgroup(c.ID, c.CgroupPath)
 
 	upper, _, merged := c.OverlayDirs()
-	if _, err := os.Stat(merged); err == nil {
-		exec.Command("umount", "-l", merged).Run()
-	}
+	unmountOverlay(merged)
 	os.RemoveAll(filepath.Dir(upper))
 	os.Remove(c.LogFile())
 	c.DeleteState()

@@ -1,6 +1,7 @@
 package container
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -86,6 +87,7 @@ func (c *Container) Start() error {
 		serve := exec.Command(binPath, "console-serve", c.ID)
 		serve.ExtraFiles = []*os.File{stdinW, stdoutR}
 		serve.Start()
+		c.ConsoleServePID = serve.Process.Pid
 		stdinW.Close()
 		stdoutR.Close()
 	} else if c.Interactive || c.TTY {
@@ -135,7 +137,9 @@ func (c *Container) Start() error {
 	c.Save()
 
 	if c.Detach {
-		monitorContainer(c, cmd)
+		ctx, cancel := context.WithCancel(context.Background())
+		c.cancelHealth = cancel
+		monitorContainer(c, cmd, ctx)
 		fmt.Println(c.ID[:12])
 		return nil
 	}
@@ -257,9 +261,9 @@ func (c *Container) restart() error {
 	return c.Start()
 }
 
-func monitorContainer(c *Container, cmd *exec.Cmd) {
+func monitorContainer(c *Container, cmd *exec.Cmd, ctx context.Context) {
 	if c.Healthcheck != nil {
-		go c.runHealthcheck()
+		go c.runHealthcheck(ctx)
 	}
 
 	go func() {
@@ -268,6 +272,14 @@ func monitorContainer(c *Container, cmd *exec.Cmd) {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			exitCode = exitErr.ExitCode()
 		}
+
+		c.mu.Lock()
+		if c.cleanupStarted {
+			c.mu.Unlock()
+			return
+		}
+		c.cleanupStarted = true
+		c.mu.Unlock()
 
 		stoppedByUser := c.StoppedByUser
 		if !stoppedByUser {
@@ -296,7 +308,7 @@ func monitorContainer(c *Container, cmd *exec.Cmd) {
 	}()
 }
 
-func (c *Container) runHealthcheck() {
+func (c *Container) runHealthcheck(ctx context.Context) {
 	hc := c.Healthcheck
 	interval := time.Duration(hc.Interval) * time.Second
 	if interval == 0 {
@@ -313,7 +325,11 @@ func (c *Container) runHealthcheck() {
 
 	failures := 0
 	for {
-		time.Sleep(interval)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(interval):
+		}
 
 		if c.Status != Running {
 			return
@@ -381,10 +397,20 @@ func cleanupContainer(c *Container) {
 	if runtime.GOOS != "linux" {
 		return
 	}
+	if c.ConsoleServePID > 0 {
+		if proc, err := os.FindProcess(c.ConsoleServePID); err == nil {
+			proc.Kill()
+		}
+		c.ConsoleServePID = 0
+	}
+	if c.cancelHealth != nil {
+		c.cancelHealth()
+		c.cancelHealth = nil
+	}
 	c.cleanupNetwork()
 	os.Remove(state.ConsolePath(c.ID))
 	upper, _, merged := c.OverlayDirs()
-	exec.Command("umount", "-l", merged).Run()
+	unmountOverlay(merged)
 	os.RemoveAll(filepath.Dir(upper))
 	os.Remove(c.LogFile())
 	cleanupContainerCgroup(c.ID, c.CgroupPath)

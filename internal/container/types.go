@@ -1,7 +1,9 @@
 package container
 
 import (
+	"context"
 	"os"
+	"sync"
 	"time"
 
 	"dck/internal/state"
@@ -55,7 +57,13 @@ type Container struct {
 	DNS          []string           `json:"dns,omitempty"`
 	NetworkMode  string             `json:"network_mode,omitempty"`
 	Entrypoint   string             `json:"entrypoint,omitempty"`
-	Ulimits      []Ulimit           `json:"ulimits,omitempty"`
+	Ulimits       []Ulimit           `json:"ulimits,omitempty"`
+
+	ConsoleServePID int                `json:"console_serve_pid,omitempty"`
+	// Runtime-only (not persisted)
+	cancelHealth    context.CancelFunc `json:"-"`
+	mu              sync.Mutex         `json:"-"`
+	cleanupStarted  bool               `json:"-"`
 }
 
 type Status string

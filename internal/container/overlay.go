@@ -27,7 +27,11 @@ func unmountOverlay(merged string) {
 		return
 	}
 	if _, err := os.Stat(merged); err == nil {
-		exec.Command("umount", "-l", merged).Run()
+		// Try normal unmount first so kernel can release dentry/page cache.
+		// Fall back to lazy if something still holds references.
+		if err := exec.Command("umount", merged).Run(); err != nil {
+			exec.Command("umount", "-l", merged).Run()
+		}
 	}
 }
 
