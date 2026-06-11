@@ -19,8 +19,6 @@ parts:
     plugin: go
     source: .
     source-type: local
-    build-snaps:
-      - go
     override-build: |
       VERSION=$(cat $SNAPCRAFT_PART_SRC/VERSION | head -1 | tr -d '[:space:]')
       craftctl set version="$VERSION"
