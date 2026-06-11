@@ -44,36 +44,34 @@ jobs:
           for deb in *.deb; do
             SIZE=$(stat -c%s "$deb")
             SHA256=$(sha256sum "$deb" | cut -d' ' -f1)
-            cat >> Packages <<PKG
-Package: dck
-Version: ${VERSION}
-Architecture: amd64
-Maintainer: animesao <animesao@users.noreply.github.com>
-Filename: binary-amd64/$deb
-Size: $SIZE
-SHA256: $SHA256
-Description: dck - lightweight container runtime
- No daemon. No Docker. Just containers.
-
-PKG
+            echo "Package: dck" >> Packages
+            echo "Version: ${VERSION}" >> Packages
+            echo "Architecture: amd64" >> Packages
+            echo "Maintainer: animesao <animesao@users.noreply.github.com>" >> Packages
+            echo "Filename: binary-amd64/$deb" >> Packages
+            echo "Size: $SIZE" >> Packages
+            echo "SHA256: $SHA256" >> Packages
+            echo "Description: dck - lightweight container runtime" >> Packages
+            echo " No daemon. No Docker. Just containers." >> Packages
+            echo "" >> Packages
           done
           gzip -9fk Packages
 
           cd "$GITHUB_WORKSPACE/$APT_DIR"
           NOW=$(date -u +"%a, %d %b %Y %H:%M:%S UTC")
-          cat > Release <<EOF
-Origin: dck
-Label: dck APT Repository
-Suite: stable
-Codename: dck
-Date: $NOW
-Architectures: amd64
-Components: binary
-Description: dck lightweight container runtime
-SHA256:
- $(sha256sum binary-amd64/Packages | cut -d' ' -f1) $(stat -c%s "binary-amd64/Packages") binary-amd64/Packages
- $(sha256sum binary-amd64/Packages.gz | cut -d' ' -f1) $(stat -c%s "binary-amd64/Packages.gz") binary-amd64/Packages.gz
-EOF
+          {
+            echo "Origin: dck"
+            echo "Label: dck APT Repository"
+            echo "Suite: stable"
+            echo "Codename: dck"
+            echo "Date: $NOW"
+            echo "Architectures: amd64"
+            echo "Components: binary"
+            echo "Description: dck lightweight container runtime"
+            echo "SHA256:"
+            echo " $(sha256sum binary-amd64/Packages | cut -d' ' -f1) $(stat -c%s 'binary-amd64/Packages') binary-amd64/Packages"
+            echo " $(sha256sum binary-amd64/Packages.gz | cut -d' ' -f1) $(stat -c%s 'binary-amd64/Packages.gz') binary-amd64/Packages.gz"
+          } > Release
           cp Release InRelease
 
       - name: Commit APT repo to main
@@ -81,9 +79,8 @@ EOF
           GH_TOKEN: ${{ github.token }}
         run: |
           VERSION=$(cat VERSION | head -1 | tr -d '[:space:]')
-          git checkout main
           git config user.name "github-actions"
           git config user.email "actions@github.com"
           git add docs/apt/
           git commit -m "Update APT repo for v${VERSION}" --allow-empty
-          git push origin main
+          git push origin HEAD:main
