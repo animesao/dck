@@ -7,14 +7,14 @@ on:
 
 permissions:
   contents: write
-  pages: write
-  id-token: write
 
 jobs:
   build-deb:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-go@v5
         with:
@@ -24,13 +24,7 @@ jobs:
         run: |
           VERSION=$(cat VERSION | head -1 | tr -d '[:space:]')
           echo "VERSION=$VERSION" >> $GITHUB_ENV
-          mkdir -p dist
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X dck/cmd.version=$VERSION" -o dck .
-          PKG_ROOT="packaging/deb"
-          install -d "$PKG_ROOT/usr/bin"
-          install -m 755 dck "$PKG_ROOT/usr/bin/dck"
-          chmod 755 "$PKG_ROOT/DEBIAN/postinst" "$PKG_ROOT/DEBIAN/prerm"
-          dpkg-deb --build "$PKG_ROOT" "dist/dck_${VERSION}_amd64.deb"
+          make deb
 
       - name: Upload .deb to release
         env:
@@ -38,7 +32,7 @@ jobs:
         run: |
           gh release upload ${{ github.ref_name }} dist/*.deb --clobber
 
-      - name: Generate APT repo in docs/apt/
+      - name: Generate APT repo metadata
         run: |
           VERSION=$(cat VERSION | head -1 | tr -d '[:space:]')
           APT_DIR="docs/apt"
@@ -82,10 +76,14 @@ SHA256:
 EOF
           cp Release InRelease
 
-      - name: Deploy docs/apt to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v4
-        with:
-          github_token: ${{ github.token }}
-          publish_dir: docs/apt
-          publish_branch: gh-pages
-          keep_files: false
+      - name: Commit APT repo to main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(cat VERSION | head -1 | tr -d '[:space:]')
+          git checkout main
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add docs/apt/
+          git commit -m "Update APT repo for v${VERSION}" --allow-empty
+          git push origin main
