@@ -1,6 +1,6 @@
 name: dck
 base: core24
-version: git
+version: auto
 summary: Lightweight Docker CLI
 description: |
   dck is a lightweight container runtime and Docker CLI.
@@ -23,5 +23,6 @@ parts:
       - go
     override-build: |
       VERSION=$(cat $SNAPCRAFT_PART_SRC/VERSION | head -1 | tr -d '[:space:]')
+      craftctl set version="$VERSION"
       cd $SNAPCRAFT_PART_SRC
       CGO_ENABLED=0 go build -ldflags="-s -w -X dck/cmd.version=$VERSION" -o $SNAPCRAFT_PART_INSTALL/bin/dck .
