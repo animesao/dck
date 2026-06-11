@@ -47,15 +47,15 @@ jobs:
           gh release create ${{ github.ref_name }} --title "${{ github.ref_name }}" --generate-notes 2>/dev/null || true
           gh release upload ${{ github.ref_name }} dist/*.deb --clobber
 
-      - name: Generate APT repo metadata
+      - name: Generate APT repo metadata (flat layout)
         run: |
           set -e
           VERSION=$(cat VERSION | head -1 | tr -d '[:space:]')
           APT_DIR="docs/apt"
-          mkdir -p "$APT_DIR/binary-amd64"
-          cp "dist/dck_${VERSION}_amd64.deb" "$APT_DIR/binary-amd64/"
+          mkdir -p "$APT_DIR"
+          cp "dist/dck_${VERSION}_amd64.deb" "$APT_DIR/"
 
-          cd "$APT_DIR/binary-amd64"
+          cd "$APT_DIR"
           > Packages
           for deb in *.deb; do
             SIZE=$(stat -c%s "$deb")
@@ -64,7 +64,7 @@ jobs:
             echo "Version: ${VERSION}" >> Packages
             echo "Architecture: amd64" >> Packages
             echo "Maintainer: animesao <animesao@users.noreply.github.com>" >> Packages
-            echo "Filename: binary-amd64/$deb" >> Packages
+            echo "Filename: $deb" >> Packages
             echo "Size: $SIZE" >> Packages
             echo "SHA256: $SHA256" >> Packages
             echo "Description: dck - lightweight container runtime" >> Packages
@@ -73,7 +73,6 @@ jobs:
           done
           gzip -9fk Packages
 
-          cd "$GITHUB_WORKSPACE/$APT_DIR"
           NOW=$(date -u +"%a, %d %b %Y %H:%M:%S UTC")
           {
             echo "Origin: dck"
@@ -82,13 +81,13 @@ jobs:
             echo "Codename: dck"
             echo "Date: $NOW"
             echo "Architectures: amd64"
-            echo "Components: binary"
             echo "Description: dck lightweight container runtime"
             echo "SHA256:"
-            echo " $(sha256sum binary-amd64/Packages | cut -d' ' -f1) $(stat -c%s 'binary-amd64/Packages') binary-amd64/Packages"
-            echo " $(sha256sum binary-amd64/Packages.gz | cut -d' ' -f1) $(stat -c%s 'binary-amd64/Packages.gz') binary-amd64/Packages.gz"
+            echo " $(sha256sum Packages | cut -d' ' -f1) $(stat -c%s 'Packages') Packages"
+            echo " $(sha256sum Packages.gz | cut -d' ' -f1) $(stat -c%s 'Packages.gz') Packages.gz"
           } > Release
           cp Release InRelease
+          rm -rf binary-amd64 2>/dev/null || true
 
       - name: Commit APT repo to main
         env:
