@@ -7,6 +7,8 @@ on:
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
 
 jobs:
   build-deb:
@@ -22,10 +24,68 @@ jobs:
         run: |
           VERSION=$(cat VERSION | head -1 | tr -d '[:space:]')
           echo "VERSION=$VERSION" >> $GITHUB_ENV
-          make deb
+          mkdir -p dist
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X dck/cmd.version=$VERSION" -o dck .
+          PKG_ROOT="packaging/deb"
+          install -d "$PKG_ROOT/usr/bin"
+          install -m 755 dck "$PKG_ROOT/usr/bin/dck"
+          chmod 755 "$PKG_ROOT/DEBIAN/postinst" "$PKG_ROOT/DEBIAN/prerm"
+          dpkg-deb --build "$PKG_ROOT" "dist/dck_${VERSION}_amd64.deb"
 
       - name: Upload .deb to release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release upload ${{ github.ref_name }} dist/*.deb --clobber
+
+      - name: Generate APT repo in docs/apt/
+        run: |
+          VERSION=$(cat VERSION | head -1 | tr -d '[:space:]')
+          APT_DIR="docs/apt"
+          mkdir -p "$APT_DIR/binary-amd64"
+          cp "dist/dck_${VERSION}_amd64.deb" "$APT_DIR/binary-amd64/"
+
+          cd "$APT_DIR/binary-amd64"
+          > Packages
+          for deb in *.deb; do
+            SIZE=$(stat -c%s "$deb")
+            SHA256=$(sha256sum "$deb" | cut -d' ' -f1)
+            cat >> Packages <<PKG
+Package: dck
+Version: ${VERSION}
+Architecture: amd64
+Maintainer: animesao <animesao@users.noreply.github.com>
+Filename: binary-amd64/$deb
+Size: $SIZE
+SHA256: $SHA256
+Description: dck - lightweight container runtime
+ No daemon. No Docker. Just containers.
+
+PKG
+          done
+          gzip -9fk Packages
+
+          cd "$GITHUB_WORKSPACE/$APT_DIR"
+          NOW=$(date -u +"%a, %d %b %Y %H:%M:%S UTC")
+          cat > Release <<EOF
+Origin: dck
+Label: dck APT Repository
+Suite: stable
+Codename: dck
+Date: $NOW
+Architectures: amd64
+Components: binary
+Description: dck lightweight container runtime
+SHA256:
+ $(sha256sum binary-amd64/Packages | cut -d' ' -f1) $(stat -c%s "binary-amd64/Packages") binary-amd64/Packages
+ $(sha256sum binary-amd64/Packages.gz | cut -d' ' -f1) $(stat -c%s "binary-amd64/Packages.gz") binary-amd64/Packages.gz
+EOF
+          cp Release InRelease
+
+      - name: Deploy docs/apt to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ github.token }}
+          publish_dir: docs/apt
+          publish_branch: gh-pages
+          keep_files: false
