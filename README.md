@@ -27,7 +27,10 @@ curl http://localhost:8080
 ## Quick Start
 
 ```bash
-# Install (Linux)
+# Install via apt (Debian/Ubuntu)
+curl -sSL https://raw.githubusercontent.com/animesao/dck/main/scripts/install-apt.sh | sudo bash
+
+# Or build from source (Linux)
 curl -sSL https://raw.githubusercontent.com/animesao/dck/main/install.sh | sudo bash
 
 # dck-client

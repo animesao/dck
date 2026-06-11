@@ -1,0 +1,25 @@
+Package: dck
+Version: 1.10.0
+Section: admin
+Priority: optional
+Architecture: amd64
+Depends: iproute2, iptables, util-linux, procps, curl, ca-certificates
+Recommends: ufw, git
+Maintainer: animesao <animesao@users.noreply.github.com>
+Description: dck — lightweight container runtime
+ No daemon. No Docker. Just containers.
+ .
+ dck is a ~5 MB static binary that runs OCI/Docker containers
+ using Linux namespaces (PID, Mount, Net, UTS, IPC), overlayfs,
+ cgroups v2, and bridge networking. No dockerd needed.
+ .
+ Features:
+  * Pull and run OCI images from Docker Hub
+  * Bridge networking with port mapping (iptables DNAT)
+  * Resource limits (memory, CPU via cgroups v2)
+  * Volume mounts, environment variables, healthchecks
+  * Restart policies (always, on-failure, unless-stopped)
+  * Multi-container config via dck.toml
+  * Interactive exec, attach, logs
+  * dck stats — live resource monitoring
+Homepage: https://github.com/animesao/dck
