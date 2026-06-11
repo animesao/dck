@@ -40,10 +40,11 @@ jobs:
 
           echo "Built: dist/dck_${VERSION}_amd64.deb"
 
-      - name: Upload .deb to release
+      - name: Create release and upload .deb
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          gh release create ${{ github.ref_name }} --title "${{ github.ref_name }}" --generate-notes 2>/dev/null || true
           gh release upload ${{ github.ref_name }} dist/*.deb --clobber
 
       - name: Generate APT repo metadata
@@ -96,6 +97,13 @@ jobs:
           VERSION=$(cat VERSION | head -1 | tr -d '[:space:]')
           git config user.name "github-actions"
           git config user.email "actions@github.com"
-          git add docs/apt/
-          git commit -m "Update APT repo for v${VERSION}" --allow-empty
-          git push origin HEAD:main
+          git fetch origin main
+          git checkout main
+          # Only add docs/apt/ if the directory exists (might not on first run)
+          if [ -d docs/apt ]; then
+            git add docs/apt/
+            git commit -m "Update APT repo for v${VERSION}" --allow-empty
+            git push origin main
+          else
+            echo "docs/apt/ not found - skipping APT repo commit"
+          fi
