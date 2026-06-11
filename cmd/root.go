@@ -5,7 +5,7 @@ import (
 	"os"
 )
 
-var version = "1.9.1"
+var version = "1.10.0"
 var repoURL = "https://raw.githubusercontent.com/animesao/dck"
 
 func Execute() {
@@ -46,6 +46,8 @@ func Execute() {
 		Attach(args)
 	case "init":
 		initContainer(args)
+	case "stats":
+		Stats(args)
 	case "images":
 		Images(args)
 	case "rmi":
@@ -84,6 +86,7 @@ Usage:
   dck stop <container>         Stop container
   dck rm [-f] <container>      Remove container
   dck logs [-f] <container>    Show/follow container logs
+  dck stats [container]        Show live resource usage stats (CPU, RAM, IO, PIDs)
   dck exec <container> <cmd>   Execute command in container
   dck console <container>      Interactive shell in container
   dck attach <container>       Attach to container's main process
