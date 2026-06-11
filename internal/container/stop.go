@@ -50,36 +50,25 @@ func (c *Container) Stop() error {
 		targetPID = unsharePID
 	}
 
-	proc, err := os.FindProcess(targetPID)
-	if err != nil {
-		c.killConsoleServe()
-		c.cancelHealthcheck()
-		c.cleanupNetwork()
-		_, _, merged := c.OverlayDirs()
-		unmountOverlay(merged)
-		cleanupContainerCgroup(c.ID, c.CgroupPath)
-		c.PID = 0
-		c.Status = Stopped
-		c.Save()
-		return nil
-	}
-
 	c.StoppedByUser = true
 	c.Save()
 
-	proc.Signal(syscall.SIGTERM)
+	// Kill the target (unshare parent). If unshare was started by a
+	// previous dck run -d process, --kill-child won't fire on SIGKILL
+	// so we must also SIGKILL the container init directly.
+	//
+	// If target is the container init itself (unshare already dead),
+	// SIGKILL is the only signal that works cross-namespace for PID 1.
+	//
+	// We can't use proc.Wait() — process was reparented to init, so
+	// Wait() would return ECHILD. Poll with kill(pid, 0) instead.
+	syscall.Kill(targetPID, syscall.SIGKILL)
+	waitForExit(targetPID, 5*time.Second)
 
-	done := make(chan bool, 1)
-	go func() {
-		proc.Wait()
-		done <- true
-	}()
-
-	select {
-	case <-done:
-	case <-time.After(10 * time.Second):
-		proc.Kill()
-		<-done
+	// Kill the container init directly (survives if unshare was killed)
+	if unsharePID != 0 && c.PID > 0 {
+		syscall.Kill(c.PID, syscall.SIGKILL)
+		waitForExit(c.PID, 3*time.Second)
 	}
 
 	c.killConsoleServe()
@@ -97,9 +86,7 @@ func (c *Container) Stop() error {
 
 func (c *Container) killConsoleServe() {
 	if c.ConsoleServePID > 0 {
-		if proc, err := os.FindProcess(c.ConsoleServePID); err == nil {
-			proc.Kill()
-		}
+		syscall.Kill(c.ConsoleServePID, syscall.SIGKILL)
 		c.ConsoleServePID = 0
 	}
 }
@@ -108,5 +95,19 @@ func (c *Container) cancelHealthcheck() {
 	if c.cancelHealth != nil {
 		c.cancelHealth()
 		c.cancelHealth = nil
+	}
+}
+
+func isAlive(pid int) bool {
+	return syscall.Kill(pid, 0) == nil
+}
+
+func waitForExit(pid int, timeout time.Duration) {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if !isAlive(pid) {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 }
