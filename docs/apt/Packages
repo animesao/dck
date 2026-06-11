@@ -1,10 +1,10 @@
 Package: dck
-Version: 1.10.2
+Version: 1.10.3
 Architecture: amd64
 Maintainer: animesao <animesao@users.noreply.github.com>
-Filename: binary-amd64/dck_1.10.2_amd64.deb
-Size: 2417720
-SHA256: c09c298f99cc03ec00f7035fe7d66a5917ee15720e0278f665166fe1c9f39f0b
+Filename: dck_1.10.3_amd64.deb
+Size: 2417652
+SHA256: 7b03a1fbaafa10731630b10a20dad55807663b37f4ac3b55d80461560e16759c
 Description: dck - lightweight container runtime
  No daemon. No Docker. Just containers.
 
