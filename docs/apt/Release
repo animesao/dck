@@ -2,9 +2,9 @@ Origin: dck
 Label: dck APT Repository
 Suite: stable
 Codename: dck
-Date: Thu, 11 Jun 2026 11:32:29 UTC
+Date: Thu, 11 Jun 2026 12:57:44 UTC
 Architectures: amd64
 Description: dck lightweight container runtime
 SHA256:
- bd10ee873d6abec41194f69acdff4fda2071db7a271116db5ae6b3624bac3f44 628 Packages
- 2d94fbd7467a3e328e836901ef11fd0be495efd496427dada6038f4560faddd3 322 Packages.gz
+ 3bd6c3063b20a77f1f69a54b3ebae3c2be277e7986cb1448a1a72aaed1b8f520 628 Packages
+ 1944648b063f1df17acac8fd2f36bd3904a40d80d6b33da966b792091541ae49 324 Packages.gz
