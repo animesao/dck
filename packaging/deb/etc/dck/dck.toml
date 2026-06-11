@@ -1,0 +1,8 @@
+# dck multi-container config
+# See: https://github.com/animesao/dck
+#
+# Example:
+# [container.web]
+# image = "nginx:alpine"
+# ports = ["80:80"]
+# restart = "always"
