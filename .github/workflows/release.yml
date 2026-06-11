@@ -20,24 +20,18 @@ jobs:
         with:
           go-version: '>=1.18'
 
-      - name: Build snap package (clean tree first)
-        run: |
-          set -e
-          VERSION=$(cat VERSION | head -1 | tr -d '[:space:]')
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
-          # Remove build artifacts so snap build tree is clean
-          rm -rf dist docs/apt dck 2>/dev/null || true
+      - name: Read version
+        run: echo "VERSION=$(cat VERSION | head -1 | tr -d '[:space:]')" >> $GITHUB_ENV
 
       - name: Build snap package
         uses: snapcore/action-build@v1
         id: snapcraft
         with:
-          args: --destructive-mode
+          snapcraft-args: --destructive-mode
 
       - name: Build .deb package
         run: |
           set -e
-          VERSION=$(cat VERSION | head -1 | tr -d '[:space:]')
           echo "Building dck v$VERSION..."
 
           # Build binary
@@ -64,7 +58,6 @@ jobs:
       - name: Generate APT repo metadata (flat layout)
         run: |
           set -e
-          VERSION=$(cat VERSION | head -1 | tr -d '[:space:]')
           APT_DIR="docs/apt"
           mkdir -p "$APT_DIR"
           cp "dist/dck_${VERSION}_amd64.deb" "$APT_DIR/"
@@ -107,7 +100,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          VERSION=$(cat VERSION | head -1 | tr -d '[:space:]')
           git config user.name "github-actions"
           git config user.email "actions@github.com"
           git fetch origin main

@@ -1,6 +1,6 @@
 name: dck
 base: core24
-version: auto
+adopt-info: dck
 summary: Lightweight Docker CLI
 description: |
   dck is a lightweight container runtime and Docker CLI.
