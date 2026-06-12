@@ -38,7 +38,7 @@ func Run(args []string) {
 	volumeMounts := fs.String("v", "", "Volume mounts (src:dst)")
 	memory := fs.String("memory", "", "Memory limit (e.g. 512m, 1g)")
 	cpus := fs.Float64("cpus", 0, "CPU limit (number of CPUs, e.g. 1.5)")
-	disk := fs.Int64("disk", 0, "Disk limit in bytes (e.g. 1073741824 for 1GB)")
+	disk := fs.String("disk", "", "Disk limit (e.g. 1G, 512M, 2T)")
 	workdir := fs.String("workdir", "", "Working directory inside container")
 
 	// New flags
@@ -145,6 +145,12 @@ func Run(args []string) {
 		os.Exit(1)
 	}
 
+	diskLimit, _ := container.ParseDiskString(*disk)
+	if *disk != "" && diskLimit == 0 {
+		fmt.Fprintf(os.Stderr, "Error: invalid disk value: %s\n", *disk)
+		os.Exit(1)
+	}
+
 	if *name != "" {
 		if existing := container.FindByName(*name); existing != nil {
 			fmt.Fprintf(os.Stderr, "Error: container with name %q already exists (%s)\n", *name, existing.ID[:12])
@@ -228,7 +234,7 @@ func Run(args []string) {
 		RemoveOnExit: *rm,
 		MemoryLimit:  memoryLimit,
 		CPUCount:     *cpus,
-		DiskLimit:    *disk,
+		DiskLimit:    diskLimit,
 		WorkingDir:   *workdir,
 		Healthcheck:  hc,
 		Labels:       labelMap,

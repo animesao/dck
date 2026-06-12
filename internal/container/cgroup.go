@@ -46,6 +46,10 @@ func enableCgroupController(ctrl string) error {
 	return nil
 }
 
+func ParseDiskString(s string) (int64, error) {
+	return ParseMemoryString(s)
+}
+
 func ParseMemoryString(s string) (int64, error) {
 	if s == "" {
 		return 0, nil
