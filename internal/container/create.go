@@ -23,6 +23,10 @@ func New(img *image.Image, opts CreateOpts) *Container {
 	if name == "" {
 		name = id[:12]
 	}
+	workdir := opts.WorkingDir
+	if workdir == "" {
+		workdir = "/"
+	}
 	cmd := opts.Cmd
 	if len(cmd) == 0 {
 		if cfg, err := image.ReadConfig(img.Name, img.Tag); err == nil {
@@ -61,6 +65,7 @@ func New(img *image.Image, opts CreateOpts) *Container {
 		RemoveOnExit: opts.RemoveOnExit,
 		MemoryLimit:  opts.MemoryLimit,
 		CPUCount:     opts.CPUCount,
+		WorkingDir:   workdir,
 		Healthcheck:  opts.Healthcheck,
 		Labels:       opts.Labels,
 		CapAdd:       opts.CapAdd,
