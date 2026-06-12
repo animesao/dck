@@ -15,6 +15,18 @@ import (
 	"dck/internal/state"
 )
 
+// Capabilities dropped by default for container safety (can be overridden with --cap-add)
+var dangerousCaps = []string{
+	"SYS_ADMIN", "SYS_MODULE", "SYS_BOOT", "SYS_RAWIO",
+	"SYS_TIME", "SYS_PACCT", "SYS_PTRACE", "SYS_TTY_CONFIG",
+	"SYSLOG", "SYS_NICE", "SYS_RESOURCE",
+	"LINUX_IMMUTABLE", "LEASE", "SETFCAP",
+	"MAC_ADMIN", "MAC_OVERRIDE",
+	"AUDIT_CONTROL", "AUDIT_WRITE", "AUDIT_READ",
+	"WAKE_ALARM", "BLOCK_SUSPEND",
+	"IPC_LOCK", "MKNOD",
+}
+
 var capMap = map[string]uintptr{
 	"CHOWN":            0,
 	"DAC_OVERRIDE":     1,
@@ -199,6 +211,18 @@ func InitContainer(id string) error {
 	syscall.Mount("sysfs", "/sys", "sysfs", 0, "")
 	syscall.Mount("devpts", "/dev/pts", "devpts", 0, "")
 
+	// Apply sysctls BEFORE making /proc/sys read-only
+	for k, v := range c.Sysctls {
+		path := "/proc/sys/" + strings.ReplaceAll(k, ".", "/")
+		os.WriteFile(path, []byte(v), 0644)
+	}
+
+	// Remount /proc/sys and /sys as read-only to prevent kernel parameter escapes
+	syscall.Mount("/proc/sys", "/proc/sys", "", syscall.MS_BIND, "")
+	syscall.Mount("/proc/sys", "/proc/sys", "", syscall.MS_BIND|syscall.MS_RDONLY|syscall.MS_REMOUNT, "")
+	syscall.Mount("/sys", "/sys", "", syscall.MS_BIND, "")
+	syscall.Mount("/sys", "/sys", "", syscall.MS_BIND|syscall.MS_RDONLY|syscall.MS_REMOUNT, "")
+
 	// Ensure /tmp is world-writable (critical for images that switch users)
 	os.Chmod("/tmp", 01777)
 
@@ -227,12 +251,6 @@ func InitContainer(id string) error {
 		os.WriteFile("/etc/resolv.conf", []byte(sb.String()), 0644)
 	} else {
 		os.WriteFile("/etc/resolv.conf", []byte("nameserver 8.8.8.8\nnameserver 8.8.4.4\n"), 0644)
-	}
-
-	// Apply sysctls
-	for k, v := range c.Sysctls {
-		path := "/proc/sys/" + strings.ReplaceAll(k, ".", "/")
-		os.WriteFile(path, []byte(v), 0644)
 	}
 
 	var cfg struct {
@@ -350,29 +368,48 @@ func InitContainer(id string) error {
 		}
 	}
 
-	// Apply no_new_privs before exec
+	// Apply no_new_privs (prevents setuid/capability escalation for child processes)
 	if c.NoNewPrivileges {
 		setNoNewPrivileges()
 	}
 
-	// Drop specified capabilities
-	if len(c.CapDrop) > 0 {
-		for _, capName := range c.CapDrop {
-			if strings.ToUpper(capName) == "ALL" {
-				dropAllCapabilities()
-				break
-			}
-			dropCapability(capName)
+	// Capability security model:
+	// 1. Start with all capabilities in bounding set (from unshare'd root)
+	// 2. Drop dangerous capabilities by default (safe default)
+	// 3. If user --cap-add'd specific caps, skip dropping those
+	// 4. Apply user's --cap-drop (override)
+	// Note: PR_CAPBSET_DROP is one-way, caps can only be removed, never re-added
+
+	// Determine which dangerous caps user wants to keep (explicitly added back)
+	userKept := make(map[string]bool)
+	userAddAll := false
+	for _, capName := range c.CapAdd {
+		upper := strings.ToUpper(capName)
+		if upper == "ALL" || upper == "CAP_ALL" {
+			userAddAll = true
+		} else {
+			upper = strings.TrimPrefix(upper, "CAP_")
+			userKept[upper] = true
 		}
 	}
 
-	// Add specified capabilities (attempt — may fail without privilege)
-	if len(c.CapAdd) > 0 {
-		for _, capName := range c.CapAdd {
-			if strings.ToUpper(capName) == "ALL" {
-				break
+	// Drop dangerous capabilities by default (unless user asked to keep them)
+	if !userAddAll {
+		for _, capName := range dangerousCaps {
+			if !userKept[capName] {
+				dropCapability(capName)
 			}
 		}
+	}
+
+	// Apply user's explicit --cap-drop (overrides everything)
+	for _, capName := range c.CapDrop {
+		upper := strings.ToUpper(capName)
+		if upper == "ALL" || upper == "CAP_ALL" {
+			dropAllCapabilities()
+			break
+		}
+		dropCapability(capName)
 	}
 
 	// Apply readonly rootfs (remount / as readonly after /proc is mounted)
