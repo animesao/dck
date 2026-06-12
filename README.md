@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.12.0-blue?style=flat-square">
+  <img src="https://img.shields.io/badge/version-1.13.0-blue?style=flat-square">
   <img src="https://img.shields.io/badge/go-1.18+-00ADD8?style=flat-square&logo=go">
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square">
   <img src="https://img.shields.io/badge/no%20daemon-%E2%9C%93-brightgreen?style=flat-square">
@@ -141,8 +141,13 @@ dck cp app.py web:/app/                     # Copy file to container
 | `-i` | Interactive (keep stdin) |
 | `-t` | Allocate TTY |
 | `--rm` | Auto-remove on exit |
-| `--restart` | Restart policy: `no`, `always`, `on-failure` |
+| `--restart` | Restart policy: `no`, `always`, `on-failure`, `unless-stopped` |
 | `-h` | Hostname |
+| `--startup` | Startup script (inline or `@file`) — overrides CMD |
+| `--healthcheck-cmd` | Health check command |
+| `--healthcheck-interval` | Health check interval (seconds) |
+| `--healthcheck-retries` | Health check retries |
+| `--healthcheck-timeout` | Health check timeout (seconds) |
 
 ---
 
@@ -358,6 +363,34 @@ Healthcheck runs the command inside the container at the given interval. After `
 
 ---
 
+## Startup Scripts
+
+Use `--startup` to run a custom script instead of the image's default command:
+
+```bash
+# Inline script
+dck run -d --startup "#!/bin/sh\necho 'Hello from startup'" alpine sleep infinity
+
+# Load from file
+dck run -d --startup @./myscript.sh ubuntu
+```
+
+The script is written to `/startup.sh` inside the container and executed via `/bin/sh`. When a startup script is present, it **overrides** the normal `CMD`/`entrypoint`.
+
+The following environment variables are injected automatically for startup scripts:
+
+| Variable | Description |
+|----------|-------------|
+| `DCK_CONTAINER_ID` | Container ID |
+| `DCK_CONTAINER_NAME` | Container name |
+| `DCK_IMAGE_NAME` | Image name |
+| `DCK_IMAGE_TAG` | Image tag |
+| `DCK_HOSTNAME` | Container hostname |
+| `DCK_MEMORY` | Memory limit (bytes) |
+| `DCK_CPU` | CPU limit (cores) |
+| `DCK_IP` | Container IP address |
+| `DCK_RESTART` | Restart policy |
+
 ## Architecture
 
 ```
@@ -398,7 +431,7 @@ dck run -d
 
 ## Changelog
 
-**v1.12.0** — Added `dck cp`, `dck top`, `dck system prune`, `dck rename`, `dck commit`, `dck info` commands.
+**v1.13.0** — Added `--startup` flag for custom startup scripts (inline or `@file`), `--healthcheck-*` flags, DCK_* environment variables injected into containers, resource limit enforcement via cgroups v2.
 
 **v1.11.0** — Debian packaging, APT repository, snap packaging, release workflow.
 
