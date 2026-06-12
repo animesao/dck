@@ -1,5 +1,5 @@
 Package: dck
-Version: 1.12.0
+Version: 1.13.0
 Architecture: amd64
 Maintainer: animesao <animesao@users.noreply.github.com>
 Filename: dck_1.10.3_amd64.deb
@@ -9,7 +9,7 @@ Description: dck - lightweight container runtime
  No daemon. No Docker. Just containers.
 
 Package: dck
-Version: 1.12.0
+Version: 1.13.0
 Architecture: amd64
 Maintainer: animesao <animesao@users.noreply.github.com>
 Filename: dck_1.11.0_amd64.deb
@@ -19,12 +19,22 @@ Description: dck - lightweight container runtime
  No daemon. No Docker. Just containers.
 
 Package: dck
-Version: 1.12.0
+Version: 1.13.0
 Architecture: amd64
 Maintainer: animesao <animesao@users.noreply.github.com>
 Filename: dck_1.12.0_amd64.deb
 Size: 2466790
 SHA256: b367efe270feb728205927e9a38d75365ad1c785b069e741e3c6a707ea93d9c8
+Description: dck - lightweight container runtime
+ No daemon. No Docker. Just containers.
+
+Package: dck
+Version: 1.13.0
+Architecture: amd64
+Maintainer: animesao <animesao@users.noreply.github.com>
+Filename: dck_1.13.0_amd64.deb
+Size: 2468926
+SHA256: 87ed0d54ef04dcfca9896cf00aaddf5f056989b321558a78f7118af4a6dcf6af
 Description: dck - lightweight container runtime
  No daemon. No Docker. Just containers.
 
