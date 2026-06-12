@@ -385,6 +385,77 @@ func InitContainer(id string) error {
 		applyUlimits(c.Ulimits)
 	}
 
+	// Inject dck environment variables for startup scripts
+	c.Env = append(c.Env,
+		"DCK_CONTAINER_ID="+c.ID,
+		"DCK_CONTAINER_NAME="+c.Name,
+		"DCK_IMAGE_NAME="+c.ImageName,
+		"DCK_IMAGE_TAG="+c.ImageTag,
+		"DCK_HOSTNAME="+c.Hostname,
+		"DCK_MEMORY="+strconv.FormatInt(c.MemoryLimit, 10),
+		"DCK_CPU="+strconv.FormatFloat(c.CPUCount, 'f', -1, 64),
+		"DCK_IP="+c.IP,
+		"DCK_RESTART="+c.Restart,
+	)
+	for _, p := range c.Ports {
+		key := fmt.Sprintf("DCK_PORT_%s_%d", strings.ToUpper(p.Protocol), p.HostPort)
+		c.Env = append(c.Env, key+"="+strconv.Itoa(p.ContainerPort))
+	}
+
+	// Create /dck utility scripts inside container
+	os.MkdirAll("/dck", 0755)
+	dckScripts := map[string]string{
+		"info": `#!/bin/sh
+echo "=== Container Info ==="
+echo "ID:       $DCK_CONTAINER_ID"
+echo "Name:     $DCK_CONTAINER_NAME"
+echo "Image:    $DCK_IMAGE_NAME:$DCK_IMAGE_TAG"
+echo "Hostname: $DCK_HOSTNAME"
+echo "IP:       $DCK_IP"
+echo "Memory:   $DCK_MEMORY"
+echo "CPU:      $DCK_CPU"
+echo "Restart:  $DCK_RESTART"
+echo "Ports:"
+env | grep ^DCK_PORT_ | while IFS='=' read -r k v; do echo "  $k=$v"; done
+`,
+		"env": `#!/bin/sh
+env | grep ^DCK_ | sort | while IFS='=' read -r k v; do echo "$k=$v"; done
+`,
+		"help": `#!/bin/sh
+echo "Available dck utility scripts:"
+echo "  /dck/info  - Show container information"
+echo "  /dck/env   - Show dck environment variables"
+echo "  /dck/help  - Show this help"
+echo ""
+echo "Environment variables available:"
+echo "  DCK_CONTAINER_ID   - Container ID"
+echo "  DCK_CONTAINER_NAME - Container name"
+echo "  DCK_IMAGE_NAME     - Image name"
+echo "  DCK_IMAGE_TAG      - Image tag"
+echo "  DCK_HOSTNAME       - Container hostname"
+echo "  DCK_IP             - Container IP address"
+echo "  DCK_MEMORY         - Memory limit (bytes)"
+echo "  DCK_CPU            - CPU limit (cores)"
+echo "  DCK_RESTART        - Restart policy"
+echo "  DCK_PORT_TCP_*     - Port mappings (TCP)"
+echo "  DCK_PORT_UDP_*     - Port mappings (UDP)"
+`,
+	}
+	for name, content := range dckScripts {
+		os.WriteFile("/dck/"+name, []byte(content), 0755)
+	}
+
+	// If startup script is provided, write it and execute via shell
+	if c.StartupScript != "" {
+		scriptPath := "/startup.sh"
+		if err := os.WriteFile(scriptPath, []byte(c.StartupScript), 0755); err != nil {
+			return fmt.Errorf("write startup script: %w", err)
+		}
+		cmdPath := "/bin/sh"
+		cmdArgs := []string{"/bin/sh", scriptPath}
+		return syscall.Exec(cmdPath, cmdArgs, c.Env)
+	}
+
 	cmdPath := c.Cmd[0]
 	cmdArgs := c.Cmd
 

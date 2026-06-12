@@ -5,7 +5,7 @@ import (
 	"os"
 )
 
-var version = "1.12.0"
+var version = "1.13.0"
 var repoURL = "https://raw.githubusercontent.com/animesao/dck"
 
 func Execute() {
@@ -144,6 +144,7 @@ Run options:
   -l, --label     Container labels (key=val)
   --dns <ip>      DNS server (can repeat)
   --network <m>   Network mode (bridge/none/host)
+  --startup <s>   Startup script (inline or @file)
   --healthcheck-cmd <cmd>      Health check command
   --healthcheck-interval <s>   Health check interval
   --healthcheck-retries <n>    Health check retries

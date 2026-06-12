@@ -66,6 +66,8 @@ func Run(args []string) {
 	healthcheckRetries := fs.Int("healthcheck-retries", 0, "Health check retries")
 	healthcheckTimeout := fs.Int("healthcheck-timeout", 0, "Health check timeout (seconds)")
 
+	startupScript := fs.String("startup", "", "Startup script (inline script or @filepath)")
+
 	fs.Parse(args)
 
 	freeArgs := fs.Args()
@@ -196,9 +198,24 @@ func Run(args []string) {
 		}
 	}
 
+	// Process startup script flag
+	startupScriptVal := *startupScript
+	if startupScriptVal != "" {
+		if strings.HasPrefix(startupScriptVal, "@") {
+			path := startupScriptVal[1:]
+			data, err := os.ReadFile(path)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error reading startup script file %q: %v\n", path, err)
+				os.Exit(1)
+			}
+			startupScriptVal = string(data)
+		}
+	}
+
 	opts := container.CreateOpts{
-		Name:        *name,
-		Cmd:         cmd,
+		Name:          *name,
+		Cmd:           cmd,
+		StartupScript: startupScriptVal,
 		Ports:       ports,
 		Volumes:     volumes,
 		Env:         env,

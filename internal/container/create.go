@@ -48,6 +48,7 @@ func New(img *image.Image, opts CreateOpts) *Container {
 		ImageTag:     img.Tag,
 		Status:       Created,
 		Cmd:          cmd,
+		StartupScript: opts.StartupScript,
 		CreatedAt:    time.Now(),
 		Ports:        opts.Ports,
 		Volumes:      opts.Volumes,

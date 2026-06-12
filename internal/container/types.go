@@ -30,6 +30,7 @@ type Container struct {
 	PID          int                `json:"pid"`
 	Status       Status             `json:"status"`
 	Cmd          []string           `json:"cmd"`
+	StartupScript string             `json:"startup_script,omitempty"`
 	CreatedAt    time.Time          `json:"created_at"`
 	Ports        []PortMap          `json:"ports,omitempty"`
 	Volumes      []VolumeMount      `json:"volumes,omitempty"`
@@ -88,6 +89,7 @@ type VolumeMount struct {
 type CreateOpts struct {
 	Name        string
 	Cmd         []string
+	StartupScript string
 	Ports       []PortMap
 	Volumes     []VolumeMount
 	Env         []string
