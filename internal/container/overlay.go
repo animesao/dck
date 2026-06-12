@@ -1,6 +1,7 @@
 package container
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
@@ -8,18 +9,47 @@ import (
 	"strings"
 )
 
+func ensureOverlayModule() {
+	exec.Command("modprobe", "overlay").Run()
+}
+
+func prepareWorkdir(work string) error {
+	os.RemoveAll(work)
+	return os.MkdirAll(work, 0755)
+}
+
+func tryMountOverlay(lower, upper, work, merged string, extraOpts string) error {
+	opts := fmt.Sprintf("lowerdir=%s,upperdir=%s,workdir=%s", lower, upper, work)
+	if extraOpts != "" {
+		opts = opts + "," + extraOpts
+	}
+	var stderr bytes.Buffer
+	cmd := exec.Command("mount", "-t", "overlay", "overlay",
+		"-o", opts, merged)
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("mount overlay: %w (stderr: %s)", err, strings.TrimSpace(stderr.String()))
+	}
+	return nil
+}
+
 func mountOverlay(lower, upper, work, merged string) error {
 	if runtime.GOOS != "linux" {
 		return nil
 	}
 
-	if err := exec.Command("mount", "-t", "overlay", "overlay",
-		"-o", fmt.Sprintf("lowerdir=%s,upperdir=%s,workdir=%s", lower, upper, work),
-		merged,
-	).Run(); err != nil {
-		return fmt.Errorf("mount overlay: %w", err)
+	ensureOverlayModule()
+
+	if err := prepareWorkdir(work); err != nil {
+		return fmt.Errorf("prepare workdir: %w", err)
 	}
-	return nil
+
+	err := tryMountOverlay(lower, upper, work, merged, "")
+	if err != nil {
+		// Try with common compatibility options
+		err = tryMountOverlay(lower, upper, work, merged, "redirect_dir=off,userxattr")
+	}
+	return err
 }
 
 func unmountOverlay(merged string) {

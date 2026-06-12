@@ -159,7 +159,7 @@ func SetupDiskLimit(overlayBase, id string, limitBytes int64) error {
 		return nil
 	}
 	imgPath := filepath.Join(overlayBase, id, "disk.img")
-	upper := filepath.Join(overlayBase, id, "upper")
+	mnt := filepath.Join(overlayBase, id, "data")
 	_ = os.MkdirAll(filepath.Dir(imgPath), 0755)
 
 	// Create disk image if it doesn't exist
@@ -178,19 +178,23 @@ func SetupDiskLimit(overlayBase, id string, limitBytes int64) error {
 		}
 	}
 
-	// Mount disk image onto upper dir
-	if !isMounted(upper) {
-		os.MkdirAll(upper, 0755)
-		if out, err := exec.Command("mount", "-o", "loop", imgPath, upper).CombinedOutput(); err != nil {
+	// Mount disk image to data dir
+	if !isMounted(mnt) {
+		os.MkdirAll(mnt, 0755)
+		if out, err := exec.Command("mount", "-o", "loop", imgPath, mnt).CombinedOutput(); err != nil {
 			return fmt.Errorf("mount disk: %s: %w", strings.TrimSpace(string(out)), err)
 		}
+		// Create upper and work inside the mounted filesystem
+		// (overlay requires upperdir and workdir on the same fs)
+		os.MkdirAll(filepath.Join(mnt, "upper"), 0755)
+		os.MkdirAll(filepath.Join(mnt, "work"), 0755)
 	}
 	return nil
 }
 
 func TeardownDiskLimit(overlayBase, id string) {
-	upper := filepath.Join(overlayBase, id, "upper")
-	if isMounted(upper) {
-		exec.Command("umount", upper).Run()
+	mnt := filepath.Join(overlayBase, id, "data")
+	if isMounted(mnt) {
+		exec.Command("umount", mnt).Run()
 	}
 }

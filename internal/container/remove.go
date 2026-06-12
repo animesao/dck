@@ -21,9 +21,9 @@ func (c *Container) Remove(force bool) error {
 	c.cleanupNetwork()
 	cleanupContainerCgroup(c.ID, c.CgroupPath)
 
-	TeardownDiskLimit(state.OverlayDir(), c.ID)
 	upper, _, merged := c.OverlayDirs()
 	unmountOverlay(merged)
+	TeardownDiskLimit(state.OverlayDir(), c.ID)
 	os.RemoveAll(filepath.Dir(upper))
 	os.Remove(c.LogFile())
 	c.DeleteState()
