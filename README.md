@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.4.7-blue?style=flat-square">
+  <img src="https://img.shields.io/badge/version-1.12.0-blue?style=flat-square">
   <img src="https://img.shields.io/badge/go-1.18+-00ADD8?style=flat-square&logo=go">
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square">
   <img src="https://img.shields.io/badge/no%20daemon-%E2%9C%93-brightgreen?style=flat-square">
@@ -105,6 +105,10 @@ dck stop web                                # Stop
 dck start web                               # Start stopped
 dck restart web                             # Restart
 dck rm -f web                               # Force remove
+dck rename web web-new                      # Rename container
+dck system prune                            # Remove unused containers and images
+dck info                                    # System information
+dck commit web my-image:v1                  # Create image from container
 ```
 
 ### Logs & Attach
@@ -116,6 +120,9 @@ dck attach web                              # Full history + live stdin/stdout
 dck exec web cat /etc/hostname              # Run command inside
 dck exec -it web /bin/sh                    # Interactive shell
 dck console web                             # Auto-detect shell
+dck top web                                 # Processes inside container
+dck cp web:/etc/hostname .                  # Copy file from container
+dck cp app.py web:/app/                     # Copy file to container
 ```
 
 `dck attach` is **Ctrl+C safe** — container keeps running.
@@ -273,6 +280,23 @@ Packages install into the overlay — they persist across restarts. The `--dry-r
 
 ---
 
+## dck-wings — Container Management Agent
+
+[dck-wings](https://github.com/animesao/dck-wings) is a REST API daemon for managing containers remotely. It runs as a systemd service and allows frontends (like dck-panel) to control containers over HTTP.
+
+```bash
+# Install
+bash <(curl -sfL https://raw.githubusercontent.com/animesao/dck-wings/main/install.sh)
+
+# Start
+systemctl enable --now dck-wings
+
+# API (auth via Bearer token from /etc/dck-wings/config.toml)
+curl -H "Authorization: Bearer <api_key>" http://localhost:8080/api/containers
+```
+
+---
+
 ## Auto-Start on Boot
 
 ```bash
@@ -373,6 +397,12 @@ dck run -d
 ---
 
 ## Changelog
+
+**v1.12.0** — Added `dck cp`, `dck top`, `dck system prune`, `dck rename`, `dck commit`, `dck info` commands.
+
+**v1.11.0** — Debian packaging, APT repository, snap packaging, release workflow.
+
+**v1.10.0** — `dck stats` command with live CPU/RAM/IO/PIDs from cgroup v2.
 
 **v1.4.7** — `dck attach` rewritten (Unix socket, history + live, Ctrl+C safe), console-serve daemon, network readiness, overlay stale mount detection, multi-container fixes.
 
