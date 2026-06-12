@@ -33,6 +33,10 @@ func (c *Container) Start() error {
 	upper, work, merged := c.OverlayDirs()
 	os.MkdirAll(filepath.Dir(upper), 0755)
 
+	if err := SetupDiskLimit(state.OverlayDir(), c.ID, c.DiskLimit); err != nil {
+		return fmt.Errorf("disk limit: %w", err)
+	}
+
 	if _, err := os.Stat(merged); os.IsNotExist(err) || !isOverlayMounted(merged) {
 		if err := SetupOverlay(rootfsDir, upper, work, merged); err != nil {
 			return fmt.Errorf("overlay: %w", err)
@@ -408,6 +412,7 @@ func cleanupContainer(c *Container) {
 		c.cancelHealth = nil
 	}
 	c.cleanupNetwork()
+	TeardownDiskLimit(state.OverlayDir(), c.ID)
 	os.Remove(state.ConsolePath(c.ID))
 	upper, _, merged := c.OverlayDirs()
 	unmountOverlay(merged)

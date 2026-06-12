@@ -35,6 +35,17 @@ func unmountOverlay(merged string) {
 	}
 }
 
+func isMounted(path string) bool {
+	if runtime.GOOS != "linux" {
+		return false
+	}
+	data, err := os.ReadFile("/proc/self/mounts")
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(data), " "+path+" ")
+}
+
 func isOverlayMounted(merged string) bool {
 	if runtime.GOOS != "linux" {
 		return false

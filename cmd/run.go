@@ -38,6 +38,7 @@ func Run(args []string) {
 	volumeMounts := fs.String("v", "", "Volume mounts (src:dst)")
 	memory := fs.String("memory", "", "Memory limit (e.g. 512m, 1g)")
 	cpus := fs.Float64("cpus", 0, "CPU limit (number of CPUs, e.g. 1.5)")
+	disk := fs.Int64("disk", 0, "Disk limit in bytes (e.g. 1073741824 for 1GB)")
 	workdir := fs.String("workdir", "", "Working directory inside container")
 
 	// New flags
@@ -227,6 +228,7 @@ func Run(args []string) {
 		RemoveOnExit: *rm,
 		MemoryLimit:  memoryLimit,
 		CPUCount:     *cpus,
+		DiskLimit:    *disk,
 		WorkingDir:   *workdir,
 		Healthcheck:  hc,
 		Labels:       labelMap,

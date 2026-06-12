@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -65,6 +66,7 @@ func New(img *image.Image, opts CreateOpts) *Container {
 		RemoveOnExit: opts.RemoveOnExit,
 		MemoryLimit:  opts.MemoryLimit,
 		CPUCount:     opts.CPUCount,
+		DiskLimit:    opts.DiskLimit,
 		WorkingDir:   workdir,
 		Healthcheck:  opts.Healthcheck,
 		Labels:       opts.Labels,
@@ -150,4 +152,45 @@ func SetupOverlay(rootfs, upper, work, merged string) error {
 		}
 	}
 	return mountOverlay(rootfs, upper, work, merged)
+}
+
+func SetupDiskLimit(overlayBase, id string, limitBytes int64) error {
+	if limitBytes <= 0 {
+		return nil
+	}
+	imgPath := filepath.Join(overlayBase, id, "disk.img")
+	upper := filepath.Join(overlayBase, id, "upper")
+	_ = os.MkdirAll(filepath.Dir(imgPath), 0755)
+
+	// Create disk image if it doesn't exist
+	if _, err := os.Stat(imgPath); os.IsNotExist(err) {
+		f, err := os.Create(imgPath)
+		if err != nil {
+			return fmt.Errorf("create disk image: %w", err)
+		}
+		if err := f.Truncate(limitBytes); err != nil {
+			f.Close()
+			return fmt.Errorf("truncate disk image: %w", err)
+		}
+		f.Close()
+		if out, err := exec.Command("mkfs.ext4", "-F", imgPath).CombinedOutput(); err != nil {
+			return fmt.Errorf("mkfs.ext4: %s: %w", strings.TrimSpace(string(out)), err)
+		}
+	}
+
+	// Mount disk image onto upper dir
+	if !isMounted(upper) {
+		os.MkdirAll(upper, 0755)
+		if out, err := exec.Command("mount", "-o", "loop", imgPath, upper).CombinedOutput(); err != nil {
+			return fmt.Errorf("mount disk: %s: %w", strings.TrimSpace(string(out)), err)
+		}
+	}
+	return nil
+}
+
+func TeardownDiskLimit(overlayBase, id string) {
+	upper := filepath.Join(overlayBase, id, "upper")
+	if isMounted(upper) {
+		exec.Command("umount", upper).Run()
+	}
 }

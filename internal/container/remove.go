@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"dck/internal/state"
 )
 
 func (c *Container) Remove(force bool) error {
@@ -19,6 +21,7 @@ func (c *Container) Remove(force bool) error {
 	c.cleanupNetwork()
 	cleanupContainerCgroup(c.ID, c.CgroupPath)
 
+	TeardownDiskLimit(state.OverlayDir(), c.ID)
 	upper, _, merged := c.OverlayDirs()
 	unmountOverlay(merged)
 	os.RemoveAll(filepath.Dir(upper))
