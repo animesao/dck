@@ -218,7 +218,7 @@ dck run -d --restart always \
 redis-cli -h localhost ping
 ```
 
-### Minecraft Server
+### Minecraft Server (itzg/minecraft-server)
 
 ```bash
 dck run -d --restart always \
@@ -226,6 +226,44 @@ dck run -d --restart always \
   -v mc_data:/data \
   -e EULA=TRUE -e TYPE=PAPER -e VERSION=1.20.4 \
   itzg/minecraft-server
+```
+
+### Minecraft Server (чистый Java + `--startup`)
+
+Сначала создай скрипт `mc-startup.sh`:
+
+```bash
+#!/bin/sh
+set -e
+SERVER_DIR="/data"
+SERVER_JAR="server.jar"
+MAX_MEM="${DCK_MEMORY:-2G}"
+echo "eula=true" > "$SERVER_DIR/eula.txt"
+if [ ! -f "$SERVER_DIR/$SERVER_JAR" ]; then
+  curl -fsSL -o "$SERVER_DIR/$SERVER_JAR" \
+    "https://api.papermc.io/v2/projects/paper/versions/1.21.4/builds/latest/downloads/paper-1.21.4-latest.jar"
+fi
+exec java -Xms512M -Xmx$MAX_MEM -jar "$SERVER_DIR/$SERVER_JAR" nogui
+```
+
+Запуск:
+
+```bash
+dck run -d --restart always \
+  -n mc-paper -p 25565:25565 \
+  -v mc_data:/data --memory 4G --cpus 4 \
+  --startup @mc-startup.sh \
+  eclipse-temurin:21-jdk
+```
+
+Для Paper 1.16.5 (Java 16):
+
+```bash
+dck run -d --restart always \
+  -n mc-1165 -p 25565:25565 \
+  -v mc1165_data:/data --memory 4G --cpus 4 \
+  --startup @mc-startup.sh \
+  eclipse-temurin:16-jdk
 ```
 
 ### Node.js App
