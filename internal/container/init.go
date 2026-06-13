@@ -239,8 +239,11 @@ func InitContainer(id, merged string) error {
 	// Ensure /tmp is world-writable (critical for images that switch users)
 	os.Chmod("/tmp", 01777)
 
+	// Bring up loopback interface (best-effort, iproute2 may not be in the image)
 	if err := exec.Command("ip", "link", "set", "lo", "up").Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: ip link set lo up: %v\n", err)
+		if err2 := exec.Command("ifconfig", "lo", "up").Run(); err2 != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not bring up loopback (install iproute2 or net-tools): %v\n", err)
+		}
 	}
 
 	for i := 0; i < 200; i++ {

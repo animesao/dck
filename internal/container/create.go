@@ -26,7 +26,7 @@ func New(img *image.Image, opts CreateOpts) *Container {
 	}
 	workdir := opts.WorkingDir
 	if workdir == "" {
-		workdir = "/"
+		workdir = "/home/container"
 	}
 	cmd := opts.Cmd
 	if len(cmd) == 0 {
