@@ -1,9 +1,12 @@
+//go:build linux
+
 package container
 
 import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"dck/internal/state"
 )
@@ -15,6 +18,14 @@ func (c *Container) Remove(force bool) error {
 		}
 		if err := c.Stop(); err != nil {
 			return err
+		}
+	}
+
+	// Remove named volumes
+	for _, vol := range c.Volumes {
+		if !strings.Contains(vol.Source, "/") && !strings.Contains(vol.Source, "\\") {
+			volPath := state.ResolveVolume(vol.Source)
+			os.RemoveAll(volPath)
 		}
 	}
 
