@@ -10,8 +10,8 @@ import (
 
 func Exec(args []string) {
 	fs := flag.NewFlagSet("exec", flag.ExitOnError)
-	_ = fs.Bool("i", false, "Interactive mode")
-	_ = fs.Bool("t", false, "Allocate TTY")
+	interactive := fs.Bool("i", false, "Interactive mode")
+	tty := fs.Bool("t", false, "Allocate TTY")
 	fs.Parse(args)
 
 	remaining := fs.Args()
@@ -31,7 +31,7 @@ func Exec(args []string) {
 		os.Exit(1)
 	}
 
-	if err := c.ExecOpts(remaining[1:], true); err != nil {
+	if err := c.ExecOpts(remaining[1:], *interactive, *tty); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}

@@ -10,7 +10,9 @@ import (
 )
 
 func ensureOverlayModule() {
-	exec.Command("modprobe", "overlay").Run()
+	if err := exec.Command("modprobe", "overlay").Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: modprobe overlay: %v\n", err)
+	}
 }
 
 func prepareWorkdir(work string) error {
@@ -60,7 +62,9 @@ func unmountOverlay(merged string) {
 		// Try normal unmount first so kernel can release dentry/page cache.
 		// Fall back to lazy if something still holds references.
 		if err := exec.Command("umount", merged).Run(); err != nil {
-			exec.Command("umount", "-l", merged).Run()
+			if err := exec.Command("umount", "-l", merged).Run(); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: lazy umount %s: %v\n", merged, err)
+			}
 		}
 	}
 }

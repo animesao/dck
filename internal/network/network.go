@@ -14,8 +14,12 @@ import (
 )
 
 func EnsureSysctl() {
-	exec.Command("sysctl", "-w", "net.ipv4.ip_forward=1").Run()
-	exec.Command("sysctl", "-w", "net.ipv4.conf.all.route_localnet=1").Run()
+	if err := exec.Command("sysctl", "-w", "net.ipv4.ip_forward=1").Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: sysctl ip_forward: %v\n", err)
+	}
+	if err := exec.Command("sysctl", "-w", "net.ipv4.conf.all.route_localnet=1").Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: sysctl route_localnet: %v\n", err)
+	}
 
 	os.MkdirAll("/etc/sysctl.d", 0755)
 	confPath := "/etc/sysctl.d/99-dck.conf"
@@ -60,8 +64,12 @@ func EnsureUFW() {
 	if _, err := exec.Command("ufw", "status").Output(); err != nil {
 		return
 	}
-	exec.Command("ufw", "route", "allow", "in", "on", BridgeName).Run()
-	exec.Command("ufw", "route", "allow", "out", "on", BridgeName).Run()
+	if err := exec.Command("ufw", "route", "allow", "in", "on", BridgeName).Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: ufw allow in: %v\n", err)
+	}
+	if err := exec.Command("ufw", "route", "allow", "out", "on", BridgeName).Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: ufw allow out: %v\n", err)
+	}
 }
 
 func EnsureNetBase() {
@@ -137,7 +145,9 @@ func ReleaseIP(ip string) {
 }
 
 func flushBridgeNeigh(ip string) {
-	exec.Command("ip", "neigh", "flush", "dev", BridgeName, "to", ip).Run()
+	if err := exec.Command("ip", "neigh", "flush", "dev", BridgeName, "to", ip).Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: ip neigh flush: %v\n", err)
+	}
 }
 
 func removeOrphanVeths() {
@@ -170,7 +180,9 @@ func removeOrphanVeths() {
 			}
 		}
 		if !hasContainer {
-			exec.Command("ip", "link", "delete", ifName).Run()
+			if err := exec.Command("ip", "link", "delete", ifName).Run(); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: ip link delete %s: %v\n", ifName, err)
+			}
 		}
 	}
 }
@@ -179,22 +191,34 @@ func EnsureBridge() error {
 	removeOrphanVeths()
 
 	if err := exec.Command("ip", "link", "show", BridgeName).Run(); err != nil {
-		exec.Command("ip", "link", "add", BridgeName, "type", "bridge").Run()
-		exec.Command("ip", "addr", "add", fmt.Sprintf("%s/24", BridgeIP), "dev", BridgeName).Run()
+		if err := exec.Command("ip", "link", "add", BridgeName, "type", "bridge").Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: ip link add bridge: %v\n", err)
+		}
+		if err := exec.Command("ip", "addr", "add", fmt.Sprintf("%s/24", BridgeIP), "dev", BridgeName).Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: ip addr add bridge: %v\n", err)
+		}
 	}
-	exec.Command("ip", "link", "set", BridgeName, "up").Run()
+	if err := exec.Command("ip", "link", "set", BridgeName, "up").Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: ip link set bridge up: %v\n", err)
+	}
 
 	if err := exec.Command("iptables", "-t", "nat", "-C", "POSTROUTING",
 		"-s", BridgeCIDR, "!", "-o", BridgeName, "-j", "MASQUERADE").Run(); err != nil {
-		exec.Command("iptables", "-t", "nat", "-A", "POSTROUTING",
-			"-s", BridgeCIDR, "!", "-o", BridgeName, "-j", "MASQUERADE").Run()
+		if err := exec.Command("iptables", "-t", "nat", "-A", "POSTROUTING",
+			"-s", BridgeCIDR, "!", "-o", BridgeName, "-j", "MASQUERADE").Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: iptables MASQUERADE: %v\n", err)
+		}
 	}
 
 	if err := exec.Command("iptables", "-C", "FORWARD", "-i", BridgeName, "-j", "ACCEPT").Run(); err != nil {
-		exec.Command("iptables", "-A", "FORWARD", "-i", BridgeName, "-j", "ACCEPT").Run()
+		if err := exec.Command("iptables", "-A", "FORWARD", "-i", BridgeName, "-j", "ACCEPT").Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: iptables FORWARD -i: %v\n", err)
+		}
 	}
 	if err := exec.Command("iptables", "-C", "FORWARD", "-o", BridgeName, "-j", "ACCEPT").Run(); err != nil {
-		exec.Command("iptables", "-A", "FORWARD", "-o", BridgeName, "-j", "ACCEPT").Run()
+		if err := exec.Command("iptables", "-A", "FORWARD", "-o", BridgeName, "-j", "ACCEPT").Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: iptables FORWARD -o: %v\n", err)
+		}
 	}
 	return nil
 }
@@ -203,11 +227,19 @@ func SetupVeth(containerID string, pid int, containerIP string) error {
 	hostIf := fmt.Sprintf("ve%s", containerID[:8])
 	contIf := fmt.Sprintf("vc%s", containerID[:8])
 
-	exec.Command("ip", "link", "add", hostIf, "type", "veth", "peer", "name", contIf).Run()
+	if err := exec.Command("ip", "link", "add", hostIf, "type", "veth", "peer", "name", contIf).Run(); err != nil {
+		return fmt.Errorf("create veth pair: %w", err)
+	}
 
-	exec.Command("ip", "link", "set", contIf, "netns", fmt.Sprintf("%d", pid)).Run()
-	exec.Command("ip", "link", "set", hostIf, "master", BridgeName).Run()
-	exec.Command("ip", "link", "set", hostIf, "up").Run()
+	if err := exec.Command("ip", "link", "set", contIf, "netns", fmt.Sprintf("%d", pid)).Run(); err != nil {
+		return fmt.Errorf("move veth to netns: %w", err)
+	}
+	if err := exec.Command("ip", "link", "set", hostIf, "master", BridgeName).Run(); err != nil {
+		return fmt.Errorf("attach veth to bridge: %w", err)
+	}
+	if err := exec.Command("ip", "link", "set", hostIf, "up").Run(); err != nil {
+		return fmt.Errorf("set host veth up: %w", err)
+	}
 
 	runInNetns(pid, "ip", "link", "set", "lo", "up")
 	runInNetns(pid, "ip", "link", "set", contIf, "name", "eth0")
@@ -248,7 +280,9 @@ func removeExistingDNAT(chain string, hostPort int, protocol string) {
 			continue
 		}
 		del := strings.Replace(line, "-A", "-D", 1)
-		exec.Command("iptables", append([]string{"-t", "nat"}, strings.Fields(del)...)...).Run()
+		if err := exec.Command("iptables", append([]string{"-t", "nat"}, strings.Fields(del)...)...).Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: iptables delete DNAT: %v\n", err)
+		}
 	}
 }
 
@@ -256,14 +290,18 @@ func ufwAllowPort(hostPort int, protocol string) {
 	if _, err := exec.Command("ufw", "status").Output(); err != nil {
 		return
 	}
-	exec.Command("ufw", "allow", fmt.Sprintf("%d/%s", hostPort, protocol)).Run()
+	if err := exec.Command("ufw", "allow", fmt.Sprintf("%d/%s", hostPort, protocol)).Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: ufw allow port %d/%s: %v\n", hostPort, protocol, err)
+	}
 }
 
 func ufwDenyPort(hostPort int, protocol string) {
 	if _, err := exec.Command("ufw", "status").Output(); err != nil {
 		return
 	}
-	exec.Command("ufw", "delete", "allow", fmt.Sprintf("%d/%s", hostPort, protocol)).Run()
+	if err := exec.Command("ufw", "delete", "allow", fmt.Sprintf("%d/%s", hostPort, protocol)).Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: ufw deny port %d/%s: %v\n", hostPort, protocol, err)
+	}
 }
 
 func AddPortForwarding(containerIP string, hostPort, containerPort int, protocol string) error {
@@ -298,9 +336,13 @@ func AddPortForwarding(containerIP string, hostPort, containerPort int, protocol
 	}
 	if err := exec.Command("iptables", fwd...).Run(); err != nil {
 		rollback := append([]string{"-t", "nat", "-D"}, dnat[3:]...)
-		exec.Command("iptables", rollback...).Run()
+		if err := exec.Command("iptables", rollback...).Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: iptables rollback DNAT: %v\n", err)
+		}
 		rollback2 := append([]string{"-t", "nat", "-D"}, output[3:]...)
-		exec.Command("iptables", rollback2...).Run()
+		if err := exec.Command("iptables", rollback2...).Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: iptables rollback OUTPUT: %v\n", err)
+		}
 		return fmt.Errorf("FORWARD: %w", err)
 	}
 
@@ -310,25 +352,33 @@ func AddPortForwarding(containerIP string, hostPort, containerPort int, protocol
 }
 
 func RemovePortForwarding(containerIP string, hostPort, containerPort int, protocol string) {
-	exec.Command("iptables", "-t", "nat", "-D", "PREROUTING",
+	if err := exec.Command("iptables", "-t", "nat", "-D", "PREROUTING",
 		"-p", protocol, "--dport", fmt.Sprintf("%d", hostPort),
-		"-j", "DNAT", "--to-destination", fmt.Sprintf("%s:%d", containerIP, containerPort)).Run()
+		"-j", "DNAT", "--to-destination", fmt.Sprintf("%s:%d", containerIP, containerPort)).Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: iptables delete PREROUTING DNAT: %v\n", err)
+	}
 
-	exec.Command("iptables", "-t", "nat", "-D", "OUTPUT",
+	if err := exec.Command("iptables", "-t", "nat", "-D", "OUTPUT",
 		"-p", protocol, "--dport", fmt.Sprintf("%d", hostPort),
 		"-m", "addrtype", "--dst-type", "LOCAL",
-		"-j", "DNAT", "--to-destination", fmt.Sprintf("%s:%d", containerIP, containerPort)).Run()
+		"-j", "DNAT", "--to-destination", fmt.Sprintf("%s:%d", containerIP, containerPort)).Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: iptables delete OUTPUT DNAT: %v\n", err)
+	}
 
-	exec.Command("iptables", "-D", "FORWARD",
+	if err := exec.Command("iptables", "-D", "FORWARD",
 		"-p", protocol, "-d", containerIP, "--dport", fmt.Sprintf("%d", containerPort),
-		"-j", "ACCEPT").Run()
+		"-j", "ACCEPT").Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: iptables delete FORWARD: %v\n", err)
+	}
 
 	ufwDenyPort(hostPort, protocol)
 }
 
 func RemoveVeth(containerID string) {
 	hostIf := fmt.Sprintf("ve%s", containerID[:8])
-	exec.Command("ip", "link", "delete", hostIf).Run()
+	if err := exec.Command("ip", "link", "delete", hostIf).Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: ip link delete %s: %v\n", hostIf, err)
+	}
 }
 
 func CleanupContainerNetwork(containerID, containerIP string, ports []PortRule) {

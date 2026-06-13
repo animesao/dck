@@ -17,6 +17,16 @@ import (
 	"dck/internal/state"
 )
 
+func commandContext30(name string, arg ...string) *exec.Cmd {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	cmd := exec.CommandContext(ctx, name, arg...)
+	go func() {
+		<-ctx.Done()
+		cancel()
+	}()
+	return cmd
+}
+
 func (c *Container) Start() error {
 	if c.Status != Created && c.Status != Stopped {
 		return fmt.Errorf("container %s is %s, cannot start", c.ID, c.Status)
@@ -59,10 +69,12 @@ func (c *Container) Start() error {
 		// Copy image content into empty volumes (Docker-compatible behavior)
 		empty, _ := isDirEmpty(srcPath)
 		if empty {
-			exec.Command("cp", "-a", target+"/.", srcPath+"/").Run()
+			if err := commandContext30("cp", "-a", target+"/.", srcPath+"/").Run(); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: cp -a %s/. %s/: %v\n", target, srcPath, err)
+			}
 		}
 
-		if err := exec.Command("mount", "--bind", srcPath, target).Run(); err != nil {
+		if err := commandContext30("mount", "--bind", srcPath, target).Run(); err != nil {
 			return fmt.Errorf("mount volume %s -> %s: %w", vol.Source, vol.Target, err)
 		}
 	}
@@ -74,7 +86,7 @@ func (c *Container) Start() error {
 
 	unshareArgs := []string{
 		"--fork", "--pid", "--mount", "--net", "--uts", "--ipc", "--kill-child",
-		binPath, "init", c.ID,
+		binPath, "init", c.ID, merged,
 	}
 
 	cmd := exec.Command("unshare", unshareArgs...)
@@ -294,8 +306,8 @@ func monitorContainer(c *Container, cmd *exec.Cmd, ctx context.Context) {
 
 		stoppedByUser := c.StoppedByUser
 		if !stoppedByUser {
-			if reloaded, err := Load(c.ID); err == nil {
-				stoppedByUser = reloaded.StoppedByUser
+			if _, ok := stoppedContainers.Load(c.ID); ok {
+				stoppedByUser = true
 			}
 		}
 
@@ -350,7 +362,9 @@ func (c *Container) runHealthcheck(ctx context.Context) {
 		if err != nil {
 			failures++
 			if failures >= retries {
-				exec.Command("kill", "-9", strconv.Itoa(c.PID)).Run()
+				if err := commandContext30("kill", "-9", strconv.Itoa(c.PID)).Run(); err != nil {
+					fmt.Fprintf(os.Stderr, "Warning: kill -9 %d: %v\n", c.PID, err)
+				}
 				return
 			}
 		} else {

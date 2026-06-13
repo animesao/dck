@@ -1,3 +1,5 @@
+//go:build linux
+
 package container
 
 import (
@@ -175,7 +177,7 @@ func ensureUsrMerge() {
 	}
 }
 
-func InitContainer(id string) error {
+func InitContainer(id, merged string) error {
 	if runtime.GOOS != "linux" {
 		return fmt.Errorf("container init only supported on Linux")
 	}
@@ -185,19 +187,30 @@ func InitContainer(id string) error {
 		return err
 	}
 
-	_, _, merged := c.OverlayDirs()
-
 	cfgData, _ := os.ReadFile(state.ImageDir(c.ImageName, c.ImageTag) + "/config.json")
 
 	if err := syscall.Sethostname([]byte(c.Hostname)); err != nil {
 		return fmt.Errorf("sethostname: %w", err)
 	}
 
-	if err := syscall.Chroot(merged); err != nil {
-		return fmt.Errorf("chroot: %w", err)
+	if err := syscall.Chdir(merged); err != nil {
+		return fmt.Errorf("chdir to merged: %w", err)
+	}
+	putOld := filepath.Join(merged, ".old_root")
+	if err := os.MkdirAll(putOld, 0700); err != nil {
+		return fmt.Errorf("mkdir .old_root: %w", err)
+	}
+	if err := syscall.PivotRoot(merged, putOld); err != nil {
+		return fmt.Errorf("pivot_root: %w", err)
 	}
 	if err := syscall.Chdir("/"); err != nil {
 		return fmt.Errorf("chdir: %w", err)
+	}
+	if err := syscall.Unmount("/.old_root", syscall.MNT_DETACH); err != nil {
+		return fmt.Errorf("unmount old_root: %w", err)
+	}
+	if err := os.RemoveAll("/.old_root"); err != nil {
+		return fmt.Errorf("remove old_root: %w", err)
 	}
 
 	os.MkdirAll("/proc", 0755)
@@ -226,7 +239,9 @@ func InitContainer(id string) error {
 	// Ensure /tmp is world-writable (critical for images that switch users)
 	os.Chmod("/tmp", 01777)
 
-	exec.Command("ip", "link", "set", "lo", "up").Run()
+	if err := exec.Command("ip", "link", "set", "lo", "up").Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: ip link set lo up: %v\n", err)
+	}
 
 	for i := 0; i < 200; i++ {
 		out, _ := exec.Command("ip", "addr", "show", "eth0").Output()

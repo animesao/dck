@@ -1,3 +1,4 @@
+// Package container -- NOTE: RCON protocol implementation is currently unused.
 package container
 
 import (

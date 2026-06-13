@@ -24,9 +24,9 @@ func Console(args []string) {
 		os.Exit(1)
 	}
 
-	err = c.Exec([]string{"sh", "-c", "exec bash 2>/dev/null || exec sh"})
+	err = c.ExecOpts([]string{"sh", "-c", "exec bash 2>/dev/null || exec sh"}, true, true)
 	if err != nil {
-		err = c.Exec([]string{"/bin/sh"})
+		err = c.ExecOpts([]string{"/bin/sh"}, true, true)
 	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)

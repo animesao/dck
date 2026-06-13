@@ -9,6 +9,10 @@ import (
 	"dck/internal/state"
 )
 
+// stoppedContainers is a shared map used to signal container stop events
+// across goroutines without relying on disk I/O or stale in-memory state.
+var stoppedContainers sync.Map
+
 type HealthcheckConfig struct {
 	Cmd      string `json:"cmd" toml:"cmd"`
 	Interval int    `json:"interval,omitempty" toml:"interval,omitempty"`

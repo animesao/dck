@@ -1,3 +1,5 @@
+//go:build linux
+
 package container
 
 import (
@@ -42,16 +44,17 @@ func (c *Container) Stop() error {
 		return nil
 	}
 	c.cleanupStarted = true
+	c.StoppedByUser = true
+	stoppedContainers.Store(c.ID, true)
 	c.mu.Unlock()
+
+	c.Save()
 
 	unsharePID := findUnsharePID(c.PID)
 	targetPID := c.PID
 	if unsharePID != 0 {
 		targetPID = unsharePID
 	}
-
-	c.StoppedByUser = true
-	c.Save()
 
 	// Kill the target (unshare parent). If unshare was started by a
 	// previous dck run -d process, --kill-child won't fire on SIGKILL
@@ -62,12 +65,16 @@ func (c *Container) Stop() error {
 	//
 	// We can't use proc.Wait() — process was reparented to init, so
 	// Wait() would return ECHILD. Poll with kill(pid, 0) instead.
-	syscall.Kill(targetPID, syscall.SIGKILL)
+	if err := syscall.Kill(targetPID, syscall.SIGKILL); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: kill target PID %d: %v\n", targetPID, err)
+	}
 	waitForExit(targetPID, 5*time.Second)
 
 	// Kill the container init directly (survives if unshare was killed)
 	if unsharePID != 0 && c.PID > 0 {
-		syscall.Kill(c.PID, syscall.SIGKILL)
+		if err := syscall.Kill(c.PID, syscall.SIGKILL); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: kill container PID %d: %v\n", c.PID, err)
+		}
 		waitForExit(c.PID, 3*time.Second)
 	}
 
@@ -86,7 +93,9 @@ func (c *Container) Stop() error {
 
 func (c *Container) killConsoleServe() {
 	if c.ConsoleServePID > 0 {
-		syscall.Kill(c.ConsoleServePID, syscall.SIGKILL)
+		if err := syscall.Kill(c.ConsoleServePID, syscall.SIGKILL); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: kill console-serve PID %d: %v\n", c.ConsoleServePID, err)
+		}
 		c.ConsoleServePID = 0
 	}
 }

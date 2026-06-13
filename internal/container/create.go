@@ -195,6 +195,8 @@ func SetupDiskLimit(overlayBase, id string, limitBytes int64) error {
 func TeardownDiskLimit(overlayBase, id string) {
 	mnt := filepath.Join(overlayBase, id, "data")
 	if isMounted(mnt) {
-		exec.Command("umount", mnt).Run()
+		if err := exec.Command("umount", mnt).Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: umount %s: %v\n", mnt, err)
+		}
 	}
 }
