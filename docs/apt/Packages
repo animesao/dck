@@ -43,8 +43,8 @@ Version: 1.15.0
 Architecture: amd64
 Maintainer: animesao <animesao@users.noreply.github.com>
 Filename: dck_1.15.0_amd64.deb
-Size: 2475428
-SHA256: b88f12048520bcac7403e0eb55fec57342880f25321906cb73ff0036da9d6c5b
+Size: 2475346
+SHA256: c991fa539d2a5e1f138fa8602451d63e392999a46671c797b279745af28aeafd
 Description: dck - lightweight container runtime
  No daemon. No Docker. Just containers.
 
