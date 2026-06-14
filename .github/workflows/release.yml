@@ -3,13 +3,14 @@ name: Release
 on:
   push:
     tags:
-      - '[0-9]+.[0-9]+.[0-9]+'
+      - 'v*'
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  build-deb:
+  goreleaser:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,111 +19,15 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '>=1.18'
+          go-version: '1.22'
 
-      - name: Read version
-        run: echo "VERSION=$(cat VERSION | head -1 | tr -d '[:space:]')" >> $GITHUB_ENV
+      - name: Install Snapcraft
+        run: sudo snap install snapcraft --classic
 
-      - name: Build snap package
-        uses: snapcore/action-build@v1
-        id: snapcraft
+      - uses: goreleaser/goreleaser-action@v6
         with:
-          snapcraft-args: --destructive-mode
-
-      - name: Build .deb package
-        run: |
-          set -e
-          echo "Building dck v$VERSION..."
-
-          # Build binary
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X dck/cmd.version=$VERSION" -o dck .
-
-          # Build .deb
-          PKG_ROOT="packaging/deb"
-          install -d "$PKG_ROOT/usr/bin"
-          install -m 755 dck "$PKG_ROOT/usr/bin/dck"
-          chmod 755 "$PKG_ROOT/DEBIAN/postinst" "$PKG_ROOT/DEBIAN/prerm"
-          mkdir -p dist
-          dpkg-deb --build "$PKG_ROOT" "dist/dck_${VERSION}_amd64.deb"
-
-          echo "Built: dist/dck_${VERSION}_amd64.deb"
-
-      - name: Extract changelog
-        run: |
-          TAG="${{ github.ref_name }}"
-          VERSION="${TAG#v}"
-          awk -v ver="$VERSION" '
-            /^## / {
-              if (found) exit
-              if ($0 ~ "^## " ver " ") found=1
-              next
-            }
-            found { print }
-          ' CHANGELOG.md > /tmp/release-notes.md
-          echo "Release notes extracted for v$VERSION"
-
-      - name: Create release and upload .deb + .snap
+          distribution: goreleaser
+          version: "~> 2"
+          args: release --clean
         env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create ${{ github.ref_name }} --title "${{ github.ref_name }}" --notes-file /tmp/release-notes.md 2>/dev/null || true
-          gh release upload ${{ github.ref_name }} dist/*.deb --clobber
-          gh release upload ${{ github.ref_name }} "${{ steps.snapcraft.outputs.snap }}" --clobber
-
-      - name: Generate APT repo metadata (flat layout)
-        run: |
-          set -e
-          APT_DIR="docs/apt"
-          mkdir -p "$APT_DIR"
-          cp "dist/dck_${VERSION}_amd64.deb" "$APT_DIR/"
-
-          cd "$APT_DIR"
-          > Packages
-          for deb in *.deb; do
-            SIZE=$(stat -c%s "$deb")
-            SHA256=$(sha256sum "$deb" | cut -d' ' -f1)
-            echo "Package: dck" >> Packages
-            echo "Version: ${VERSION}" >> Packages
-            echo "Architecture: amd64" >> Packages
-            echo "Maintainer: animesao <animesao@users.noreply.github.com>" >> Packages
-            echo "Filename: $deb" >> Packages
-            echo "Size: $SIZE" >> Packages
-            echo "SHA256: $SHA256" >> Packages
-            echo "Description: dck - lightweight container runtime" >> Packages
-            echo " No daemon. No Docker. Just containers." >> Packages
-            echo "" >> Packages
-          done
-          gzip -9fk Packages
-
-          NOW=$(date -u +"%a, %d %b %Y %H:%M:%S UTC")
-          {
-            echo "Origin: dck"
-            echo "Label: dck APT Repository"
-            echo "Suite: stable"
-            echo "Codename: dck"
-            echo "Date: $NOW"
-            echo "Architectures: amd64"
-            echo "Description: dck lightweight container runtime"
-            echo "SHA256:"
-            echo " $(sha256sum Packages | cut -d' ' -f1) $(stat -c%s 'Packages') Packages"
-            echo " $(sha256sum Packages.gz | cut -d' ' -f1) $(stat -c%s 'Packages.gz') Packages.gz"
-          } > Release
-          cp Release InRelease
-          rm -rf binary-amd64 2>/dev/null || true
-
-      - name: Commit APT repo to main
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          git config user.name "github-actions"
-          git config user.email "actions@github.com"
-          git fetch origin main
-          git checkout main
-          # Only add docs/apt/ if the directory exists (might not on first run)
-          if [ -d docs/apt ]; then
-            git add docs/apt/
-            git commit -m "Update APT repo for v${VERSION}" --allow-empty
-            git push origin main
-          else
-            echo "docs/apt/ not found - skipping APT repo commit"
-          fi
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
