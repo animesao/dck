@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 jobs:
-  goreleaser:
+  release:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,13 +21,24 @@ jobs:
         with:
           go-version: '1.22'
 
-      - name: Install Snapcraft
-        run: sudo snap install snapcraft --classic
-
       - uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
           version: "~> 2"
           args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Snapcraft
+        run: sudo snap install snapcraft --classic
+
+      - name: Build snap
+        run: |
+          sed -i "s/^version:.*/version: ${GITHUB_REF_NAME#v}/" snap/snapcraft.yaml
+          snapcraft --destructive-mode
+
+      - name: Upload snap to release
+        run: |
+          gh release upload "${GITHUB_REF_NAME}" ./*.snap --repo "${GITHUB_REPOSITORY}" --clobber
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

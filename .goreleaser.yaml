@@ -21,10 +21,6 @@ nfpms:
     homepage: https://github.com/animesao/dck
     description: Lightweight container runtime
 
-snapcrafts:
-  - name: dck
-    publish: false
-
 archives:
   - name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     formats: [tar.gz]

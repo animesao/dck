@@ -1,6 +1,6 @@
 name: dck
 base: core22
-version: 1.16.0
+version: latest
 summary: Lightweight container runtime
 description: |
   dck is a lightweight container runtime for Linux.
@@ -17,6 +17,5 @@ parts:
   dck:
     plugin: go
     source: .
-    source-type: local
     build-snaps:
       - go/1.22/stable
