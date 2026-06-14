@@ -1,11 +1,6 @@
 version: 2
 project_name: dck
 
-before:
-  hooks:
-    - cmd: go mod tidy
-      dir: .
-
 builds:
   - binary: dck
     goos: [linux]
