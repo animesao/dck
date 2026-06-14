@@ -2,11 +2,14 @@ package cmd
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -57,14 +60,49 @@ func Update(args []string) {
 		return
 	}
 
+	// Determine architecture for binary download
+	arch := runtime.GOARCH
+	goos := runtime.GOOS
+	binaryName := fmt.Sprintf("dck-%s-%s", goos, arch)
+	if goos == "windows" {
+		binaryName += ".exe"
+	}
+
+	checksumURL := fmt.Sprintf("%s/releases/download/%s/%s.sha256", baseURL, latest, binaryName)
+	binaryURL := fmt.Sprintf("%s/releases/download/%s/%s", baseURL, latest, binaryName)
+
 	fmt.Println("Downloading update...")
-	body, err := fetchURL(baseURL + "/main/install.sh")
+	expectedChecksum, err := fetchURL(checksumURL)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to fetch installer: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Warning: could not fetch checksum (proceeding without verification): %v\n", err)
+	}
+
+	body, err := fetchURL(binaryURL)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to download binary: %v\n", err)
 		os.Exit(1)
 	}
 
-	tmpFile, err := os.CreateTemp("", "dck-install-*.sh")
+	if expectedChecksum != "" {
+		hash := sha256.Sum256([]byte(body))
+		actualHex := hex.EncodeToString(hash[:])
+		expectedHex := strings.TrimSpace(strings.Split(expectedChecksum, " ")[0])
+		if !strings.EqualFold(actualHex, expectedHex) {
+			fmt.Fprintf(os.Stderr, "Checksum mismatch! Expected %s, got %s. Aborting update.\n", expectedHex, actualHex)
+			os.Exit(1)
+		}
+		fmt.Println("Checksum verified.")
+	}
+
+	// Get current binary path
+	selfPath, err := os.Executable()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to get current binary path: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Write new binary to temp file
+	tmpFile, err := os.CreateTemp("", "dck-update-*")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to create temp file: %v\n", err)
 		os.Exit(1)
@@ -83,17 +121,13 @@ func Update(args []string) {
 		os.Exit(1)
 	}
 
-	cmd := exec.Command("sudo", tmpPath)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Stdin = os.Stdin
-	if err := cmd.Run(); err != nil {
+	cmd := exec.Command("mv", tmpPath, selfPath)
+	if out, err := cmd.CombinedOutput(); err != nil {
 		os.Remove(tmpPath)
-		fmt.Fprintf(os.Stderr, "Update failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Failed to install update: %v: %s\n", err, string(out))
 		os.Exit(1)
 	}
 
-	os.Remove(tmpPath)
 	fmt.Println("Update complete!")
 }
 
