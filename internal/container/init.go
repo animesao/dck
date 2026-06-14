@@ -389,16 +389,6 @@ func InitContainer(id, merged string) error {
 		}
 	}
 
-	// Apply no_new_privs (prevents setuid/capability escalation for child processes)
-	// Enabled by default for security; disable with --no-new-privs=false or cap-add SETUID/SETGID
-	if !c.NoNewPrivileges {
-		if !userKept["SETUID"] && !userKept["SETGID"] {
-			setNoNewPrivileges()
-		}
-	} else {
-		setNoNewPrivileges()
-	}
-
 	// Capability security model:
 	// 1. Start with all capabilities in bounding set (from unshare'd root)
 	// 2. Drop dangerous capabilities by default (safe default)
@@ -417,6 +407,16 @@ func InitContainer(id, merged string) error {
 			upper = strings.TrimPrefix(upper, "CAP_")
 			userKept[upper] = true
 		}
+	}
+
+	// Apply no_new_privs (prevents setuid/capability escalation for child processes)
+	// Enabled by default for security; disable with --no-new-privs=false or cap-add SETUID/SETGID
+	if !c.NoNewPrivileges {
+		if !userKept["SETUID"] && !userKept["SETGID"] {
+			setNoNewPrivileges()
+		}
+	} else {
+		setNoNewPrivileges()
 	}
 
 	// Drop dangerous capabilities by default (unless user asked to keep them)
