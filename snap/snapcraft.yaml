@@ -1,26 +1,22 @@
 name: dck
-base: core24
-adopt-info: dck
-summary: Lightweight Docker CLI
+base: core22
+version: 1.16.0
+summary: Lightweight container runtime
 description: |
-  dck is a lightweight container runtime and Docker CLI.
-  No daemon. No Docker. Just containers.
-  Manage OCI containers directly with a simple CLI.
-
-grade: stable
+  dck is a lightweight container runtime for Linux.
+  It provides container creation, management, and monitoring capabilities.
+license: MIT
 confinement: classic
+grade: stable
 
 apps:
   dck:
-    command: bin/dck
+    command: dck
 
 parts:
   dck:
     plugin: go
     source: .
     source-type: local
-    override-build: |
-      VERSION=$(cat $SNAPCRAFT_PART_SRC/VERSION | head -1 | tr -d '[:space:]')
-      craftctl set version="$VERSION"
-      cd $SNAPCRAFT_PART_SRC
-      CGO_ENABLED=0 go build -ldflags="-s -w -X dck/cmd.version=$VERSION" -o $SNAPCRAFT_PART_INSTALL/bin/dck .
+    build-snaps:
+      - go/1.22/stable
