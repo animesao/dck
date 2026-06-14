@@ -19,7 +19,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.26'
 
       - name: Prepare modules
         run: go mod tidy
@@ -32,18 +32,15 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install Snapcraft
-        run: |
-          sudo snap install snapcraft --classic
-          sudo snap install core22
+      - name: Set snap version
+        run: sed -i "s/^version:.*/version: ${GITHUB_REF_NAME#v}/" snap/snapcraft.yaml
 
       - name: Build snap
-        run: |
-          sed -i "s/^version:.*/version: ${GITHUB_REF_NAME#v}/" snap/snapcraft.yaml
-          snapcraft --destructive-mode
+        uses: snapcore/action-build@v1
+        id: snapcraft
 
       - name: Upload snap to release
         run: |
-          gh release upload "${GITHUB_REF_NAME}" ./*.snap --repo "${GITHUB_REPOSITORY}" --clobber
+          gh release upload "${GITHUB_REF_NAME}" "${{ steps.snapcraft.outputs.snap }}" --repo "${GITHUB_REPOSITORY}" --clobber
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
