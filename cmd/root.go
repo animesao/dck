@@ -5,7 +5,7 @@ import (
 	"os"
 )
 
-var version = "1.15.0"
+var version = "1.16.0"
 var repoURL = "https://raw.githubusercontent.com/animesao/dck"
 
 func Execute() {
