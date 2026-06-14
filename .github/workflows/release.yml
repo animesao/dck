@@ -30,7 +30,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install Snapcraft
-        run: sudo snap install snapcraft --classic
+        run: |
+          sudo snap install snapcraft --classic
+          sudo snap install core22
 
       - name: Build snap
         run: |

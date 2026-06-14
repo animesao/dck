@@ -3,7 +3,8 @@ project_name: dck
 
 before:
   hooks:
-    - go mod tidy
+    - cmd: go mod tidy
+      dir: .
 
 builds:
   - binary: dck
