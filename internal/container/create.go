@@ -26,7 +26,11 @@ func New(img *image.Image, opts CreateOpts) *Container {
 	}
 	workdir := opts.WorkingDir
 	if workdir == "" {
-		workdir = "/home/container"
+		if cfg, err := image.ReadConfig(img.Name, img.Tag); err == nil && cfg.Config.WorkingDir != "" {
+			workdir = cfg.Config.WorkingDir
+		} else {
+			workdir = "/home/container"
+		}
 	}
 	cmd := opts.Cmd
 	if len(cmd) == 0 {
