@@ -42,6 +42,7 @@ type templateJSON struct {
 	Env         string `json:"env"`
 	Ports       string `json:"ports"`
 	Volumes     string `json:"volumes"`
+	CapAdd      string `json:"cap_add"`
 	Memory      string `json:"memory"`
 	CPUs        string `json:"cpus"`
 	Restart     string `json:"restart"`
@@ -437,6 +438,26 @@ func blueprintInstall(args []string) {
 		restart = "no"
 	}
 
+	// Parse capabilities
+	var capAdd []string
+	needsNetAdmin := false
+	if tpl.CapAdd != "" {
+		for _, c := range strings.Split(tpl.CapAdd, ",") {
+			c = strings.TrimSpace(c)
+			if c != "" {
+				capAdd = append(capAdd, c)
+				if strings.ToUpper(c) == "NET_ADMIN" {
+					needsNetAdmin = true
+				}
+			}
+		}
+	}
+
+	// Enable IP forwarding if container needs NET_ADMIN (VPN etc.)
+	if needsNetAdmin {
+		enableIPForward()
+	}
+
 	opts := container.CreateOpts{
 		Name:     containerName,
 		Cmd:      cmd,
@@ -447,6 +468,7 @@ func blueprintInstall(args []string) {
 		Detach:   detach,
 		MemoryLimit: memoryLimit,
 		CPUCount: cpus,
+		CapAdd:   capAdd,
 	}
 
 	c := container.New(img, opts)
@@ -509,6 +531,18 @@ func ufwAllowPort(port int, proto string) bool {
 		return false
 	}
 	return true
+}
+
+func enableIPForward() {
+	data, err := os.ReadFile("/proc/sys/net/ipv4/ip_forward")
+	if err != nil {
+		return
+	}
+	if strings.TrimSpace(string(data)) == "1" {
+		return
+	}
+	os.WriteFile("/proc/sys/net/ipv4/ip_forward", []byte("1"), 0644)
+	fmt.Println("  Enabled IP forwarding (net.ipv4.ip_forward = 1)")
 }
 
 func getPublicIP() string {
