@@ -85,8 +85,14 @@ func (c *Container) Start() error {
 	}
 
 	unshareArgs := []string{
-		"--fork", "--pid", "--mount", "--net", "--uts", "--ipc", "--kill-child",
+		"--fork", "--pid", "--mount", "--uts", "--ipc", "--kill-child",
 		binPath, "init", c.ID, merged,
+	}
+
+	// Only create a new network namespace for bridge/none modes.
+	// host mode shares the host's network namespace (needed for VPN containers).
+	if c.NetworkMode != "host" {
+		unshareArgs = append([]string{"--net"}, unshareArgs...)
 	}
 
 	cmd := exec.Command("unshare", unshareArgs...)
