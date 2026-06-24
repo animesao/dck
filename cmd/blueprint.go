@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -75,7 +76,9 @@ Options for install:
   -n, --name <name>               Container name (default: blueprint name)
   -d                              Detach (background, default: true)
   --memory <limit>                Override memory limit
-  --cpus <count>                  Override CPU count`)
+  --cpus <count>                  Override CPU count
+  -e, --env KEY=VAL               Override environment variable (can repeat)
+  -y, --yes                       Skip interactive prompts`)
 }
 
 func blueprintList() {
@@ -134,6 +137,8 @@ func blueprintInstall(args []string) {
 	detach := true
 	memoryOverride := ""
 	cpusOverride := 0.0
+	noPrompt := false
+	var envOverrides []string
 
 	// Parse remaining flags
 	for i := 1; i < len(args); i++ {
@@ -155,6 +160,13 @@ func blueprintInstall(args []string) {
 				i++
 				cpusOverride, _ = strconv.ParseFloat(args[i], 64)
 			}
+		case "-e", "--env":
+			if i+1 < len(args) {
+				i++
+				envOverrides = append(envOverrides, args[i])
+			}
+		case "-y", "--yes":
+			noPrompt = true
 		}
 	}
 
@@ -258,17 +270,54 @@ func blueprintInstall(args []string) {
 	}
 
 	// Parse environment variables
-	var env []string
+	var envPairs []struct {
+		Key   string `json:"key"`
+		Value string `json:"value"`
+	}
 	if tpl.Env != "" {
-		var envPairs []struct {
-			Key   string `json:"key"`
-			Value string `json:"value"`
-		}
-		if err := json.Unmarshal([]byte(tpl.Env), &envPairs); err == nil {
-			for _, p := range envPairs {
-				env = append(env, p.Key+"="+p.Value)
+		json.Unmarshal([]byte(tpl.Env), &envPairs)
+	}
+
+	// Apply CLI env overrides
+	for _, o := range envOverrides {
+		parts := strings.SplitN(o, "=", 2)
+		if len(parts) == 2 {
+			found := false
+			for i := range envPairs {
+				if envPairs[i].Key == parts[0] {
+					envPairs[i].Value = parts[1]
+					found = true
+					break
+				}
+			}
+			if !found {
+				envPairs = append(envPairs, struct {
+					Key   string `json:"key"`
+					Value string `json:"value"`
+				}{parts[0], parts[1]})
 			}
 		}
+	}
+
+	// Interactive env editing
+	if len(envPairs) > 0 && !noPrompt {
+		reader := bufio.NewReader(os.Stdin)
+		fmt.Println()
+		fmt.Println("  Environment variables (press Enter to keep default):")
+		for i := range envPairs {
+			fmt.Printf("    %s [%s]: ", envPairs[i].Key, envPairs[i].Value)
+			input, _ := reader.ReadString('\n')
+			input = strings.TrimSpace(input)
+			if input != "" {
+				envPairs[i].Value = input
+			}
+		}
+		fmt.Println()
+	}
+
+	var env []string
+	for _, p := range envPairs {
+		env = append(env, p.Key+"="+p.Value)
 	}
 
 	// Memory
