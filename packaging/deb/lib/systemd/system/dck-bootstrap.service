@@ -1,0 +1,15 @@
+[Unit]
+Description=dck container bootstrap — start all containers with restart=always
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/dck bootstrap
+RemainAfterExit=yes
+ExecStop=/usr/bin/dck stop --all
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

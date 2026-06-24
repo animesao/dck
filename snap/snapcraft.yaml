@@ -1,0 +1,21 @@
+name: dck
+base: core22
+version: latest
+summary: Lightweight container runtime
+description: |
+  dck is a lightweight container runtime for Linux.
+  It provides container creation, management, and monitoring capabilities.
+license: MIT
+confinement: classic
+grade: stable
+
+apps:
+  dck:
+    command: dck
+
+parts:
+  dck:
+    plugin: go
+    source: .
+    build-snaps:
+      - go/1.22/stable

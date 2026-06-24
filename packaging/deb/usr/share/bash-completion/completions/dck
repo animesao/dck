@@ -1,0 +1,67 @@
+_dck() {
+    local cur prev words cword
+    _init_completion || return
+
+    commands="pull run ps port stop start restart rm logs stats exec console attach images rmi up down bootstrap update help version"
+
+    if [[ $cword -eq 1 ]]; then
+        COMPREPLY=($(compgen -W "$commands" -- "$cur"))
+        return
+    fi
+
+    case "${words[1]}" in
+        run)
+            case "$prev" in
+                -n|-p|-v|-e|--env-file|--restart|--memory|--cpus|--workdir|-h|--entrypoint|--cap-add|--cap-drop|--user|--sysctl|--ulimit|-l|--label|--dns|--network|--healthcheck-cmd|--healthcheck-interval|--healthcheck-retries|--healthcheck-timeout)
+                    return
+                    ;;
+            esac
+            opts="-d -n -p -v -e --env-file -i -t --rm --restart --memory --cpus --workdir -h --entrypoint --cap-add --cap-drop --user --readonly --no-new-privs --sysctl --ulimit -l --label --dns --network --healthcheck-cmd --healthcheck-interval --healthcheck-retries --healthcheck-timeout"
+            COMPREPLY=($(compgen -W "$opts" -- "$cur"))
+            ;;
+        stop|start|restart|rm|logs|exec|console|attach|port)
+            local containers=$(dck ps -a 2>/dev/null | tail -n +2 | awk '{print $1, $4}')
+            COMPREPLY=($(compgen -W "$containers" -- "$cur"))
+            ;;
+        pull|rmi)
+            local images=$(dck images 2>/dev/null | tail -n +2 | awk '{print $1":"$2}')
+            COMPREPLY=($(compgen -W "$images" -- "$cur"))
+            ;;
+        stats)
+            case "$prev" in
+                --no-stream|-n)
+                    return
+                    ;;
+            esac
+            local containers=$(dck ps 2>/dev/null | tail -n +2 | awk '{print $1, $4}')
+            opts="--no-stream"
+            COMPREPLY=($(compgen -W "$containers $opts" -- "$cur"))
+            ;;
+        down)
+            case "$prev" in
+                -f)
+                    COMPREPLY=($(compgen -f -- "$cur"))
+                    return
+                    ;;
+            esac
+            opts="-f -a"
+            COMPREPLY=($(compgen -W "$opts" -- "$cur"))
+            ;;
+        up)
+            case "$prev" in
+                -f)
+                    COMPREPLY=($(compgen -f -- "$cur"))
+                    return
+                    ;;
+            esac
+            opts="-f"
+            COMPREPLY=($(compgen -W "$opts" -- "$cur"))
+            ;;
+        bootstrap)
+            COMPREPLY=($(compgen -W "--install --remove" -- "$cur"))
+            ;;
+        update)
+            COMPREPLY=($(compgen -W "--check" -- "$cur"))
+            ;;
+    esac
+} && complete -F _dck dck

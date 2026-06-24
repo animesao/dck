@@ -1,0 +1,32 @@
+version: 2
+project_name: dck
+
+builds:
+  - binary: dck
+    goos: [linux]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w
+      - -X dck/cmd.version={{ .Version }}
+
+nfpms:
+  - package_name: dck
+    file_name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Arch }}"
+    formats: [deb]
+    vendor: animesao
+    homepage: https://github.com/animesao/dck
+    description: Lightweight container runtime
+
+archives:
+  - name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    files:
+      - LICENSE*
+
+checksum:
+  name_template: "{{ .ProjectName }}_{{ .Version }}_checksums.txt"
+
+release:
+  github:
+    owner: animesao
+    name: dck
