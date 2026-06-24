@@ -457,9 +457,10 @@ func blueprintInstall(args []string) {
 		}
 	}
 
-	// Enable IP forwarding if container needs NET_ADMIN (VPN etc.)
+	// Enable IP forwarding and UFW forwarding for VPN containers
 	if needsNetAdmin {
 		enableIPForward()
+		enableUFWForward()
 	}
 
 	opts := container.CreateOpts{
@@ -518,6 +519,50 @@ func fetchBlueprintRegistry() (*blueprintRegistry, error) {
 	}
 
 	return &reg, nil
+}
+
+func enableUFWForward() {
+	if _, err := exec.LookPath("ufw"); err != nil {
+		return
+	}
+	def := "/etc/default/ufw"
+	data, err := os.ReadFile(def)
+	if err != nil {
+		return
+	}
+	content := string(data)
+	if strings.Contains(content, "DEFAULT_FORWARD_POLICY=\"ACCEPT\"") {
+		return
+	}
+	content = strings.ReplaceAll(content, "DEFAULT_FORWARD_POLICY=\"DROP\"", "DEFAULT_FORWARD_POLICY=\"ACCEPT\"")
+	os.WriteFile(def, []byte(content), 0644)
+	exec.Command("ufw", "reload").Run()
+	fmt.Println("  Enabled UFW forwarding (DEFAULT_FORWARD_POLICY=ACCEPT)")
+
+	iface := defaultRouteInterface()
+	if iface == "" {
+		iface = "eth0"
+	}
+	if err := exec.Command("iptables", "-t", "nat", "-C", "POSTROUTING", "-o", iface, "-j", "MASQUERADE").Run(); err != nil {
+		exec.Command("iptables", "-t", "nat", "-A", "POSTROUTING", "-o", iface, "-j", "MASQUERADE").Run()
+		fmt.Printf("  Added iptables MASQUERADE rule for %s\n", iface)
+	}
+	exec.Command("iptables", "-A", "FORWARD", "-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED", "-j", "ACCEPT").Run()
+	exec.Command("iptables", "-A", "FORWARD", "-i", "wg0", "-j", "ACCEPT").Run()
+}
+
+func defaultRouteInterface() string {
+	out, err := exec.Command("ip", "route", "get", "8.8.8.8").Output()
+	if err != nil {
+		return ""
+	}
+	fields := strings.Fields(string(out))
+	for i, f := range fields {
+		if f == "dev" && i+1 < len(fields) {
+			return fields[i+1]
+		}
+	}
+	return ""
 }
 
 func ufwAllowPort(port int, proto string) bool {
