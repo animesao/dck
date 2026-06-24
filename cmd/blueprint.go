@@ -4,9 +4,14 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net"
+	"net/http"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 
 	"dck/internal/container"
 	"dck/internal/image"
@@ -366,17 +371,40 @@ func blueprintInstall(args []string) {
 		}
 	}
 
+	// Auto-detect public IP for host/domain vars
+	publicIP := ""
+	if !noPrompt {
+		for _, p := range envPairs {
+			key := strings.ToUpper(p.Key)
+			if strings.Contains(key, "HOST") || strings.Contains(key, "DOMAIN") || strings.Contains(key, "IP") || strings.Contains(key, "ADDRESS") || strings.Contains(key, "URL") {
+				publicIP = getPublicIP()
+				if publicIP != "" {
+					break
+				}
+			}
+		}
+	}
+
 	// Interactive env editing
 	if len(envPairs) > 0 && !noPrompt {
 		reader := bufio.NewReader(os.Stdin)
 		fmt.Println()
 		fmt.Println("  Environment variables (press Enter to keep default):")
 		for i := range envPairs {
-			fmt.Printf("    %s [%s]: ", envPairs[i].Key, envPairs[i].Value)
+			defaultVal := envPairs[i].Value
+			key := strings.ToUpper(envPairs[i].Key)
+			if strings.Contains(key, "HOST") || strings.Contains(key, "DOMAIN") || strings.Contains(key, "IP") || strings.Contains(key, "ADDRESS") || strings.Contains(key, "URL") {
+				if publicIP != "" && (defaultVal == "" || defaultVal == "vpn.example.com" || strings.HasPrefix(defaultVal, "your-") || strings.Contains(defaultVal, "example")) {
+					defaultVal = publicIP
+				}
+			}
+			fmt.Printf("    %s [%s]: ", envPairs[i].Key, defaultVal)
 			input, _ := reader.ReadString('\n')
 			input = strings.TrimSpace(input)
 			if input != "" {
 				envPairs[i].Value = input
+			} else if defaultVal != envPairs[i].Value {
+				envPairs[i].Value = defaultVal
 			}
 		}
 		fmt.Println()
@@ -433,6 +461,19 @@ func blueprintInstall(args []string) {
 	}
 
 	fmt.Printf("  Container created: %s (%s)\n", c.Name, c.ID[:12])
+
+	// Auto-open ports in UFW/firewall
+	opened := 0
+	for _, pe := range portEntries {
+		if ufwAllowPort(pe.HostPort, pe.Protocol) {
+			if opened == 0 {
+				fmt.Println("  Firewall rules:")
+			}
+			fmt.Printf("    ufw allow %d/%s\n", pe.HostPort, pe.Protocol)
+			opened++
+		}
+	}
+
 	fmt.Println("  Use 'dck ps' to see running containers")
 	fmt.Println("  Use 'dck logs "+c.Name+"' to view logs")
 }
@@ -450,4 +491,59 @@ func fetchBlueprintRegistry() (*blueprintRegistry, error) {
 	}
 
 	return &reg, nil
+}
+
+func ufwAllowPort(port int, proto string) bool {
+	if _, err := exec.LookPath("ufw"); err != nil {
+		return false
+	}
+	spec := fmt.Sprintf("%d/%s", port, proto)
+	// Check if already allowed
+	check := exec.Command("ufw", "status", "verbose")
+	out, err := check.Output()
+	if err == nil && strings.Contains(string(out), spec) {
+		return false
+	}
+	cmd := exec.Command("ufw", "allow", spec)
+	if err := cmd.Run(); err != nil {
+		return false
+	}
+	return true
+}
+
+func getPublicIP() string {
+	// Try multiple services
+	services := []string{
+		"https://ifconfig.me",
+		"https://api.ipify.org",
+		"https://checkip.amazonaws.com",
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	for _, url := range services {
+		resp, err := client.Get(url)
+		if err != nil {
+			continue
+		}
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err == nil {
+			ip := strings.TrimSpace(string(body))
+			if net.ParseIP(ip) != nil {
+				return ip
+			}
+		}
+	}
+
+	// Fallback: try hostname -I
+	cmd := exec.Command("hostname", "-I")
+	out, err := cmd.Output()
+	if err == nil {
+		fields := strings.Fields(string(out))
+		if len(fields) > 0 {
+			return fields[0]
+		}
+	}
+
+	return ""
 }
