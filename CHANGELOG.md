@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.17.0 (2026-06-24)
+
+### Code Quality
+- **Dead code removed**: `internal/container/rcon.go` — неиспользуемый RCON протокол
+- **State tests**: 12 unit-тестов для `internal/state` (пути, JSON, FileExists)
+
+### Bug Fixes
+- **dck-wings**: Исправлен баг валидации container ID — `/` блокировал все action-запросы (start/stop/restart)
+
 ## 1.15.0 (2026-06-13)
 
 ### Security
