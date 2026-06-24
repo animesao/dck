@@ -17,7 +17,8 @@ echo "=== Updating dck-panel ==="
 cd /opt/dck-panel
 git fetch origin
 git reset --hard origin/main
-CGO_ENABLED=0 go build -ldflags="-s -w" -o /usr/local/bin/dck-server ./server
+cd /opt/dck-panel/server
+CGO_ENABLED=0 go build -ldflags="-s -w" -o /usr/local/bin/dck-server .
 
 mkdir -p /root/.dck-panel /root/.dck
 
