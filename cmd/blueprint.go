@@ -43,6 +43,7 @@ type templateJSON struct {
 	Ports       string `json:"ports"`
 	Volumes     string `json:"volumes"`
 	CapAdd      string `json:"cap_add"`
+	Network     string `json:"network"`
 	Memory      string `json:"memory"`
 	CPUs        string `json:"cpus"`
 	Restart     string `json:"restart"`
@@ -432,6 +433,9 @@ func blueprintInstall(args []string) {
 		cpus, _ = strconv.ParseFloat(tpl.CPUs, 64)
 	}
 
+	// Network mode
+	networkMode := tpl.Network
+
 	// Restart policy
 	restart := tpl.Restart
 	if restart == "" {
@@ -468,7 +472,8 @@ func blueprintInstall(args []string) {
 		Detach:   detach,
 		MemoryLimit: memoryLimit,
 		CPUCount: cpus,
-		CapAdd:   capAdd,
+		CapAdd:      capAdd,
+		NetworkMode: networkMode,
 	}
 
 	c := container.New(img, opts)
