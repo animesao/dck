@@ -22,7 +22,7 @@ type blueprintRepoConfig struct {
 func defaultBlueprintRepo() blueprintRepo {
 	return blueprintRepo{
 		Name:    "official",
-		URL:     "https://raw.githubusercontent.com/animesao/dck-blueprints",
+		URL:     "https://raw.githubusercontent.com/dck-organization/dck-blueprints",
 		Branch:  "main",
 		Enabled: true,
 	}

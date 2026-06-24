@@ -7,7 +7,7 @@ import (
 
 var version = "1.18.0"
 var repoURL = "https://raw.githubusercontent.com/animesao/dck"
-var blueprintRepoURL = "https://raw.githubusercontent.com/animesao/dck-blueprints"
+var blueprintRepoURL = "https://raw.githubusercontent.com/dck-organization/dck-blueprints"
 
 func Execute() {
 	if len(os.Args) < 2 {
