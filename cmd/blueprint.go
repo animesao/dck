@@ -222,8 +222,23 @@ func blueprintInstall(args []string) {
 		cmd = strings.Fields(tpl.Command)
 	}
 
-	// Parse ports
-	var ports []container.PortMap
+	// Collect used host ports from existing containers
+	usedPorts := make(map[int]bool)
+	if allContainers, err := container.List(true); err == nil {
+		for _, c := range allContainers {
+			for _, p := range c.Ports {
+				usedPorts[p.HostPort] = true
+			}
+		}
+	}
+
+	// Parse and resolve ports
+	type portEntry struct {
+		HostPort      int
+		ContainerPort int
+		Protocol      string
+	}
+	var portEntries []portEntry
 	if tpl.Ports != "" {
 		for _, p := range strings.Split(tpl.Ports, ",") {
 			p = strings.TrimSpace(p)
@@ -241,7 +256,7 @@ func blueprintInstall(args []string) {
 				host, _ := strconv.Atoi(parts[0])
 				cont, _ := strconv.Atoi(parts[1])
 				if host > 0 && cont > 0 {
-					ports = append(ports, container.PortMap{
+					portEntries = append(portEntries, portEntry{
 						HostPort:      host,
 						ContainerPort: cont,
 						Protocol:      proto,
@@ -249,6 +264,58 @@ func blueprintInstall(args []string) {
 				}
 			}
 		}
+	}
+
+	// Auto-resolve port conflicts and prompt
+	for i := range portEntries {
+		base := portEntries[i].HostPort
+		for usedPorts[portEntries[i].HostPort] {
+			portEntries[i].HostPort++
+		}
+		if portEntries[i].HostPort != base {
+			fmt.Printf("  Port %d is in use, using %d instead\n", base, portEntries[i].HostPort)
+		}
+		usedPorts[portEntries[i].HostPort] = true
+	}
+
+	if len(portEntries) > 0 && !noPrompt {
+		reader := bufio.NewReader(os.Stdin)
+		fmt.Println()
+		fmt.Println("  Port mappings (press Enter to keep default):")
+		for i := range portEntries {
+			prompt := fmt.Sprintf("    %s port (host:%d container:%d): ",
+				portEntries[i].Protocol, portEntries[i].HostPort, portEntries[i].ContainerPort)
+			fmt.Print(prompt)
+			input, _ := reader.ReadString('\n')
+			input = strings.TrimSpace(input)
+			if input != "" {
+				parts := strings.SplitN(input, ":", 2)
+				if len(parts) == 2 {
+					h, err1 := strconv.Atoi(parts[0])
+					c, err2 := strconv.Atoi(parts[1])
+					if err1 == nil && err2 == nil && h > 0 && c > 0 {
+						// Check if the new host port is free
+						for usedPorts[h] {
+							h++
+						}
+						usedPorts[portEntries[i].HostPort] = false
+						usedPorts[h] = true
+						portEntries[i].HostPort = h
+						portEntries[i].ContainerPort = c
+					}
+				}
+			}
+		}
+		fmt.Println()
+	}
+
+	var ports []container.PortMap
+	for _, pe := range portEntries {
+		ports = append(ports, container.PortMap{
+			HostPort:      pe.HostPort,
+			ContainerPort: pe.ContainerPort,
+			Protocol:      pe.Protocol,
+		})
 	}
 
 	// Parse volumes
