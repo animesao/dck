@@ -117,8 +117,10 @@ Usage:
   dck down [name] [-f dck.toml] Stop/remove containers from dck.toml
   dck down -a                  Remove all containers
   dck bootstrap [--install]    Start all containers (--install = add systemd service)
-   dck blueprint list           List available blueprints from registry
-   dck blueprint install <name> Install a blueprint (pull + run container)
+    dck blueprint list           List available blueprints from all repositories
+    dck blueprint install <name> Install a blueprint (pull + run container)
+    dck blueprint repo add <url> Add a custom blueprint repository
+    dck blueprint repo list      List blueprint repositories
    dck update [--check]         Check for updates and self-update
    dck --help                   Show this help
    dck version, --version       Show version

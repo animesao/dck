@@ -18,10 +18,10 @@ import (
 )
 
 type blueprintRegistry struct {
-	Version    int                    `json:"version"`
-	Description string                `json:"description"`
-	BaseURL    string                `json:"base_url"`
-	Blueprints map[string]blueprintEntry `json:"blueprints"`
+	Version     int                       `json:"version"`
+	Description string                    `json:"description"`
+	BaseURL     string                    `json:"base_url"`
+	Blueprints  map[string]blueprintEntry `json:"blueprints"`
 }
 
 type blueprintEntry struct {
@@ -30,6 +30,10 @@ type blueprintEntry struct {
 	Description string `json:"description"`
 	Image       string `json:"image"`
 	File        string `json:"file"`
+
+	Source  string `json:"-"`
+	RepoURL string `json:"-"`
+	Branch  string `json:"-"`
 }
 
 type templateJSON struct {
@@ -63,6 +67,25 @@ func Blueprint(args []string) {
 		blueprintList()
 	case "install", "i":
 		blueprintInstall(subArgs)
+	case "repo", "repos":
+		if len(subArgs) < 1 {
+			blueprintRepoUsage()
+			os.Exit(1)
+		}
+		switch subArgs[0] {
+		case "list", "ls":
+			blueprintRepoList()
+		case "add":
+			blueprintRepoAdd(subArgs[1:])
+		case "remove", "rm":
+			blueprintRepoRemove(subArgs[1:])
+		case "--help", "-h", "help":
+			blueprintRepoUsage()
+		default:
+			fmt.Printf("unknown repo subcommand: %s\n", subArgs[0])
+			blueprintRepoUsage()
+			os.Exit(1)
+		}
 	case "--help", "-h", "help":
 		printBlueprintUsage()
 	default:
@@ -74,10 +97,13 @@ func Blueprint(args []string) {
 
 func printBlueprintUsage() {
 	fmt.Println(`Blueprint commands:
-  dck blueprint list              List available blueprints from registry
+  dck blueprint list              List available blueprints from all repositories
   dck blueprint ls                Alias for list
   dck blueprint install <name>    Install a blueprint (pull image + create container)
   dck blueprint i <name>          Alias for install
+  dck blueprint repo list         List configured blueprint repositories
+  dck blueprint repo add <url>    Add a custom blueprint repository
+  dck blueprint repo remove <n>   Remove a blueprint repository
 
 Options for install:
   -n, --name <name>               Container name (default: blueprint name)
@@ -108,6 +134,7 @@ func blueprintList() {
 		Name        string
 		Image       string
 		Description string
+		Source      string
 	}
 	categories := make(map[string][]catEntry)
 	catOrder := make([]string, 0)
@@ -120,6 +147,7 @@ func blueprintList() {
 			Name:        bp.Name,
 			Image:       bp.Image,
 			Description: bp.Description,
+			Source:      bp.Source,
 		})
 	}
 
@@ -127,7 +155,11 @@ func blueprintList() {
 		entries := categories[cat]
 		fmt.Printf("  %s:\n", strings.ToUpper(cat))
 		for _, e := range entries {
-			fmt.Printf("    \033[1m%-20s\033[0m %-30s %s\n", e.Name, e.Image, e.Description)
+			sourceTag := ""
+			if e.Source != "" && e.Source != "official" {
+				sourceTag = fmt.Sprintf(" [%s]", e.Source)
+			}
+			fmt.Printf("    \033[1m%-20s\033[0m %-30s %s%s\n", e.Name, e.Image, e.Description, sourceTag)
 		}
 		fmt.Println()
 	}
@@ -190,8 +222,14 @@ func blueprintInstall(args []string) {
 		os.Exit(1)
 	}
 
-	// Fetch the template JSON
-	tplURL := fmt.Sprintf("%s/main/%s", blueprintRepoURL, bp.File)
+	// Fetch the template JSON from the blueprint's source repository
+	repoBase := bp.RepoURL
+	repoBranch := bp.Branch
+	if repoBase == "" {
+		repoBase = blueprintRepoURL
+		repoBranch = "main"
+	}
+	tplURL := fmt.Sprintf("%s/%s/%s", repoBase, repoBranch, bp.File)
 	tplData, err := fetchURL(tplURL)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error fetching blueprint %q: %v\n", bpName, err)
@@ -464,15 +502,15 @@ func blueprintInstall(args []string) {
 	}
 
 	opts := container.CreateOpts{
-		Name:     containerName,
-		Cmd:      cmd,
-		Ports:    ports,
-		Volumes:  volumes,
-		Env:      env,
-		Restart:  restart,
-		Detach:   detach,
+		Name:        containerName,
+		Cmd:         cmd,
+		Ports:       ports,
+		Volumes:     volumes,
+		Env:         env,
+		Restart:     restart,
+		Detach:      detach,
 		MemoryLimit: memoryLimit,
-		CPUCount: cpus,
+		CPUCount:    cpus,
 		CapAdd:      capAdd,
 		NetworkMode: networkMode,
 	}
@@ -503,22 +541,62 @@ func blueprintInstall(args []string) {
 	}
 
 	fmt.Println("  Use 'dck ps' to see running containers")
-	fmt.Println("  Use 'dck logs "+c.Name+"' to view logs")
+	fmt.Println("  Use 'dck logs " + c.Name + "' to view logs")
 }
 
 func fetchBlueprintRegistry() (*blueprintRegistry, error) {
-	registryURL := fmt.Sprintf("%s/main/registry.json", blueprintRepoURL)
-	data, err := fetchURL(registryURL)
-	if err != nil {
-		return nil, err
+	cfg := loadBlueprintRepos()
+
+	merged := &blueprintRegistry{
+		Blueprints: make(map[string]blueprintEntry),
 	}
 
-	var reg blueprintRegistry
-	if err := json.Unmarshal([]byte(data), &reg); err != nil {
-		return nil, fmt.Errorf("parse registry: %w", err)
+	var errs []string
+
+	for _, repo := range cfg.Repos {
+		if !repo.Enabled {
+			continue
+		}
+		registryURL := fmt.Sprintf("%s/%s/registry.json", repo.URL, repo.Branch)
+		data, err := fetchURL(registryURL)
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", repo.Name, err))
+			continue
+		}
+
+		var reg blueprintRegistry
+		if err := json.Unmarshal([]byte(data), &reg); err != nil {
+			errs = append(errs, fmt.Sprintf("%s: parse error", repo.Name))
+			continue
+		}
+
+		if merged.Description == "" && reg.Description != "" {
+			merged.Description = reg.Description
+		}
+
+		for name, bp := range reg.Blueprints {
+			bp.Source = repo.Name
+			bp.RepoURL = repo.URL
+			bp.Branch = repo.Branch
+
+			if _, exists := merged.Blueprints[name]; exists {
+				key := fmt.Sprintf("%s/%s", repo.Name, name)
+				merged.Blueprints[key] = bp
+			} else {
+				merged.Blueprints[name] = bp
+			}
+		}
 	}
 
-	return &reg, nil
+	if len(merged.Blueprints) == 0 && len(errs) > 0 {
+		return nil, fmt.Errorf("failed to fetch from all repositories:\n  %s", strings.Join(errs, "\n  "))
+	}
+
+	for _, e := range errs {
+		fmt.Fprintf(os.Stderr, "Warning: could not fetch %s\n", e)
+	}
+
+	return merged, nil
 }
 
 func enableUFWForward() {
