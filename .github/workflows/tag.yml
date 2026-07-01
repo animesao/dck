@@ -23,7 +23,8 @@ jobs:
         run: |
           RAW=$(cat VERSION)
           CLEAN="${RAW#v}"
-          echo "version=$CLEAN" >> $GITHUB_OUTPUT
+          BASE="${CLEAN%%-*}"
+          echo "version=$BASE" >> $GITHUB_OUTPUT
 
       - name: Create tag
         id: create
@@ -47,14 +48,16 @@ jobs:
           fi
           echo "tag=$TAG" >> $GITHUB_OUTPUT
 
-      - name: Update README badge
+      - name: Update version files
         run: |
           TAG="${{ steps.create.outputs.tag }}"
           if [ -n "$TAG" ]; then
+            CLEAN="${TAG#v}"
+            echo "$CLEAN" > VERSION
             BADGE_TAG=$(echo "$TAG" | sed 's/-/--/g')
             sed -i "s|badge/version-[^?]*|badge/version-$BADGE_TAG-blue|" README.md
-            git add README.md
-            git commit -m "chore: update badge to $TAG [skip ci]" || true
+            git add VERSION README.md
+            git commit -m "chore: update VERSION to $CLEAN [skip ci]" || true
             git push origin "${{ github.ref_name }}" 2>/dev/null || true
           fi
 
