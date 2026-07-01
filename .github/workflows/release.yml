@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - 'v*'
+      - '!v*-dev.*'
+      - '!v*-stalbal.*'
   workflow_dispatch:
 
 permissions:
