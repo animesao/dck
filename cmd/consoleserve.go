@@ -6,9 +6,15 @@ import (
 	"net"
 	"os"
 	"sync"
+	"time"
 
 	"dck/internal/container"
 	"dck/internal/state"
+)
+
+const (
+	consoleBufSize = 65536
+	consoleTailMax = 65536
 )
 
 func ConsoleServe(args []string) {
@@ -49,10 +55,10 @@ func ConsoleServe(args []string) {
 	logFile.WriteString("[console-serve] started\n")
 
 	var mu sync.Mutex
-	var clients []net.Conn
+	clients := make(map[net.Conn]struct{})
 
 	go func() {
-		buf := make([]byte, 4096)
+		buf := make([]byte, consoleBufSize)
 		for {
 			n, err := stdoutR.Read(buf)
 			if err != nil {
@@ -63,8 +69,16 @@ func ConsoleServe(args []string) {
 			logFile.Write(buf[:n])
 
 			mu.Lock()
-			for _, c := range clients {
-				c.Write(buf[:n])
+			for c := range clients {
+				// Non-blocking write: skip if client is too slow
+				if err := c.SetWriteDeadline(time.Now().Add(100 * time.Millisecond)); err != nil {
+					continue
+				}
+				if _, err := c.Write(buf[:n]); err != nil {
+					delete(clients, c)
+					c.Close()
+				}
+				c.SetWriteDeadline(time.Time{})
 			}
 			mu.Unlock()
 		}
@@ -80,11 +94,22 @@ func ConsoleServe(args []string) {
 		logFile.WriteString("[console-serve] client connected\n")
 
 		mu.Lock()
-		logContent, _ := os.ReadFile(logPath)
-		if len(logContent) > 0 {
-			conn.Write(logContent)
+		// Send only the tail of the log (last ~64KB), not the entire file
+		if fi, err := os.Stat(logPath); err == nil {
+			f, err := os.Open(logPath)
+			if err == nil {
+				offset := fi.Size() - consoleTailMax
+				if offset < 0 {
+					offset = 0
+				}
+				if offset > 0 {
+					f.Seek(offset, io.SeekStart)
+				}
+				io.Copy(conn, f)
+				f.Close()
+			}
 		}
-		clients = append(clients, conn)
+		clients[conn] = struct{}{}
 		mu.Unlock()
 
 		go func(c net.Conn) {
@@ -92,12 +117,7 @@ func ConsoleServe(args []string) {
 			c.Close()
 
 			mu.Lock()
-			for i, cl := range clients {
-				if cl == c {
-					clients = append(clients[:i], clients[i+1:]...)
-					break
-				}
-			}
+			delete(clients, c)
 			mu.Unlock()
 		}(conn)
 	}
