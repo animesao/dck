@@ -20,7 +20,10 @@ jobs:
 
       - name: Read version
         id: version
-        run: echo "version=$(cat VERSION)" >> $GITHUB_OUTPUT
+        run: |
+          RAW=$(cat VERSION)
+          CLEAN="${RAW#v}"
+          echo "version=$CLEAN" >> $GITHUB_OUTPUT
 
       - name: Create tag
         id: create
@@ -48,11 +51,12 @@ jobs:
         run: |
           TAG="${{ steps.create.outputs.tag }}"
           if [ -n "$TAG" ]; then
-            echo "$TAG" > VERSION
+            CLEAN="${TAG#v}"
+            echo "$CLEAN" > VERSION
             BADGE_TAG=$(echo "$TAG" | sed 's/-/--/g')
             sed -i "s|badge/version-[^?]*|badge/version-$BADGE_TAG-blue|" README.md
             git add VERSION README.md
-            git commit -m "chore: update VERSION to $TAG [skip ci]" || true
+            git commit -m "chore: update VERSION to $CLEAN [skip ci]" || true
             git push origin "${{ github.ref_name }}" 2>/dev/null || true
           fi
 
