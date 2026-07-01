@@ -69,3 +69,16 @@ jobs:
           gh release upload "$GITHUB_REF_NAME" "dist/dck_${VERSION}_arm64.deb.sha256" --repo "$GITHUB_REPOSITORY" --clobber
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Fix release flags (prerelease/latest)
+        run: |
+          TAG="${GITHUB_REF_NAME#refs/tags/}"
+          if echo "$TAG" | grep -q -- "-dev."; then
+            echo "🔖 Marking $TAG as prerelease"
+            gh release edit "$TAG" --prerelease --latest=false --repo "$GITHUB_REPOSITORY"
+          else
+            echo "🔖 Marking $TAG as latest"
+            gh release edit "$TAG" --latest --prerelease=false --repo "$GITHUB_REPOSITORY"
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

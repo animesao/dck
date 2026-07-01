@@ -3,3 +3,5 @@
 dck-linux
 *.test
 *.out
+
+dck-linux-*

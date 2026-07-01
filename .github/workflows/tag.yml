@@ -1,0 +1,56 @@
+name: Auto Tag
+
+on:
+  push:
+    branches: [main, dev]
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.create.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read version
+        id: version
+        run: echo "version=$(cat VERSION)" >> $GITHUB_OUTPUT
+
+      - name: Create tag
+        id: create
+        run: |
+          SHA=$(git rev-parse --short HEAD)
+          VERSION="${{ steps.version.outputs.version }}"
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            TAG="v${VERSION}-stalbal.${SHA}"
+          else
+            TAG="v${VERSION}-dev.${SHA}"
+          fi
+          EXISTS=$(git tag -l "$TAG")
+          if [ -z "$EXISTS" ]; then
+            git config user.name "github-actions"
+            git config user.email "github-actions@github.com"
+            git tag "$TAG"
+            git push origin "$TAG"
+            echo "✅ Created tag: $TAG"
+          else
+            echo "⏭️  Tag $TAG already exists"
+          fi
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Update version files (VERSION + README.md)
+        run: |
+          TAG="${{ steps.create.outputs.tag }}"
+          if [ -n "$TAG" ]; then
+            echo "$TAG" > VERSION
+            BADGE_TAG=$(echo "$TAG" | sed 's/-/--/g')
+            sed -i "s|badge/version-[^?]*|badge/version-$BADGE_TAG-blue|" README.md
+            git add VERSION README.md
+            git commit -m "chore: update VERSION to $TAG [skip ci]" || true
+            git push origin "${{ github.ref_name }}" 2>/dev/null || true
+          fi
