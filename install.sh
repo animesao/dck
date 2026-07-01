@@ -1,250 +1,151 @@
-#!/bin/sh
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
 
-BOLD=$(tput bold 2>/dev/null || echo "")
-RESET=$(tput sgr0 2>/dev/null || echo "")
-GREEN=$(tput setaf 2 2>/dev/null || echo "")
-YELLOW=$(tput setaf 3 2>/dev/null || echo "")
-RED=$(tput setaf 1 2>/dev/null || echo "")
+# dck Container Runtime Installer
+# Usage: curl -sSL https://raw.githubusercontent.com/animesao/dck/main/install.sh | sudo bash
 
-info()  { echo "${BOLD}${GREEN}[dck]${RESET} $*"; }
-warn()  { echo "${BOLD}${YELLOW}[dck]${RESET} $*"; }
-err()   { echo "${BOLD}${RED}[dck]${RESET} $*" >&2; }
+REPO="animesao/dck"
+BRANCH=""
+DCK_BIN="/usr/local/bin/dck"
 
-DCK_BIN="${PREFIX:-/usr/local}/bin/dck"
-DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd || echo ".")"
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
+log()  { echo -e "${GREEN}[+]${NC} $1"; }
+warn() { echo -e "${YELLOW}[!]${NC} $1"; }
+err()  { echo -e "${RED}[x]${NC} $1"; exit 1; }
 
-detect_os() {
-    if [ -f /etc/os-release ]; then
-        . /etc/os-release
-        echo "$ID"
-    elif command -v lsb_release >/dev/null 2>&1; then
-        lsb_release -si | tr '[:upper:]' '[:lower:]'
-    else
-        uname -s | tr '[:upper:]' '[:lower:]'
+if [[ $EUID -ne 0 ]]; then err "Must run as root: sudo bash install.sh"; fi
+
+if [[ ! -f /etc/os-release ]]; then err "Unsupported OS"; fi
+source /etc/os-release
+if [[ "$ID" != "ubuntu" && "$ID" != "debian" ]]; then err "Unsupported OS: $ID"; fi
+log "OS: $PRETTY_NAME"
+
+ARCH="amd64"
+if [[ "$(uname -m)" == "aarch64" ]]; then ARCH="arm64"; fi
+
+# ---- Branch selection ----
+echo ""
+echo -e "${YELLOW}════════════════════════════════════════${NC}"
+echo -e "${YELLOW}     Choose Installation Channel${NC}"
+echo -e "${YELLOW}════════════════════════════════════════${NC}"
+echo -e "  ${GREEN}1)${NC} stable  — latest stable release (recommended)"
+echo -e "  ${GREEN}2)${NC} dev     — development build (unstable)"
+echo ""
+while [[ -z "$BRANCH" ]]; do
+  read -p "Select [1/2]: " -r CH </dev/tty || true
+  case "$CH" in
+    1) BRANCH="stalbal" ;;
+    2) BRANCH="dev" ;;
+    *) echo -e "${RED}Invalid choice. Enter 1 or 2.${NC}" ;;
+  esac
+done
+log "Selected channel: $BRANCH"
+
+# ---- Version selection ----
+echo ""
+echo -e "${YELLOW}════════════════════════════════════════${NC}"
+echo -e "${YELLOW}     Select Version${NC}"
+echo -e "${YELLOW}════════════════════════════════════════${NC}"
+
+LATEST_TAG=$(curl -sfL "https://api.github.com/repos/$REPO/releases?per_page=20" \
+  | grep '"tag_name"' \
+  | grep "$BRANCH" \
+  | head -1 \
+  | cut -d'"' -f4 2>/dev/null || true)
+
+if [[ -z "$LATEST_TAG" ]]; then
+  log "No $BRANCH release found, trying latest stable..."
+  LATEST_TAG=$(curl -sfL "https://api.github.com/repos/$REPO/releases/latest" \
+    | grep tag_name | cut -d'"' -f4 2>/dev/null || true)
+fi
+
+if [[ -z "$LATEST_TAG" ]]; then
+  err "Could not detect latest release. Check https://github.com/$REPO/releases"
+fi
+
+log "Latest $BRANCH version: $LATEST_TAG"
+echo ""
+echo -e "  ${GREEN}1${NC}) $LATEST_TAG (latest)"
+echo -e "  ${GREEN}2${NC}) Enter custom tag"
+echo ""
+while true; do
+  read -p "Select [1/2] (default=1): " -r VC </dev/tty || true
+  if [[ -z "$VC" || "$VC" == "1" ]]; then
+    SELECTED_TAG="$LATEST_TAG"
+    log "Selected: $SELECTED_TAG"
+    break
+  elif [[ "$VC" == "2" ]]; then
+    read -p "Enter tag (e.g. v1.19.0-stalbal.abc1234): " -r SELECTED_TAG </dev/tty || true
+    if [[ -n "$SELECTED_TAG" ]]; then
+      log "Selected: $SELECTED_TAG"
+      break
     fi
-}
+    echo -e "${RED}Tag cannot be empty${NC}"
+  else
+    echo -e "${RED}Invalid choice${NC}"
+  fi
+done
 
-install_pkgs() {
-    os="$1"
-    shift
-    case "$os" in
-        debian|ubuntu|linuxmint|pop)
-            apt-get update -qq
-            apt-get install -y -qq "$@"
-            ;;
-        rhel|centos|fedora|rocky|almalinux)
-            if command -v dnf >/dev/null 2>&1; then
-                dnf install -y -q "$@"
-            else
-                yum install -y -q "$@"
-            fi
-            ;;
-        arch|manjaro|endeavouros)
-            pacman -S --noconfirm "$@"
-            ;;
-        alpine)
-            apk add "$@"
-            ;;
-        suse|opensuse*|opensuse-leap|opensuse-tumbleweed)
-            zypper install -y "$@"
-            ;;
-        *)
-            warn "Unknown OS: $os. Please install manually: $*"
-            return 1
-            ;;
-    esac
-}
+# ---- Dependencies ----
+log "Installing dependencies..."
+apt-get update -qq
+apt-get install -y -qq curl tar gzip sudo ufw
 
-ensure_go() {
-    if command -v go >/dev/null 2>&1; then
-        info "Go found: $(go version)"
-        return 0
-    fi
-    warn "Go not found. Installing..."
-    install_pkgs "$1" "golang-go" 2>/dev/null || \
-    install_pkgs "$1" "golang" 2>/dev/null || \
-    install_pkgs "$1" "go" 2>/dev/null || {
-        err "Could not install Go via package manager."
-        err "Install Go manually from https://go.dev/dl/"
-        exit 1
-    }
-    if command -v go >/dev/null 2>&1; then
-        info "Go installed: $(go version)"
-    else
-        err "Go was installed but not found in PATH."
-        err "Restart your shell or add it to PATH manually."
-        exit 1
-    fi
-}
+# ---- Download binary ----
+log "Downloading dck ${SELECTED_TAG} (${ARCH})..."
+curl -fsSL "https://github.com/$REPO/releases/download/${SELECTED_TAG}/dck-linux-${ARCH}" \
+  -o "$DCK_BIN"
+chmod +x "$DCK_BIN"
+log "Binary installed: $DCK_BIN"
 
-ensure_packages() {
-    info "Checking required packages..."
-    os="$1"
-    case "$os" in
-        debian|ubuntu|linuxmint|pop)
-            install_pkgs "$os" util-linux iproute2 iptables procps curl git ufw
-            ;;
-        fedora|rhel|centos|rocky|almalinux)
-            install_pkgs "$os" util-linux iproute iptables procps-ng curl git ufw
-            ;;
-        arch|manjaro|endeavouros)
-            install_pkgs "$os" util-linux iproute2 iptables procps-ng curl git ufw
-            ;;
-        alpine)
-            install_pkgs "$os" util-linux iproute2 iptables procps curl git
-            warn "UFW not available on Alpine (use iptables directly)"
-            ;;
-        suse|opensuse*|opensuse-leap|opensuse-tumbleweed)
-            install_pkgs "$os" util-linux iproute2 iptables procps curl git ufw
-            ;;
-        *)
-            warn "Unknown OS. Ensure these are installed:"
-            warn "  util-linux, iproute2, iptables, procps, curl"
-            ;;
-    esac
-}
+# ---- Download .deb ----
+DEB_VERSION="${SELECTED_TAG#v}"
+DEB_NAME="dck_${DEB_VERSION}_${ARCH}.deb"
+log "Downloading .deb package..."
+curl -fsSL "https://github.com/$REPO/releases/download/${SELECTED_TAG}/${DEB_NAME}" \
+  -o "/tmp/$DEB_NAME" 2>/dev/null && {
+  log "Installing .deb package..."
+  dpkg -i "/tmp/$DEB_NAME" 2>/dev/null || apt-get install -f -y -qq
+  rm -f "/tmp/$DEB_NAME"
+} || warn "No .deb package for this version, binary only"
 
-setup_ufw() {
-    if ! command -v ufw >/dev/null 2>&1; then
-        warn "UFW not found. Installing..."
-        install_pkgs "$OS" ufw 2>/dev/null || {
-            warn "Could not install UFW. Firewall rules won't be auto-managed."
-            return
-        }
-    fi
-    info "Configuring UFW..."
-    ufw_was_enabled=false
-    if ufw status 2>/dev/null | grep -q "Status: active"; then
-        ufw_was_enabled=true
-    fi
+# ---- System deps for dck ----
+log "Installing dck system dependencies..."
+apt-get install -y -qq util-linux iproute2 iptables procps curl 2>/dev/null || true
 
-    ufw allow 22/tcp >/dev/null 2>&1 && info "  Port 22/tcp opened (SSH)"
+# ---- UFW ----
+if command -v ufw &>/dev/null; then
+  ufw allow 22/tcp 2>/dev/null || true
+  ufw --force enable 2>/dev/null || true
+  log "UFW configured (allow SSH)"
+fi
 
-    if ! "$ufw_was_enabled"; then
-        ufw --force enable >/dev/null 2>&1 || true
-        info "  UFW enabled"
-    fi
-}
+# ---- IP forwarding ----
+if [[ -f /proc/sys/net/ipv4/ip_forward ]]; then
+  echo 1 > /proc/sys/net/ipv4/ip_forward
+  grep -q "net.ipv4.ip_forward=1" /etc/sysctl.conf 2>/dev/null || \
+    echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf
+  log "IP forwarding enabled"
+fi
 
-setup_system() {
-    info "Configuring system..."
+# ---- Verify ----
+log "Verifying installation..."
+if command -v dck &>/dev/null; then
+  log "dck installed: $(dck --version 2>/dev/null || echo 'ok')"
+else
+  warn "dck not found in PATH — ensure $DCK_BIN is accessible"
+fi
 
-    if [ -f /proc/sys/net/ipv4/ip_forward ]; then
-        echo 1 > /proc/sys/net/ipv4/ip_forward
-        if [ -f /etc/sysctl.conf ]; then
-            grep -q "net.ipv4.ip_forward=1" /etc/sysctl.conf 2>/dev/null || \
-                echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf
-        fi
-        info "  IP forwarding enabled"
-    fi
-
-    if [ -d /sys/fs/cgroup ] && [ -f /sys/fs/cgroup/cgroup.controllers ]; then
-        info "  cgroups v2 detected"
-    fi
-}
-
-ensure_source() {
-    if [ -f "$DIR/go.mod" ]; then
-        return 0
-    fi
-    info "Source not found locally. Downloading from GitHub..."
-    SRC_DIR="$(mktemp -d /tmp/dck-source-XXXXXX)"
-    if command -v git >/dev/null 2>&1; then
-        git clone --depth 1 https://github.com/animesao/dck.git "$SRC_DIR" 2>/dev/null || {
-            warn "git clone failed, trying archive download..."
-            rm -rf "$SRC_DIR"
-            SRC_DIR="$(mktemp -d /tmp/dck-source-XXXXXX)"
-            curl -sSL "https://github.com/animesao/dck/archive/main.tar.gz" | tar xz -C "$SRC_DIR" --strip=1 2>/dev/null || {
-                err "Failed to download source."
-                exit 1
-            }
-        }
-    else
-        curl -sSL "https://github.com/animesao/dck/archive/main.tar.gz" | tar xz -C "$SRC_DIR" --strip=1 2>/dev/null || {
-            err "Failed to download source."
-            exit 1
-        }
-    fi
-    DIR="$SRC_DIR"
-}
-
-build_dck() {
-    info "Building dck..."
-    ensure_source
-    cd "$DIR"
-    if ! command -v go >/dev/null 2>&1; then
-        err "Go not found in PATH even after installation."
-        exit 1
-    fi
-    go mod tidy
-    DCK_VERSION=$(cat VERSION 2>/dev/null | head -1 | tr -d '[:space:]')
-    if [ -z "$DCK_VERSION" ]; then
-        DCK_VERSION="dev"
-    fi
-    go build -ldflags="-s -w -X dck/cmd.version=$DCK_VERSION" -o dck .
-    if command -v install >/dev/null 2>&1; then
-        install -d "$(dirname "$DCK_BIN")"
-        install -m 755 dck "$DCK_BIN"
-    else
-        mkdir -p "$(dirname "$DCK_BIN")"
-        cp dck "$DCK_BIN"
-        chmod 755 "$DCK_BIN"
-    fi
-    rm -f dck
-    info "Installed to $DCK_BIN"
-}
-
-verify() {
-    info "Verifying installation..."
-    info "  dck: $(dck --version 2>/dev/null || echo 'NOT FOUND')"
-    for cmd in unshare nsenter ip iptables pgrep mount umount curl; do
-        if command -v "$cmd" >/dev/null 2>&1; then
-            info "  $cmd: available"
-        else
-            warn "  $cmd: NOT FOUND"
-        fi
-    done
-}
-
-main() {
-    echo ""
-    info "${BOLD}dck - Simple Container Runtime Installer${RESET}"
-    echo ""
-
-    trap 'rm -rf "${SRC_DIR:-}"' EXIT
-
-    if [ "$(id -u)" != "0" ]; then
-        err "This installer must be run as root (or with sudo)."
-        exit 1
-    fi
-
-    OS=$(detect_os)
-    info "Detected OS: $OS"
-
-    case "$OS" in
-        debian|ubuntu|linuxmint|pop|rhel|centos|fedora|rocky|almalinux|arch|manjaro|endeavouros|alpine|suse|opensuse*|opensuse-leap|opensuse-tumbleweed)
-            ;;
-        *)
-            warn "Untested OS: $OS. Proceeding anyway..."
-            ;;
-    esac
-
-    ensure_go "$OS"
-    ensure_packages "$OS"
-    setup_ufw
-    setup_system
-    build_dck
-    verify
-
-    echo ""
-    info "${BOLD}Installation complete!${RESET}"
-    echo ""
-    info "Quick start:"
-    info "  dck pull alpine"
-    info "  dck run --rm alpine echo hello"
-    info "  dck --help"
-    echo ""
-}
-
-main
+# ---- Done ----
+echo ""
+log "════════════════════════════════════════"
+log "  dck installed successfully!"
+log "════════════════════════════════════════"
+log ""
+log "  Quick start:"
+log "    dck pull alpine"
+log "    dck run --rm alpine echo hello"
+log "    dck --help"
+log ""
+log "  Docs:  https://github.com/$REPO"
+echo ""
