@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-vv1.19.0--stalbal.ef91548--stalbal.ca70b54-blue?style=flat-square">
+  <img src="https://img.shields.io/badge/version-vv1.19.0--stalbal.ef91548--stalbal.ca70b54--stalbal.9424057-blue?style=flat-square">
   <img src="https://img.shields.io/badge/go-1.18+-00ADD8?style=flat-square&logo=go">
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square">
   <img src="https://img.shields.io/badge/no%20daemon-%E2%9C%93-brightgreen?style=flat-square">
