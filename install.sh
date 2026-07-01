@@ -47,17 +47,12 @@ echo -e "${YELLOW}════════════════════�
 echo -e "${YELLOW}     Select Version${NC}"
 echo -e "${YELLOW}════════════════════════════════════════${NC}"
 
-LATEST_TAG=$(curl -sfL "https://api.github.com/repos/$REPO/releases?per_page=20" \
+LATEST_TAG=$(curl -sfL "https://api.github.com/repos/$REPO/releases?per_page=30" \
   | grep '"tag_name"' \
-  | grep "$BRANCH" \
+  | cut -d'"' -f4 \
+  | grep -E "v[0-9]+\.[0-9]+\.[0-9]+-${BRANCH}\.[a-f0-9]+$" \
   | head -1 \
-  | cut -d'"' -f4 2>/dev/null || true)
-
-if [[ -z "$LATEST_TAG" ]]; then
-  log "No $BRANCH release found, trying latest stable..."
-  LATEST_TAG=$(curl -sfL "https://api.github.com/repos/$REPO/releases/latest" \
-    | grep tag_name | cut -d'"' -f4 2>/dev/null || true)
-fi
+  2>/dev/null || true)
 
 if [[ -z "$LATEST_TAG" ]]; then
   err "Could not detect latest release. Check https://github.com/$REPO/releases"
