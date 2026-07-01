@@ -5,7 +5,6 @@ import (
 	"os"
 )
 
-var version = "1.19.0"
 var repoURL = "https://raw.githubusercontent.com/animesao/dck"
 var blueprintRepoURL = "https://raw.githubusercontent.com/dck-organization/dck-blueprints"
 
