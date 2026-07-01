@@ -94,8 +94,10 @@ chmod +x "$DCK_BIN"
 log "Binary installed: $DCK_BIN"
 
 # ---- Download .deb ----
-DEB_VERSION="${SELECTED_TAG#v}"
-DEB_NAME="dck_${DEB_VERSION}_${ARCH}.deb"
+# .deb uses base semver (no -dev.<sha> suffix) as filename
+DEB_BASE="${SELECTED_TAG#v}"
+DEB_BASE="${DEB_BASE%%-*}"
+DEB_NAME="dck_${DEB_BASE}_${ARCH}.deb"
 log "Downloading .deb package..."
 curl -fsSL "https://github.com/$REPO/releases/download/${SELECTED_TAG}/${DEB_NAME}" \
   -o "/tmp/$DEB_NAME" 2>/dev/null && {
