@@ -88,6 +88,7 @@ func (c *Container) Stop() error {
 	c.PID = 0
 	c.Status = Stopped
 	c.Save()
+	EmitEvent(EventStop, c)
 	return nil
 }
 

@@ -38,6 +38,7 @@ func (c *Container) Remove(force bool) error {
 	os.RemoveAll(filepath.Dir(upper))
 	os.Remove(c.LogFile())
 	c.DeleteState()
+	EmitEvent(EventDestroy, c)
 
 	return nil
 }

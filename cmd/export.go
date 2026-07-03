@@ -1,0 +1,40 @@
+package cmd
+
+import (
+	"flag"
+	"fmt"
+	"os"
+
+	"dck/internal/image"
+)
+
+func Export(args []string) {
+	fs := flag.NewFlagSet("export", flag.ExitOnError)
+	output := fs.String("o", "", "Output file path")
+	fs.Parse(args)
+
+	freeArgs := fs.Args()
+	if len(freeArgs) < 1 {
+		fmt.Println("Usage: dck export <image>[:tag] [-o output.tar.gz]")
+		os.Exit(1)
+	}
+
+	ref := freeArgs[0]
+	if err := image.Export(ref, *output); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func Import(args []string) {
+	if len(args) < 1 {
+		fmt.Println("Usage: dck import <file.tar.gz>")
+		os.Exit(1)
+	}
+
+	for _, path := range args {
+		if err := image.Import(path); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		}
+	}
+}

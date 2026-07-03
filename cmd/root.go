@@ -82,6 +82,16 @@ func Execute() {
 		Build(args)
 	case "push":
 		Push(args)
+	case "login":
+		Login(args)
+	case "logout":
+		Logout(args)
+	case "events":
+		Events(args)
+	case "export":
+		Export(args)
+	case "import":
+		Import(args)
 	case "cluster":
 		Cluster(args)
 	case "service":
@@ -147,6 +157,11 @@ Usage:
    dck fn rm <name>              Remove a function
    dck fn call <name>            Invoke a function
    dck push <image>[:tag]        Push image to registry
+   dck login <registry>          Log in to a registry
+   dck logout <registry>         Log out from a registry
+   dck events                    Stream container events
+   dck export <image> -o f.tar.gz Export image to file
+   dck import <file.tar.gz>      Import image from file
    dck up [name] [-f dck.toml]  Create/start containers from dck.toml
    dck up --autostart            Also install systemd service for reboot auto-start
   dck down [name] [-f dck.toml] Stop/remove containers from dck.toml

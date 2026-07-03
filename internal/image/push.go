@@ -90,6 +90,9 @@ func getPushToken(repo, username, password string) (string, error) {
 		return "", err
 	}
 
+	if username == "" || password == "" {
+		username, password = GetCredentials(repo)
+	}
 	if username != "" && password != "" {
 		req.SetBasicAuth(username, password)
 	}

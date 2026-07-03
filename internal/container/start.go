@@ -171,6 +171,7 @@ func (c *Container) Start() error {
 
 	c.Status = Running
 	c.Save()
+	EmitEvent(EventStart, c)
 
 	if c.Detach {
 		ctx, cancel := context.WithCancel(context.Background())
