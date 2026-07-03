@@ -262,6 +262,318 @@ Configs are mounted as files inside the container:
 - Default target: `/<name>`
 - Default permissions: `0444`
 
+## Real-world examples
+
+### Example 1: Bot + Site + DB (different directories)
+
+```
+/opt/
+├── mybot/
+│   ├── main.py
+│   └── requirements.txt
+├── mysite/
+│   ├── package.json
+│   └── index.js
+└── compose.yaml
+```
+
+**compose.yaml:**
+
+```yaml
+services:
+  db:
+    image: mysql:8
+    restart: always
+    volumes:
+      - mysql_data:/var/lib/mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: myapp
+      MYSQL_USER: bot
+      MYSQL_PASSWORD: botpass
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      retries: 5
+
+  bot:
+    image: python:3.12-slim
+    restart: always
+    working_dir: /app
+    volumes:
+      - /opt/mybot:/app
+    command: sh -c "pip install -r requirements.txt && python main.py"
+    environment:
+      DB_HOST: db
+      DB_USER: bot
+      DB_PASSWORD: botpass
+      DB_NAME: myapp
+    depends_on:
+      db:
+        condition: service_healthy
+    labels:
+      - "app=telegram-bot"
+      - "env=production"
+
+  site:
+    image: node:20-alpine
+    restart: always
+    working_dir: /app
+    volumes:
+      - /opt/mysite:/app
+    ports:
+      - "3000:3000"
+    command: sh -c "npm install && node index.js"
+    environment:
+      DB_HOST: db
+      DB_USER: bot
+      DB_PASSWORD: botpass
+      DB_NAME: myapp
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  mysql_data:
+```
+
+```
+cd /opt
+dck up           # запустит все 3 сервиса
+dck up bot       # только бота
+```
+
+---
+
+### Example 2: Everything in one project folder
+
+```
+/home/user/myproject/
+├── compose.yaml
+├── .env
+├── bots/
+│   ├── __init__.py
+│   └── main.py
+├── site/
+│   ├── public/
+│   ├── index.js
+│   ├── package.json
+│   └── Dockerfile
+├── nginx/
+│   └── default.conf
+└── scripts/
+    └── init.sql
+```
+
+**.env:**
+
+```
+DB_PASSWORD=secret123
+DOMAIN=example.com
+```
+
+**compose.yaml:**
+
+```yaml
+services:
+  nginx:
+    image: nginx:alpine
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./site/public:/var/www/html:ro
+    depends_on:
+      - site
+
+  site:
+    build: ./site
+    restart: always
+    working_dir: /app
+    volumes:
+      - ./site:/app
+      - /app/node_modules
+    ports:
+      - "3000:3000"
+    command: node index.js
+    environment:
+      DB_HOST: db
+      DB_PASS: ${DB_PASSWORD}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  bot:
+    image: python:3.12-slim
+    restart: always
+    working_dir: /app
+    volumes:
+      - ./bots:/app
+    command: sh -c "pip install -r requirements.txt && python main.py"
+    environment:
+      DB_HOST: db
+      DB_PASS: ${DB_PASSWORD}
+      BOT_TOKEN: ${BOT_TOKEN}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:16-alpine
+    restart: always
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./scripts/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    environment:
+      POSTGRES_DB: myapp
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    healthcheck:
+      test: pg_isready -U postgres
+      interval: 5s
+      retries: 10
+
+volumes:
+  pgdata:
+```
+
+---
+
+### Example 3: Absolute paths (services in /opt, configs in /etc)
+
+```
+/opt/
+├── bot/
+│   └── main.py
+├── api/
+│   └── server.js
+/etc/
+├── dck/
+│   └── compose.yaml
+├── secrets/
+│   ├── db_pass.txt
+│   └── bot_token.txt
+/var/
+└── data/
+    └── mysql/
+```
+
+**compose.yaml (inside `/etc/dck/`):**
+
+```yaml
+services:
+  db:
+    image: mysql:8
+    restart: always
+    volumes:
+      - /var/data/mysql:/var/lib/mysql
+    environment:
+      MYSQL_ROOT_PASSWORD_FILE: /run/secrets/db_pass
+      MYSQL_DATABASE: myapp
+    secrets:
+      - db_pass
+
+  bot:
+    image: python:3.12-slim
+    restart: always
+    working_dir: /app
+    volumes:
+      - /opt/bot:/app
+    command: sh -c "pip install -r /app/requirements.txt && python /app/main.py"
+    secrets:
+      - source: db_pass
+        target: /app/db_pass.txt
+        mode: 0600
+      - source: bot_token
+        target: /app/token.txt
+        mode: 0600
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    image: node:20-alpine
+    restart: always
+    working_dir: /app
+    volumes:
+      - /opt/api:/app
+    ports:
+      - "4000:4000"
+    command: node /app/server.js
+    environment:
+      DB_HOST: db
+    secrets:
+      - db_pass
+    depends_on:
+      db:
+        condition: service_healthy
+
+secrets:
+  db_pass:
+    file: /etc/secrets/db_pass.txt
+  bot_token:
+    file: /etc/secrets/bot_token.txt
+```
+
+```
+cd /etc/dck
+dck up --autostart
+```
+
+---
+
+## Tips for writing compose files
+
+### Directory structure rules
+
+| Volume syntax | What happens |
+|---|---|
+| `./site:/app` | Relative to compose.yaml location. `site/` folder next to compose.yaml |
+| `/opt/site:/app` | Absolute path — works from anywhere |
+| `site-data:/app` | Named volume — managed by dck (`~/.dck/volumes/site-data/`) |
+
+### Container-to-container communication
+
+Each container can reach others by **service name**:
+
+```yaml
+services:
+  db:    # → hostname "db"
+  site:  # → hostname "site"
+  bot:   # → hostname "bot"
+```
+
+Inside container: `ping db`, `curl site:3000`, `psql -h db -U user`
+
+### depends_on
+
+```yaml
+depends_on:
+  db:
+    condition: service_healthy   # wait until healthcheck passes
+  redis:
+    condition: service_started   # just wait for start
+```
+
+### Secrets vs Configs
+
+| Feature | Secrets | Configs |
+|---|---|---|
+| Default path | `/run/secrets/<name>` | `/<name>` |
+| Default permissions | `0444` | `0444` |
+| Use for | Passwords, tokens, keys | Config files, nginx conf, SSL certs |
+
+### Auto-start on boot
+
+```bash
+dck up --autostart       # instant: up + installs systemd service
+# or separately:
+dck bootstrap --install  # installs systemd service for existing containers
+```
+
+After reboot: `systemctl status dck-bootstrap` checks all containers with `restart: always` are running.
+
 ## dck.toml format
 
 For backwards compatibility with existing dck projects:
