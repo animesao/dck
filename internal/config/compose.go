@@ -10,68 +10,142 @@ import (
 )
 
 type composeFile struct {
-	Version  string                     `yaml:"version"`
-	Services map[string]composeService  `yaml:"services"`
-	Volumes  map[string]composeVolume   `yaml:"volumes"`
-	Networks map[string]composeNetwork  `yaml:"networks"`
+	Version  string                       `yaml:"version"`
+	Services map[string]composeService    `yaml:"services"`
+	Volumes  map[string]composeVolume     `yaml:"volumes"`
+	Networks map[string]composeNetwork    `yaml:"networks"`
+	Secrets  map[string]composeSecretSpec  `yaml:"secrets"`
+	Configs  map[string]composeConfigSpec  `yaml:"configs"`
 }
 
 type composeService struct {
-	Image       string                 `yaml:"image"`
-	ContainerName string               `yaml:"container_name"`
-	Ports       []string               `yaml:"ports"`
-	Environment interface{}            `yaml:"environment"` // []string or map[string]string
-	EnvFile     interface{}            `yaml:"env_file"`    // string or []string
-	Volumes     []interface{}          `yaml:"volumes"`     // []string or []composeVolumeMount
-	DependsOn   interface{}            `yaml:"depends_on"`  // []string or map
-	Restart     string                 `yaml:"restart"`
-	Command     interface{}            `yaml:"command"`     // string or []string
-	Entrypoint  interface{}            `yaml:"entrypoint"`  // string or []string
-	WorkingDir  string                 `yaml:"working_dir"`
-	User        string                 `yaml:"user"`
-	DNS         interface{}            `yaml:"dns"`         // string or []string
-	CapAdd      []string               `yaml:"cap_add"`
-	CapDrop     []string               `yaml:"cap_drop"`
-	Labels      map[string]string      `yaml:"labels"`
-	Healthcheck *composeHealthcheck    `yaml:"healthcheck"`
-	Networks    interface{}            `yaml:"networks"`    // []string or map
-	NetworkMode string                 `yaml:"network_mode"`
-	ReadOnly    bool                   `yaml:"read_only"`
-	StdinOpen   bool                   `yaml:"stdin_open"`
-	TTY         bool                   `yaml:"tty"`
-	StopSignal  string                 `yaml:"stop_signal"`
-	StopGracePeriod string             `yaml:"stop_grace_period"`
-	Sysctls     map[string]string      `yaml:"sysctls"`
+	Image       string                  `yaml:"image"`
+	ContainerName string                `yaml:"container_name"`
+	Ports       []string                `yaml:"ports"`
+	Environment interface{}             `yaml:"environment"`
+	EnvFile     interface{}             `yaml:"env_file"`
+	Volumes     []interface{}           `yaml:"volumes"`
+	DependsOn   interface{}             `yaml:"depends_on"`
+	Restart     string                  `yaml:"restart"`
+	Command     interface{}             `yaml:"command"`
+	Entrypoint  interface{}             `yaml:"entrypoint"`
+	WorkingDir  string                  `yaml:"working_dir"`
+	User        string                  `yaml:"user"`
+	DNS         interface{}             `yaml:"dns"`
+	CapAdd      []string                `yaml:"cap_add"`
+	CapDrop     []string                `yaml:"cap_drop"`
+	Labels      map[string]string       `yaml:"labels"`
+	Healthcheck *composeHealthcheck     `yaml:"healthcheck"`
+	Networks    interface{}             `yaml:"networks"`
+	NetworkMode string                  `yaml:"network_mode"`
+	ReadOnly    bool                    `yaml:"read_only"`
+	StdinOpen   bool                    `yaml:"stdin_open"`
+	TTY         bool                    `yaml:"tty"`
+	StopSignal  string                  `yaml:"stop_signal"`
+	StopGracePeriod string              `yaml:"stop_grace_period"`
+	Sysctls     map[string]string       `yaml:"sysctls"`
 	Ulimits     map[string]composeUlimit `yaml:"ulimits"`
-	Memory      string                 `yaml:"memory"`   // or mem_limit
-	MemLimit    string                 `yaml:"mem_limit"`
-	CPUs        float64                `yaml:"cpus"`
-	CPUSet      string                 `yaml:"cpuset"`
-	Privileged  bool                   `yaml:"privileged"`
-	Hostname    string                 `yaml:"hostname"`
+	Memory      string                  `yaml:"memory"`
+	MemLimit    string                  `yaml:"mem_limit"`
+	CPUs        float64                 `yaml:"cpus"`
+	CPUSet      string                  `yaml:"cpuset"`
+	Privileged  bool                    `yaml:"privileged"`
+	Hostname    string                  `yaml:"hostname"`
+	Expose      []string                `yaml:"expose"`
+	ExtraHosts  []string                `yaml:"extra_hosts"`
 
-	// Less common but useful
-	Expose      []string               `yaml:"expose"`
-	ExtraHosts  []string               `yaml:"extra_hosts"`
-	Secrets     []string               `yaml:"secrets"`
-	Configs     []string               `yaml:"configs"`
+	// Deploy section
+	Deploy *composeDeployConfig `yaml:"deploy"`
 
-	// Build (skip for now - we just use image)
+	// Secrets / Configs (support both []string and []map)
+	SecretsRaw interface{} `yaml:"secrets"`
+	ConfigsRaw interface{} `yaml:"configs"`
+
 	Build       interface{}            `yaml:"build"`
 }
 
+type composeDeployConfig struct {
+	Mode          string                    `yaml:"mode"`
+	Replicas      int                       `yaml:"replicas"`
+	Resources     *composeResources         `yaml:"resources"`
+	RestartPolicy *composeRestartPolicy     `yaml:"restart_policy"`
+	UpdateConfig  *composeUpdateConfig      `yaml:"update_config"`
+	Placement     *composePlacement         `yaml:"placement"`
+	Labels        map[string]string         `yaml:"labels"`
+}
+
+type composeResources struct {
+	Limits       *composeResourceSpec `yaml:"limits"`
+	Reservations *composeResourceSpec `yaml:"reservations"`
+}
+
+type composeResourceSpec struct {
+	CPUs   interface{} `yaml:"cpus"`   // string or float64
+	Memory string      `yaml:"memory"`
+}
+
+type composeRestartPolicy struct {
+	Condition   string `yaml:"condition"`
+	Delay       string `yaml:"delay"`
+	MaxAttempts int    `yaml:"max_attempts"`
+	Window      string `yaml:"window"`
+}
+
+type composeUpdateConfig struct {
+	Parallelism     int     `yaml:"parallelism"`
+	Delay           string  `yaml:"delay"`
+	FailureAction   string  `yaml:"failure_action"`
+	Monitor         string  `yaml:"monitor"`
+	MaxFailureRatio float64 `yaml:"max_failure_ratio"`
+	Order           string  `yaml:"order"`
+}
+
+type composePlacement struct {
+	Constraints []string `yaml:"constraints"`
+	Preferences []string `yaml:"preferences"`
+	MaxReplicas int      `yaml:"max_replicas"`
+}
+
+type composeSecretSpec struct {
+	File     string `yaml:"file"`
+	External bool   `yaml:"external"`
+	Name     string `yaml:"name"`
+}
+
+type composeConfigSpec struct {
+	File     string `yaml:"file"`
+	External bool   `yaml:"external"`
+	Name     string `yaml:"name"`
+}
+
+type composeSecretRef struct {
+	Source string `yaml:"source"`
+	Target string `yaml:"target,omitempty"`
+	UID    string `yaml:"uid,omitempty"`
+	GID    string `yaml:"gid,omitempty"`
+	Mode   uint32 `yaml:"mode,omitempty"`
+}
+
+type composeConfigRef struct {
+	Source string `yaml:"source"`
+	Target string `yaml:"target,omitempty"`
+	UID    string `yaml:"uid,omitempty"`
+	GID    string `yaml:"gid,omitempty"`
+	Mode   uint32 `yaml:"mode,omitempty"`
+}
+
 type composeVolume struct {
-	Driver     string                 `yaml:"driver"`
-	DriverOpts map[string]string      `yaml:"driver_opts"`
+	Driver     string            `yaml:"driver"`
+	DriverOpts map[string]string `yaml:"driver_opts"`
 }
 
 type composeNetwork struct {
-	Driver     string                 `yaml:"driver"`
-	DriverOpts map[string]string      `yaml:"driver_opts"`
+	Driver     string            `yaml:"driver"`
+	DriverOpts map[string]string `yaml:"driver_opts"`
 }
 
 type composeHealthcheck struct {
-	Test     interface{} `yaml:"test"`     // string or []string
+	Test     interface{} `yaml:"test"`
 	Interval string      `yaml:"interval"`
 	Timeout  string      `yaml:"timeout"`
 	Retries  int         `yaml:"retries"`
@@ -102,7 +176,27 @@ func LoadCompose(path string) (*Config, error) {
 	}
 
 	cfg := &Config{
-		Container: make(map[string]ContainerConfig),
+		Secrets:    make(map[string]SecretSpec),
+		Configs:    make(map[string]ConfigSpec),
+		Container:  make(map[string]ContainerConfig),
+	}
+
+	// Top-level secrets
+	for name, s := range cf.Secrets {
+		cfg.Secrets[name] = SecretSpec{
+			File:     s.File,
+			External: s.External,
+			Name:     s.Name,
+		}
+	}
+
+	// Top-level configs
+	for name, c := range cf.Configs {
+		cfg.Configs[name] = ConfigSpec{
+			File:     c.File,
+			External: c.External,
+			Name:     c.Name,
+		}
 	}
 
 	for name, svc := range cf.Services {
@@ -122,41 +216,30 @@ func LoadCompose(path string) (*Config, error) {
 			DNS:         toStringSlice(svc.DNS),
 		}
 
-		// Container name (use service name if not specified)
 		if svc.ContainerName != "" {
 			cc.Hostname = svc.ContainerName
 		}
 
-		// Memory
 		mem := svc.Memory
 		if mem == "" {
 			mem = svc.MemLimit
 		}
 		cc.Memory = mem
 
-		// CPUs
 		cc.CPUs = svc.CPUs
 
-		// Ports (already []string in compose yaml, or may be int-int format)
 		for _, p := range svc.Ports {
 			cc.Ports = append(cc.Ports, normalizePort(p))
 		}
 
-		// Environment - can be []string or map[string]string
 		cc.Env = parseComposeEnv(svc.Environment)
-
-		// Env file - can be string or []string
 		cc.EnvFile = parseComposeEnvFile(svc.EnvFile)
-
-		// Command - can be string or []string
 		cc.Command = parseComposeCommand(svc.Command)
 
-		// Entrypoint
 		if ep := parseComposeCommand(svc.Entrypoint); ep != "" {
 			cc.Entrypoint = ep
 		}
 
-		// Volumes - can be []string or []map
 		for _, v := range svc.Volumes {
 			switch vol := v.(type) {
 			case string:
@@ -177,27 +260,223 @@ func LoadCompose(path string) (*Config, error) {
 			}
 		}
 
-		// Healthcheck
 		if svc.Healthcheck != nil {
 			cc.Healthcheck = parseComposeHealthcheck(svc.Healthcheck)
 		}
 
-		// Ulimits
 		if len(svc.Ulimits) > 0 {
 			cc.Ulimits = make(map[string]string)
-			for name, ul := range svc.Ulimits {
-				cc.Ulimits[name] = fmt.Sprintf("%d:%d", ul.Soft, ul.Hard)
+			for uname, ul := range svc.Ulimits {
+				cc.Ulimits[uname] = fmt.Sprintf("%d:%d", ul.Soft, ul.Hard)
 			}
 		}
 
-		// Restart policy - normalize Docker compose values
 		cc.Restart = normalizeRestart(cc.Restart)
 
-		// Use service name as container name for config key
+		// --- Deploy section ---
+		if svc.Deploy != nil {
+			cc.Deploy = parseDeployConfig(svc.Deploy)
+			// Pull replicas from deploy section if set
+			if svc.Deploy.Replicas > 0 {
+				cc.Replicas = svc.Deploy.Replicas
+			}
+			// Pull resources from deploy section
+			if svc.Deploy.Resources != nil {
+				r := svc.Deploy.Resources
+				if r.Limits != nil {
+					if r.Limits.Memory != "" && cc.Memory == "" {
+						cc.Memory = r.Limits.Memory
+					}
+				}
+			}
+		}
+
+		// --- Secrets ---
+		cc.Secrets = parseComposeSecrets(svc.SecretsRaw, cf.Secrets)
+
+		// --- Configs ---
+		cc.Configs = parseComposeConfigs(svc.ConfigsRaw, cf.Configs)
+
 		cfg.Container[name] = cc
 	}
 
 	return cfg, nil
+}
+
+func parseDeployConfig(d *composeDeployConfig) *DeployConfig {
+	dc := &DeployConfig{
+		Replicas: d.Replicas,
+		Mode:     d.Mode,
+	}
+
+	if d.Resources != nil {
+		dc.Resources = &ResourcesConfig{}
+		if d.Resources.Limits != nil {
+			dc.Resources.Limits = &ResourceSpec{
+				Memory: d.Resources.Limits.Memory,
+				CPUs:   parseCPUs(d.Resources.Limits.CPUs),
+			}
+		}
+		if d.Resources.Reservations != nil {
+			dc.Resources.Reservations = &ResourceSpec{
+				Memory: d.Resources.Reservations.Memory,
+				CPUs:   parseCPUs(d.Resources.Reservations.CPUs),
+			}
+		}
+	}
+
+	if d.RestartPolicy != nil {
+		dc.RestartPolicy = &RestartPolicyConfig{
+			Condition:   d.RestartPolicy.Condition,
+			Delay:       d.RestartPolicy.Delay,
+			MaxAttempts: d.RestartPolicy.MaxAttempts,
+			Window:      d.RestartPolicy.Window,
+		}
+	}
+
+	if d.UpdateConfig != nil {
+		dc.UpdateConfig = &UpdateConfig{
+			Parallelism:     d.UpdateConfig.Parallelism,
+			Delay:           d.UpdateConfig.Delay,
+			FailureAction:   d.UpdateConfig.FailureAction,
+			Monitor:         d.UpdateConfig.Monitor,
+			MaxFailureRatio: d.UpdateConfig.MaxFailureRatio,
+			Order:           d.UpdateConfig.Order,
+		}
+	}
+
+	if d.Placement != nil {
+		dc.Placement = &PlacementConfig{
+			Constraints: d.Placement.Constraints,
+			Preferences: d.Placement.Preferences,
+			MaxReplicas: d.Placement.MaxReplicas,
+		}
+	}
+
+	return dc
+}
+
+func parseCPUs(v interface{}) float64 {
+	if v == nil {
+		return 0
+	}
+	switch val := v.(type) {
+	case float64:
+		return val
+	case int:
+		return float64(val)
+	case string:
+		var c float64
+		fmt.Sscanf(val, "%f", &c)
+		return c
+	}
+	return 0
+}
+
+func parseComposeSecrets(raw interface{}, topLevel map[string]composeSecretSpec) []SecretRef {
+	if raw == nil {
+		return nil
+	}
+
+	var refs []SecretRef
+
+	switch val := raw.(type) {
+	case []interface{}:
+		for _, item := range val {
+			switch s := item.(type) {
+			case string:
+				refs = append(refs, SecretRef{Source: s})
+			case map[string]interface{}:
+				ref := SecretRef{Source: getString(s, "source")}
+				if ref.Source == "" {
+					continue
+				}
+				ref.Target = getString(s, "target")
+				ref.UID = getString(s, "uid")
+				ref.GID = getString(s, "gid")
+				if m, ok := s["mode"].(uint32); ok {
+					ref.Mode = m
+				} else if mf, ok := s["mode"].(float64); ok {
+					ref.Mode = uint32(mf)
+				}
+				refs = append(refs, ref)
+			}
+		}
+	case []string:
+		for _, s := range val {
+			refs = append(refs, SecretRef{Source: s})
+		}
+	}
+
+	// Resolve file paths from top-level definitions
+	for i, ref := range refs {
+		if spec, ok := topLevel[ref.Source]; ok && spec.File != "" {
+			if ref.Target == "" {
+				refs[i].Target = "/run/secrets/" + ref.Source
+			}
+			if ref.Mode == 0 {
+				refs[i].Mode = 0444
+			}
+		}
+	}
+
+	return refs
+}
+
+func parseComposeConfigs(raw interface{}, topLevel map[string]composeConfigSpec) []ConfigRef {
+	if raw == nil {
+		return nil
+	}
+
+	var refs []ConfigRef
+
+	switch val := raw.(type) {
+	case []interface{}:
+		for _, item := range val {
+			switch s := item.(type) {
+			case string:
+				refs = append(refs, ConfigRef{Source: s})
+			case map[string]interface{}:
+				ref := ConfigRef{Source: getString(s, "source")}
+				if ref.Source == "" {
+					continue
+				}
+				ref.Target = getString(s, "target")
+				ref.UID = getString(s, "uid")
+				ref.GID = getString(s, "gid")
+				if m, ok := s["mode"].(uint32); ok {
+					ref.Mode = m
+				} else if mf, ok := s["mode"].(float64); ok {
+					ref.Mode = uint32(mf)
+				}
+				refs = append(refs, ref)
+			}
+		}
+	case []string:
+		for _, s := range val {
+			refs = append(refs, ConfigRef{Source: s})
+		}
+	}
+
+	for i, ref := range refs {
+		if spec, ok := topLevel[ref.Source]; ok && spec.File != "" {
+			if ref.Target == "" {
+				refs[i].Target = "/" + ref.Source
+			}
+			if ref.Mode == 0 {
+				refs[i].Mode = 0444
+			}
+		}
+	}
+
+	return refs
+}
+
+func getString(m map[string]interface{}, key string) string {
+	if v, ok := m[key]; ok {
+		return fmt.Sprintf("%v", v)
+	}
+	return ""
 }
 
 // LoadConfigOrCompose auto-detects the config file format and loads it.
@@ -207,7 +486,6 @@ func LoadConfigOrCompose(path string) (*Config, string, error) {
 		return cfg, p, err
 	}
 
-	// Try auto-detect in order
 	candidates := []string{
 		"dck.toml",
 		"compose.yaml",
@@ -243,7 +521,6 @@ func tryLoad(path string) (*Config, string, error) {
 		cfg, err := LoadCompose(path)
 		return cfg, path, err
 	default:
-		// Try both, prefer toml
 		cfg, err := loadFile(path)
 		if err == nil {
 			return cfg, path, nil
@@ -255,8 +532,6 @@ func tryLoad(path string) (*Config, string, error) {
 		return nil, path, fmt.Errorf("cannot parse %s as TOML or YAML", path)
 	}
 }
-
-// Helpers
 
 func parseComposeEnv(env interface{}) map[string]string {
 	result := make(map[string]string)
@@ -361,24 +636,16 @@ func parseDurationToSeconds(d string) int {
 }
 
 func normalizePort(p string) string {
-	// Already in "host:container" or "host:container/protocol" format
 	if strings.Contains(p, ":") {
 		return p
 	}
-	// Could be just "80" or "80/tcp" - treat as container port
 	return p
 }
 
 func normalizeRestart(r string) string {
 	switch r {
-	case "no":
-		return "no"
-	case "always":
-		return "always"
-	case "on-failure":
-		return "on-failure"
-	case "unless-stopped":
-		return "unless-stopped"
+	case "no", "always", "on-failure", "unless-stopped":
+		return r
 	case "":
 		return "always"
 	default:

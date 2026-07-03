@@ -67,6 +67,11 @@ func (c *Container) Start() error {
 		}
 	}
 
+	// Inject secrets/configs into rootfs
+	if err := c.InjectSecrets(merged); err != nil {
+		return fmt.Errorf("inject secrets: %w", err)
+	}
+
 	binPath, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("executable: %w", err)
