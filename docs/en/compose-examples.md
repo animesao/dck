@@ -2,11 +2,25 @@
 
 Every example is a complete `compose.yaml`. Use them as-is or mix and match.
 
+## Quick Start with .env
+
+Services that use `${VAR}` need a `.env` file in the same directory:
+
+```bash
+cat > .env << 'EOF'
+DB_PASSWORD=mysecretpass
+MYSQL_ROOT_PASS=rootpass
+MYSQL_APP_PASS=apppass
+REDIS_PASS=redispass
+GITHUB_TOKEN=ghp_xxx
+EOF
+```
+
 ---
 
 ## 1. Minecraft Server (Paper)
 
-Run a Paper Minecraft server with auto-restart.
+Includes stale lock cleanup so the server always starts fresh.
 
 ```yaml
 services:
@@ -15,7 +29,12 @@ services:
     working_dir: /server
     volumes:
       - /opt/mc-server:/server
-    command: sh -c "echo eula=true > eula.txt && exec java -Xms512M -Xmx4G -jar paper-*.jar nogui"
+    command: >
+      sh -c "
+        rm -f world/session.lock world_nether/session.lock world_the_end/session.lock
+        echo eula=true > eula.txt
+        exec java -Xms512M -Xmx4G -jar paper-*.jar nogui
+      "
     restart: always
     ports:
       - "25565:25565"
@@ -23,16 +42,15 @@ services:
       - 8.8.8.8
 ```
 
-- `working_dir` — sets the working directory inside the container
+- `rm -f *.lock` — cleans stale Paper locks from previous crashes
+- `working_dir` — working directory inside container
 - `volumes: /opt/mc-server:/server` — mount host folder to container
 - `restart: always` — restart on crash or reboot
-- `dns` — fixes DNS resolution for downloading mods/plugins
+- `dns` — fixes DNS for downloading mods/plugins
 
 ---
 
 ## 2. Web Server (Nginx + static files)
-
-Serve a static website.
 
 ```yaml
 services:
@@ -44,8 +62,8 @@ services:
       - "443:443"
     volumes:
       - /var/www/html:/usr/share/nginx/html:ro
-      - /etc/nginx/conf.d:/etc/nginx/conf.d:ro
-      - /etc/ssl/certs:/etc/ssl/certs:ro
+      - ./nginx-conf:/etc/nginx/conf.d:ro
+      - ./ssl:/etc/nginx/ssl:ro
     labels:
       - "app=website"
       - "env=production"
@@ -57,14 +75,13 @@ services:
 ```
 
 - `:ro` — read-only mount (security)
+- **Use directories, not files** — dck mounts directories only (e.g. `./nginx-conf/` not `./nginx.conf`)
 - `labels` — metadata for filtering with `dck ps --filter`
 - `healthcheck` — check if nginx responds every 30s
 
 ---
 
 ## 3. Full-Stack App (Node.js + Python + Postgres)
-
-Three services with dependencies and health checks.
 
 ```yaml
 services:
@@ -73,7 +90,7 @@ services:
     restart: always
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./init-sql:/docker-entrypoint-initdb.d
     environment:
       POSTGRES_DB: myapp
       POSTGRES_PASSWORD: ${DB_PASSWORD:-secret}
@@ -136,6 +153,7 @@ networks:
     internal: true
 ```
 
+- **Use directories for mounts** — `./init-sql/` instead of `./init.sql` (dck limitation)
 - `volumes: /app/node_modules` — unnamed volume, prevents node_modules from being overwritten by bind mount
 - `env_file` — load env vars from file
 - `secrets` — inject sensitive files as `/run/secrets/<name>`
@@ -146,8 +164,6 @@ networks:
 
 ## 4. Database Cluster (MySQL + Redis + Adminer)
 
-Multiple databases with a web admin tool.
-
 ```yaml
 services:
   mysql:
@@ -155,7 +171,7 @@ services:
     restart: always
     volumes:
       - mysql_data:/var/lib/mysql
-      - ./my.cnf:/etc/mysql/conf.d/custom.cnf:ro
+      - ./mysql-conf:/etc/mysql/conf.d
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASS}
       MYSQL_DATABASE: myapp
@@ -195,16 +211,14 @@ volumes:
   redis_data:
 ```
 
-- `command: >` — multiline command with flags
+- **Required `.env` file**: create `.env` with `MYSQL_ROOT_PASS`, `MYSQL_APP_PASS`, `REDIS_PASS`
+- Use `./mysql-conf/` directory (copy `my.cnf` inside) — dck doesn't mount single files
 - `cap_add: SYS_NICE` — needed for MySQL to adjust thread priority
-- `requirepass` / `--appendonly` — Redis persistence + auth
 - Adminer — web UI at port 8080
 
 ---
 
 ## 5. Reverse Proxy (Nginx + multiple services)
-
-Nginx in front of two web apps.
 
 ```yaml
 services:
@@ -215,7 +229,7 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx-conf:/etc/nginx/conf.d:ro
       - ./ssl:/etc/nginx/ssl:ro
     depends_on:
       - app1
@@ -246,10 +260,11 @@ services:
     restart: always
 ```
 
-- `expose` — makes port accessible to linked services only (not to host)
-- Nginx config resolves `app1:3000`, `app2:5000`
+- `expose` — port accessible to linked services only (not to host)
+- Nginx resolves `app1:3000`, `app2:5000`
+- Place `app1.conf` inside `./nginx-conf/` directory
 
-**nginx.conf:**
+**nginx-conf/default.conf:**
 ```nginx
 upstream app1 { server app1:3000; }
 upstream app2 { server app2:5000; }
@@ -263,8 +278,6 @@ server {
 ---
 
 ## 6. Cron / Scheduled Tasks
-
-Run a script every minute.
 
 ```yaml
 services:
@@ -291,8 +304,6 @@ services:
 
 ## 7. File Server (nginx + uploads)
 
-Serve and accept file uploads.
-
 ```yaml
 services:
   storage:
@@ -303,30 +314,20 @@ services:
     volumes:
       - /mnt/storage:/usr/share/nginx/html:ro
       - /mnt/uploads:/uploads:rw
-    user: "1000:1000"
-    read_only: true
     tmpfs:
       - /var/cache/nginx
       - /var/run
-    cap_drop:
-      - ALL
-    cap_add:
-      - NET_BIND_SERVICE
-    security_opt:
-      - no-new-privileges:true
 ```
 
-- `user: "1000:1000"` — run as non-root
-- `read_only: true` — rootfs is read-only
-- `tmpfs` — temporary in-memory filesystem
-- `cap_drop: ALL` + `cap_add: NET_BIND_SERVICE` — minimal capabilities
-- `security_opt: no-new-privileges` — prevent privilege escalation
+**Simplified for dck** — omits `user: "1000:1000"` + `read_only` because nginx needs to write cache. For hardened security use a custom nginx.conf with temp paths.
+
+- `tmpfs` — temporary in-memory filesystem for logs/cache
+- **Note:** `security_opt` values must be quoted YAML strings: `"no-new-privileges:true"`
+- **Note:** `read_only: true` + `user: "1000:1000"` breaks nginx (can't create `/var/cache/nginx/client_temp`)
 
 ---
 
 ## 8. CI Runner (self-hosted)
-
-Run a GitHub Actions runner.
 
 ```yaml
 services:
@@ -356,8 +357,6 @@ volumes:
 ---
 
 ## 9. Full-Stack with Configs (Nginx + API + DB + Redis)
-
-Production-ready stack with configs, secrets, and resource limits.
 
 ```yaml
 services:
@@ -451,17 +450,16 @@ secrets:
     file: ./secrets/db_pass.txt
 ```
 
-- `configs` — inject config files into container (default: `/<name>`)
-- `secrets` — inject sensitive files (default: `/run/secrets/<name>`)
+- `configs` — inject config files (default path: `/<name>`)
+- `secrets` — inject sensitive files (default path: `/run/secrets/<name>`)
 - `deploy.resources.limits` — hard limits (container can't exceed)
 - `deploy.resources.reservations` — guaranteed resources
 - `replicas: 2` — for clustering mode
+- **Secrets are loaded from host paths** — ensure `./secrets/db_pass.txt` exists
 
 ---
 
 ## 10. Development Environment
-
-Hot-reloading setup with mounted source code.
 
 ```yaml
 services:
@@ -515,8 +513,6 @@ volumes:
 
 ## 11. Single-Command Application
 
-Run a one-shot task and exit.
-
 ```yaml
 services:
   backup:
@@ -535,8 +531,6 @@ services:
 ---
 
 ## 12. Private Registry Mirror
-
-Cache Docker Hub images locally.
 
 ```yaml
 services:
@@ -562,7 +556,7 @@ volumes:
 
 ## 13. Prometheus + Grafana Monitoring
 
-Monitor your dck containers.
+**Important:** dck mounts volumes as directories only. Use a directory config mount instead of a file.
 
 ```yaml
 services:
@@ -570,13 +564,10 @@ services:
     image: prom/prometheus
     restart: always
     volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus-conf:/etc/prometheus:ro
       - prom_data:/prometheus
     ports:
       - "9090:9090"
-    command:
-      - --config.file=/etc/prometheus/prometheus.yml
-      - --storage.tsdb.retention.time=30d
 
   grafana:
     image: grafana/grafana
@@ -587,15 +578,127 @@ services:
       - "3001:3000"
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=admin
-    depends_on:
-      - prometheus
 
 volumes:
   prom_data:
   grafana_data:
 ```
 
+Create `./prometheus-conf/prometheus.yml` on the host:
+
+```bash
+mkdir -p prometheus-conf
+cat > prometheus-conf/prometheus.yml << 'EOF'
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+EOF
+```
+
+- **Directory mount** `./prometheus-conf:/etc/prometheus:ro` works (file mount `./prometheus.yml:/etc/prometheus/prometheus.yml` does not in dck)
+- Grafana accessible at `http://host:3001`, admin/admin or `GF_SECURITY_ADMIN_PASSWORD`
+
 ---
+
+## 14. WordPress + MySQL
+
+A classic blog setup with persistent data.
+
+```yaml
+services:
+  db:
+    image: mysql:8
+    restart: always
+    volumes:
+      - wp_data:/var/lib/mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASS}
+      MYSQL_DATABASE: wordpress
+      MYSQL_USER: wpuser
+      MYSQL_PASSWORD: ${MYSQL_APP_PASS}
+    cap_add:
+      - SYS_NICE
+
+  wordpress:
+    image: wordpress:6-apache
+    restart: always
+    ports:
+      - "8080:80"
+    environment:
+      WORDPRESS_DB_HOST: db
+      WORDPRESS_DB_USER: wpuser
+      WORDPRESS_DB_PASSWORD: ${MYSQL_APP_PASS}
+      WORDPRESS_DB_NAME: wordpress
+    volumes:
+      - wp_html:/var/www/html
+    depends_on:
+      - db
+
+volumes:
+  wp_data:
+  wp_html:
+```
+
+---
+
+## 15. Elasticsearch + Kibana
+
+Log aggregation stack.
+
+```yaml
+services:
+  elasticsearch:
+    image: elasticsearch:8.15.0
+    restart: always
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    ports:
+      - "9200:9200"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+
+  kibana:
+    image: kibana:8.15.0
+    restart: always
+    ports:
+      - "5601:5601"
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    depends_on:
+      - elasticsearch
+
+volumes:
+  es_data:
+```
+
+- `ulimits memlock: -1` — required for Elasticsearch mmap
+- Kibana at `http://host:5601`
+
+---
+
+## Important dck Gotchas
+
+| Issue | Why | Fix |
+|---|---|---|
+| **File bind mount** fails | dck only mounts directories (bind mount `./file` → `mount bind exit 32`) | Use a directory: `./dir/` instead of `./file` |
+| **Cgroup** warning | `/sys/fs/cgroup/dck` is read-only on VPS/LXC | Non-fatal, container runs without resource limits |
+| **`session.lock`** Minecraft crash | Paper leaves stale locks on host volume | Add `rm -f world/*/session.lock` to start script |
+| **`security_opt`** YAML error | `no-new-privileges:true` has two colons | Quote it: `"no-new-privileges:true"` |
+| **`.env`** not loaded | `${VAR}` in environment expands from `.env` file | Create `.env` in same directory as `compose.yaml` |
+| **`ip link delete`** warning on stop | Cleanup of veth pair fails on some kernels | Non-fatal, interface cleans up on host reboot |
 
 ## Quick Reference: All compose fields
 
@@ -607,7 +710,7 @@ volumes:
 | `entrypoint` | Override ENTRYPOINT | `["/bin/sh", "-c"]` |
 | `ports` | Port mapping | `"80:80"`, `"443:443/tcp"` |
 | `expose` | Port available to linked services | `"3000"` |
-| `volumes` | File mounts | `./src:/app:ro`, `data:/var/lib/data` |
+| `volumes` | File/directory mounts | `./src:/app:ro`, `data:/var/lib/data` |
 | `environment` | Env vars | `KEY=val` or `{ KEY: val }` |
 | `env_file` | Load from file | `.env.prod` |
 | `restart` | Restart policy | `no`, `always`, `on-failure`, `unless-stopped` |

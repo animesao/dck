@@ -2,6 +2,20 @@
 
 Каждый пример — готовый `compose.yaml`. Бери и используй.
 
+## Быстрый старт с .env
+
+Сервисы с `${VAR}` требуют `.env` файл в той же папке:
+
+```bash
+cat > .env << 'EOF'
+DB_PASSWORD=mysecretpass
+MYSQL_ROOT_PASS=rootpass
+MYSQL_APP_PASS=apppass
+REDIS_PASS=redispass
+GITHUB_TOKEN=ghp_xxx
+EOF
+```
+
 ---
 
 ## 1. Minecraft Server (Paper)
@@ -13,7 +27,12 @@ services:
     working_dir: /server
     volumes:
       - /opt/mc-server:/server
-    command: sh -c "echo eula=true > eula.txt && exec java -Xms512M -Xmx4G -jar paper-*.jar nogui"
+    command: >
+      sh -c "
+        rm -f world/session.lock world_nether/session.lock world_the_end/session.lock
+        echo eula=true > eula.txt
+        exec java -Xms512M -Xmx4G -jar paper-*.jar nogui
+      "
     restart: always
     ports:
       - "25565:25565"
@@ -21,6 +40,7 @@ services:
       - 8.8.8.8
 ```
 
+- `rm -f *.lock` — очистка stale-локов Paper после падения
 - `working_dir` — рабочая директория внутри контейнера
 - `volumes` — монтирование папки хоста в контейнер
 - `restart: always` — перезапуск при падении и после перезагрузки
@@ -40,7 +60,8 @@ services:
       - "443:443"
     volumes:
       - /var/www/html:/usr/share/nginx/html:ro
-      - /etc/nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx-conf:/etc/nginx/conf.d:ro
+      - ./ssl:/etc/nginx/ssl:ro
     labels:
       - "app=website"
       - "env=production"
@@ -52,6 +73,7 @@ services:
 ```
 
 - `:ro` — монтирование только для чтения (безопасность)
+- **Используйте папки, не файлы** — dck монтирует только директории (например, `./nginx-conf/`, не `./nginx.conf`)
 - `labels` — метки для фильтрации `dck ps --filter`
 - `healthcheck` — проверка каждые 30 секунд
 
@@ -66,14 +88,18 @@ services:
     restart: always
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./init-sql:/docker-entrypoint-initdb.d
     environment:
       POSTGRES_DB: myapp
       POSTGRES_PASSWORD: ${DB_PASSWORD:-secret}
+    env_file:
+      - .env
     healthcheck:
       test: pg_isready -U postgres
       interval: 5s
       retries: 10
+    networks:
+      - backend
 
   api:
     build: ./api
@@ -93,6 +119,8 @@ services:
       nofile:
         soft: 65536
         hard: 65536
+    networks:
+      - backend
 
   bot:
     image: python:3.12-slim
@@ -108,6 +136,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    networks:
+      - backend
 
 volumes:
   pgdata:
@@ -115,8 +145,13 @@ volumes:
 secrets:
   bot_token:
     file: ./secrets/bot_token.txt
+
+networks:
+  backend:
+    internal: true
 ```
 
+- **Монтируйте папки** — `./init-sql/` вместо `./init.sql` (ограничение dck)
 - `volumes: /app/node_modules` — безымянный том, защищает node_modules от перезаписи
 - `depends_on: condition: service_healthy` — ждать готовности БД
 - `secrets` — секретные файлы в `/run/secrets/<name>`
@@ -133,7 +168,7 @@ services:
     restart: always
     volumes:
       - mysql_data:/var/lib/mysql
-      - ./my.cnf:/etc/mysql/conf.d/custom.cnf:ro
+      - ./mysql-conf:/etc/mysql/conf.d
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASS}
       MYSQL_DATABASE: myapp
@@ -147,6 +182,8 @@ services:
       - SYS_NICE
     healthcheck:
       test: mysqladmin ping -h localhost -u root -p${MYSQL_ROOT_PASS}
+      interval: 10s
+      retries: 5
 
   redis:
     image: redis:7-alpine
@@ -154,6 +191,9 @@ services:
     volumes:
       - redis_data:/data
     command: redis-server --appendonly yes --requirepass ${REDIS_PASS}
+    healthcheck:
+      test: redis-cli -a ${REDIS_PASS} ping
+      interval: 10s
 
   adminer:
     image: adminer:latest
@@ -168,7 +208,8 @@ volumes:
   redis_data:
 ```
 
-- `command: >` — многострочная команда
+- **Обязателен `.env` файл**: создайте `.env` с `MYSQL_ROOT_PASS`, `MYSQL_APP_PASS`, `REDIS_PASS`
+- Используйте `./mysql-conf/` директорию (поместите `my.cnf` внутрь) — dck не монтирует одиночные файлы
 - `cap_add: SYS_NICE` — нужно MySQL для приоритета потоков
 - Adminer — веб-интерфейс на порту 8080
 
@@ -185,7 +226,8 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx-conf:/etc/nginx/conf.d:ro
+      - ./ssl:/etc/nginx/ssl:ro
     depends_on:
       - app1
       - app2
@@ -213,6 +255,18 @@ services:
 
 - `expose` — порт доступен только соседним сервисам
 - Nginx резолвит `app1:3000`, `app2:5000`
+- Поместите `app1.conf` в `./nginx-conf/`
+
+**nginx-conf/default.conf:**
+```nginx
+upstream app1 { server app1:3000; }
+upstream app2 { server app2:5000; }
+server {
+    listen 80;
+    location /app1 { proxy_pass http://app1; }
+    location /app2 { proxy_pass http://app2; }
+}
+```
 
 ---
 
@@ -252,23 +306,16 @@ services:
     volumes:
       - /mnt/storage:/usr/share/nginx/html:ro
       - /mnt/uploads:/uploads:rw
-    user: "1000:1000"
-    read_only: true
     tmpfs:
       - /var/cache/nginx
       - /var/run
-    cap_drop:
-      - ALL
-    cap_add:
-      - NET_BIND_SERVICE
-    security_opt:
-      - no-new-privileges:true
 ```
 
-- `user: "1000:1000"` — запуск от непривилегированного пользователя
-- `read_only: true` — корневая ФС только для чтения
-- `tmpfs` — временная ФС в памяти
-- `cap_drop: ALL` + `cap_add: NET_BIND_SERVICE` — минимум привилегий
+**Упрощён для dck** — без `user: "1000:1000"` + `read_only`, т.к. nginx должен писать кэш. Для повышенной безопасности используйте свой nginx.conf с переносом путей.
+
+- `tmpfs` — временная ФС в памяти для логов/кэша
+- **Важно:** `security_opt` значения нужно брать в кавычки: `"no-new-privileges:true"`
+- **Важно:** `read_only: true` + `user: "1000:1000"` ломает nginx (не может создать `/var/cache/nginx/client_temp`)
 
 ---
 
@@ -286,6 +333,8 @@ services:
       - RUNNER_NAME=my-runner
       - RUNNER_REPO=https://github.com/user/repo
       - RUNNER_TOKEN=${GITHUB_TOKEN}
+      - RUNNER_LABELS=dck,production
+    working_dir: /home/runner
     privileged: true
     dns:
       - 8.8.8.8
@@ -295,6 +344,7 @@ volumes:
 ```
 
 - `privileged: true` — для Docker-in-Docker
+- `/var/run/docker.sock` — bind mount сокета хоста
 
 ---
 
@@ -315,6 +365,8 @@ services:
     secrets:
       - ssl_cert
       - ssl_key
+    depends_on:
+      - api
 
   api:
     build: ./api
@@ -459,6 +511,9 @@ services:
     environment:
       - REGISTRY_PROXY_REMOTEURL=https://registry-1.docker.io
       - REGISTRY_STORAGE_DELETE_ENABLED=true
+    healthcheck:
+      test: curl -f http://localhost:5000/v2/
+      interval: 30s
 
 volumes:
   registry_data:
@@ -468,19 +523,18 @@ volumes:
 
 ## 13. Prometheus + Grafana (мониторинг)
 
+**Важно:** dck монтирует только директории. Используйте папку для конфига.
+
 ```yaml
 services:
   prometheus:
     image: prom/prometheus
     restart: always
     volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus-conf:/etc/prometheus:ro
       - prom_data:/prometheus
     ports:
       - "9090:9090"
-    command:
-      - --config.file=/etc/prometheus/prometheus.yml
-      - --storage.tsdb.retention.time=30d
 
   grafana:
     image: grafana/grafana
@@ -497,7 +551,117 @@ volumes:
   grafana_data:
 ```
 
+Создайте `./prometheus-conf/prometheus.yml` на хосте:
+
+```bash
+mkdir -p prometheus-conf
+cat > prometheus-conf/prometheus.yml << 'EOF'
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+EOF
+```
+
+- **Монтирование папки** `./prometheus-conf:/etc/prometheus:ro` работает (путь к файлу не работает в dck)
+- Grafana доступна на `http://host:3001`, admin / `GF_SECURITY_ADMIN_PASSWORD`
+
 ---
+
+## 14. WordPress + MySQL
+
+```yaml
+services:
+  db:
+    image: mysql:8
+    restart: always
+    volumes:
+      - wp_data:/var/lib/mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASS}
+      MYSQL_DATABASE: wordpress
+      MYSQL_USER: wpuser
+      MYSQL_PASSWORD: ${MYSQL_APP_PASS}
+    cap_add:
+      - SYS_NICE
+
+  wordpress:
+    image: wordpress:6-apache
+    restart: always
+    ports:
+      - "8080:80"
+    environment:
+      WORDPRESS_DB_HOST: db
+      WORDPRESS_DB_USER: wpuser
+      WORDPRESS_DB_PASSWORD: ${MYSQL_APP_PASS}
+      WORDPRESS_DB_NAME: wordpress
+    volumes:
+      - wp_html:/var/www/html
+    depends_on:
+      - db
+
+volumes:
+  wp_data:
+  wp_html:
+```
+
+---
+
+## 15. Elasticsearch + Kibana
+
+```yaml
+services:
+  elasticsearch:
+    image: elasticsearch:8.15.0
+    restart: always
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    ports:
+      - "9200:9200"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+
+  kibana:
+    image: kibana:8.15.0
+    restart: always
+    ports:
+      - "5601:5601"
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    depends_on:
+      - elasticsearch
+
+volumes:
+  es_data:
+```
+
+- `ulimits memlock: -1` — требуется для Elasticsearch mmap
+- Kibana на `http://host:5601`
+
+---
+
+## Важные ограничения dck
+
+| Проблема | Почему | Решение |
+|---|---|---|
+| **Монтирование файла** не работает | dck монтирует только папки (bind mount файла → `mount bind exit 32`) | Используйте папку: `./dir/` вместо `./file` |
+| **Cgroup** предупреждение | `/sys/fs/cgroup/dck` read-only на VPS/LXC | Не критично, контейнер работает без лимитов |
+| **`session.lock`** Minecraft | Paper оставляет лок-файлы на томе | Добавьте `rm -f world/*/session.lock` в start.sh |
+| **`security_opt`** YAML ошибка | `no-new-privileges:true` содержит два двоеточия | Кавычки: `"no-new-privileges:true"` |
+| **`.env`** не подхватывается | `${VAR}` берётся из `.env` файла | Создайте `.env` рядом с `compose.yaml` |
+| **`ip link delete`** warning | Очистка veth-pair не удаётся на некоторых ядрах | Не критично, интерфейс очистится при ребуте |
 
 ## Шпаргалка по всем полям compose
 
