@@ -23,6 +23,7 @@ jobs:
         run: |
           RAW=$(cat VERSION)
           CLEAN="${RAW#v}"
+          CLEAN="$(echo "$CLEAN" | sed 's/^[^0-9]*//')"
           BASE="${CLEAN%%-*}"
           echo "version=$BASE" >> $GITHUB_OUTPUT
 
