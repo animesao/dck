@@ -15,6 +15,7 @@ import (
 func Up(args []string) {
 	fs := flag.NewFlagSet("up", flag.ExitOnError)
 	configPath := fs.String("f", "", "Path to config file")
+	autostart := fs.Bool("autostart", false, "Install systemd autostart service")
 	fs.Parse(args)
 
 	freeArgs := fs.Args()
@@ -212,4 +213,18 @@ func Up(args []string) {
 	}
 
 	fmt.Printf("Up complete: %d containers started\n", started)
+
+	if *autostart || shouldAutostart() {
+		Bootstrap([]string{"--install"})
+	}
+}
+
+func shouldAutostart() bool {
+	if os.Geteuid() != 0 {
+		return false
+	}
+	if _, err := os.Stat("/etc/systemd/system/dck-bootstrap.service"); err == nil {
+		return false // already installed
+	}
+	return true
 }

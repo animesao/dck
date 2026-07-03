@@ -148,6 +148,7 @@ Usage:
    dck fn call <name>            Invoke a function
    dck push <image>[:tag]        Push image to registry
    dck up [name] [-f dck.toml]  Create/start containers from dck.toml
+   dck up --autostart            Also install systemd service for reboot auto-start
   dck down [name] [-f dck.toml] Stop/remove containers from dck.toml
   dck down -a                  Remove all containers
   dck bootstrap [--install]    Start all containers (--install = add systemd service)

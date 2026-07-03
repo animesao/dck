@@ -1,0 +1,52 @@
+services:
+  db:
+    image: mysql:8
+    restart: always
+    volumes:
+      - mysql_data:/var/lib/mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: myapp
+      MYSQL_USER: bot
+      MYSQL_PASSWORD: botpass
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      retries: 5
+
+  site:
+    image: node:20
+    restart: always
+    working_dir: /app
+    volumes:
+      - ./site:/app
+    ports:
+      - "3000:3000"
+    command: sh -c "npm install && node index.js"
+    environment:
+      DB_HOST: db
+      DB_USER: bot
+      DB_PASSWORD: botpass
+      DB_NAME: myapp
+    depends_on:
+      db:
+        condition: service_healthy
+
+  bot:
+    image: python:3.11-slim
+    restart: always
+    working_dir: /app
+    volumes:
+      - ./bots:/app
+    command: sh -c "pip install -r requirements.txt && python main.py"
+    environment:
+      DB_HOST: db
+      DB_USER: bot
+      DB_PASSWORD: botpass
+      DB_NAME: myapp
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  mysql_data:

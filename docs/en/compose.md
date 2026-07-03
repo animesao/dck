@@ -20,6 +20,7 @@ dck up --no-start         # create but don't start
 dck up --build            # rebuild images before starting
 dck up --pull             # pull images before starting
 dck up -d                 # detach (output only container IDs)
+dck up --autostart        # also install systemd service for auto-start on boot
 ```
 
 ## `dck down [name] [-f <file>]`
