@@ -148,9 +148,9 @@ networks:
 | `services.<name>.stop_signal` | ✅ | |
 | `volumes` | ✅ | Именованные тома |
 | `networks` | ✅ | Bridge-сети |
-| `services.<name>.deploy` | ⚠️ | Парсинг, планирование реплик ожидается |
-| `services.<name>.secrets` | ⚠️ | Парсинг, runtime-инжекция ожидается |
-| `services.<name>.configs` | ⚠️ | Парсинг, runtime-инжекция ожидается |
+| `services.<name>.deploy` | ✅ | replicas, resources, restart_policy, update_config, placement |
+| `services.<name>.secrets` | ✅ | Инжекция секретов как файлов (source, target, uid, gid, mode) |
+| `services.<name>.configs` | ✅ | Инжекция конфигов как файлов (source, target, uid, gid, mode) |
 
 ### Пример: full-stack приложение
 
@@ -205,6 +205,58 @@ services:
 volumes:
   pgdata:
 ```
+
+## Secrets (Секреты)
+
+Определяются на верхнем уровне и используются в сервисах:
+
+```yaml
+secrets:
+  db_password:
+    file: ./secrets/db_password.txt
+  api_key:
+    file: ./secrets/api_key.txt
+
+services:
+  app:
+    image: myapp:latest
+    secrets:
+      - db_password
+      - source: db_password
+        target: /app/config/db_pass
+        uid: "1000"
+        gid: "1000"
+        mode: 0600
+```
+
+Секреты монтируются как файлы:
+- По умолчанию: `/run/secrets/<имя>`
+- Права по умолчанию: `0444`
+
+## Configs (Конфиги)
+
+Работают как секреты, но монтируются в `/`:
+
+```yaml
+configs:
+  nginx_conf:
+    file: ./nginx.conf
+  app_config:
+    file: ./config/app.yml
+
+services:
+  web:
+    image: nginx:alpine
+    configs:
+      - nginx_conf
+      - source: app_config
+        target: /app/config.yml
+        mode: 0644
+```
+
+Конфиги монтируются как файлы:
+- По умолчанию: `/<имя>`
+- Права по умолчанию: `0444`
 
 ## Формат dck.toml
 

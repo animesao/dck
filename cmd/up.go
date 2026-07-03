@@ -191,7 +191,14 @@ func Up(args []string) {
 			}
 		}
 
+		// Resolve secrets and configs
 		c := container.New(img, opts)
+		if len(cc.Secrets) > 0 || len(cc.Configs) > 0 {
+			tmpVolumes, tmpSecrets := container.ParseSecretsToVolumes(cc, *cfg)
+			opts.Volumes = append(opts.Volumes, tmpVolumes...)
+			c = container.New(img, opts)
+			c.Secrets = tmpSecrets
+		}
 		if err := c.Save(); err != nil {
 			fmt.Fprintf(os.Stderr, "  %s: error saving: %v\n", name, err)
 			continue

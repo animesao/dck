@@ -148,9 +148,9 @@ networks:
 | `services.<name>.stop_signal` | ✅ | |
 | `volumes` | ✅ | Named volumes |
 | `networks` | ✅ | Bridge networks |
-| `services.<name>.deploy` | ⚠️ | Parsed, replica scheduling pending |
-| `services.<name>.secrets` | ⚠️ | Parsed, runtime injection pending |
-| `services.<name>.configs` | ⚠️ | Parsed, runtime injection pending |
+| `services.<name>.deploy` | ✅ | replicas, resources, restart_policy, update_config, placement |
+| `services.<name>.secrets` | ✅ | File-based secret injection (source, target, uid, gid, mode) |
+| `services.<name>.configs` | ✅ | File-based config injection (source, target, uid, gid, mode) |
 
 ### Example: full-stack app
 
@@ -205,6 +205,61 @@ services:
 volumes:
   pgdata:
 ```
+
+## Secrets
+
+Define secrets at the top level and reference them in services:
+
+```yaml
+secrets:
+  db_password:
+    file: ./secrets/db_password.txt
+  api_key:
+    file: ./secrets/api_key.txt
+    external: false
+
+services:
+  app:
+    image: myapp:latest
+    secrets:
+      - db_password
+      - api_key
+      # Extended syntax:
+      - source: db_password
+        target: /app/config/db_pass
+        uid: "1000"
+        gid: "1000"
+        mode: 0600
+```
+
+Secrets are mounted as files inside the container:
+- Default target: `/run/secrets/<name>`
+- Default permissions: `0444`
+
+## Configs
+
+Configs work identically to secrets but mount to `/` by default:
+
+```yaml
+configs:
+  nginx_conf:
+    file: ./nginx.conf
+  app_config:
+    file: ./config/app.yml
+
+services:
+  web:
+    image: nginx:alpine
+    configs:
+      - nginx_conf
+      - source: app_config
+        target: /app/config.yml
+        mode: 0644
+```
+
+Configs are mounted as files inside the container:
+- Default target: `/<name>`
+- Default permissions: `0444`
 
 ## dck.toml format
 

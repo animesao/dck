@@ -66,10 +66,22 @@ type Container struct {
 	Ulimits       []Ulimit           `json:"ulimits,omitempty"`
 
 	ConsoleServePID int                `json:"console_serve_pid,omitempty"`
+	Secrets     []SecretMount       `json:"secrets,omitempty"`
+	Configs     []SecretMount       `json:"configs,omitempty"`
+
 	// Runtime-only (not persisted)
 	cancelHealth    context.CancelFunc `json:"-"`
 	mu              sync.Mutex         `json:"-"`
 	cleanupStarted  bool               `json:"-"`
+}
+
+type SecretMount struct {
+	Source string `json:"source"`
+	Target string `json:"target"`
+	UID    string `json:"uid,omitempty"`
+	GID    string `json:"gid,omitempty"`
+	Mode   uint32 `json:"mode,omitempty"`
+	Data   string `json:"data,omitempty"`
 }
 
 type Status string
