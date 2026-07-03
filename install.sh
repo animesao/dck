@@ -93,6 +93,39 @@ curl -fsSL "https://github.com/$REPO/releases/download/${SELECTED_TAG}/dck-linux
 chmod +x "$DCK_BIN"
 log "Binary installed: $DCK_BIN"
 
+# ---- Verify binary works (check for glibc error) ----
+if ! "$DCK_BIN" --version &>/dev/null; then
+  warn "Binary failed to run (likely glibc mismatch). Building from source..."
+  if command -v go &>/dev/null; then
+    log "Building dck from source..."
+    TMPDIR=$(mktemp -d)
+    git clone --depth 1 "https://github.com/$REPO.git" "$TMPDIR" 2>/dev/null || {
+      err "Git clone failed. Install Go manually and run: CGO_ENABLED=0 go build"
+    }
+    cd "$TMPDIR"
+    CGO_ENABLED=0 go build -tags netgo -installsuffix netgo -ldflags="-s -w" -o dck .
+    cp dck "$DCK_BIN"
+    chmod +x "$DCK_BIN"
+    cd /
+    rm -rf "$TMPDIR"
+    log "Built from source: $DCK_BIN"
+  else
+    warn "Go not installed. Installing Go 1.21 to build from source..."
+    curl -fsSL "https://go.dev/dl/go1.21.13.linux-amd64.tar.gz" -o /tmp/go.tar.gz
+    tar -C /usr/local -xzf /tmp/go.tar.gz
+    export PATH=$PATH:/usr/local/go/bin
+    TMPDIR=$(mktemp -d)
+    git clone --depth 1 "https://github.com/$REPO.git" "$TMPDIR"
+    cd "$TMPDIR"
+    CGO_ENABLED=0 /usr/local/go/bin/go build -tags netgo -installsuffix netgo -ldflags="-s -w" -o dck .
+    cp dck "$DCK_BIN"
+    chmod +x "$DCK_BIN"
+    cd /
+    rm -rf "$TMPDIR" /tmp/go.tar.gz
+    log "Built from source: $DCK_BIN"
+  fi
+fi
+
 # ---- Download .deb ----
 # .deb uses base semver (no -dev.<sha> suffix) as filename
 DEB_BASE="${SELECTED_TAG#v}"
