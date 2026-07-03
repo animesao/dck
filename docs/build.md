@@ -6,18 +6,18 @@
 - Linux (for container execution features)
 - Optional: `git` (for version injection)
 
-## Quick build
+## Quick build (static binary, no glibc)
 
 ```bash
-go build -o dck .
+CGO_ENABLED=0 go build -tags netgo -ldflags="-s -w" -o dck .
 ```
 
-Produces a single static binary.
+Produces a fully static binary — works on any Linux regardless of glibc version.
 
 ## Cross-compile from any OS
 
 ```bash
-GOOS=linux GOARCH=amd64 go build -o dck .
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -tags netgo -ldflags="-s -w" -o dck .
 ```
 
 ## Version injection

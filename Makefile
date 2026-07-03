@@ -3,7 +3,7 @@
 VERSION := $(shell cat VERSION 2>/dev/null || echo "dev")
 
 build:
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X dck/cmd.version=$(VERSION)" -o dck-linux-amd64 .
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -tags netgo -installsuffix netgo -ldflags="-s -w -X dck/cmd.version=$(VERSION)" -o dck-linux-amd64 .
 
 deb: build
 	./scripts/build-deb.sh
