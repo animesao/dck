@@ -2,26 +2,35 @@ package container
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
 	"strconv"
 )
 
 func (c *Container) Top() error {
+	out, err := c.TopString("aux")
+	if err != nil {
+		return err
+	}
+	fmt.Print(out)
+	return nil
+}
+
+func (c *Container) TopString(psArgs string) (string, error) {
 	if c.Status != Running {
-		return fmt.Errorf("container %s is not running", c.ID)
+		return "", fmt.Errorf("container %s is not running", c.ID)
 	}
 
 	args := []string{
 		"-t", strconv.Itoa(c.PID),
 		"-p",
 		"--",
-		"ps", "aux",
+		"ps", psArgs,
 	}
 
 	cmd := exec.Command("nsenter", args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	return cmd.Run()
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
 }

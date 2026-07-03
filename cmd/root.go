@@ -48,6 +48,8 @@ func Execute() {
 		initContainer(args)
 	case "stats":
 		Stats(args)
+	case "volume":
+		Volume(args)
 	case "images":
 		Images(args)
 	case "rmi":
@@ -72,8 +74,20 @@ func Execute() {
 		Rename(args)
 	case "info":
 		Info(args)
+	case "serve":
+		Serve(args)
 	case "system":
 		System(args)
+	case "build":
+		Build(args)
+	case "push":
+		Push(args)
+	case "cluster":
+		Cluster(args)
+	case "service":
+		Service(args)
+	case "fn":
+		Fn(args)
 	case "blueprint":
 		Blueprint(args)
 	case "version", "--version", "-v":
@@ -111,7 +125,28 @@ Usage:
    dck commit <c> <img>[:tag]   Create image from container
    dck rename <c> <new-name>    Rename container
    dck info                     Show system-wide information
+   dck serve [-p 2375]          Start Docker-compatible REST API server
    dck system prune             Remove unused containers and images
+   dck volume create <name>     Create a named volume
+   dck volume ls                List volumes
+   dck volume rm <name>         Remove a volume
+   dck volume inspect <name>    Inspect a volume
+   dck volume prune             Remove unused volumes
+   dck build -t name:tag [opts] .  Build image from Dockerfile
+   dck cluster init               Initialize a new cluster
+   dck cluster join <peer>       Join an existing cluster
+   dck cluster leave              Leave the cluster
+   dck cluster ls                List cluster nodes
+   dck service create ...        Create a service with replicas
+   dck service ls                List services
+   dck service rm <name>         Remove a service
+   dck service scale <name> N    Scale service
+   dck service update <name>     Update service (rolling update)
+   dck fn deploy                 Deploy a serverless function
+   dck fn ls                     List functions
+   dck fn rm <name>              Remove a function
+   dck fn call <name>            Invoke a function
+   dck push <image>[:tag]        Push image to registry
    dck up [name] [-f dck.toml]  Create/start containers from dck.toml
   dck down [name] [-f dck.toml] Stop/remove containers from dck.toml
   dck down -a                  Remove all containers

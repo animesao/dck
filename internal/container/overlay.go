@@ -40,6 +40,10 @@ func mountOverlay(lower, upper, work, merged string) error {
 		return nil
 	}
 
+	if IsRootless() {
+		return MountRootlessOverlay(lower, upper, work, merged)
+	}
+
 	ensureOverlayModule()
 
 	if err := prepareWorkdir(work); err != nil {

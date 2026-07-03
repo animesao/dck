@@ -80,12 +80,25 @@ func ConsolesDir() string {
 	return filepath.Join(DataDir(), "consoles")
 }
 
+func CacheDir() string {
+	return filepath.Join(DataDir(), "cache")
+}
+
+func LayerCacheDir() string {
+	return filepath.Join(CacheDir(), "layers")
+}
+
+func LayerPath(digest string) string {
+	hash := strings.TrimPrefix(digest, "sha256:")
+	return filepath.Join(LayerCacheDir(), hash, "layer.tar.gz")
+}
+
 func ConsolePath(containerID string) string {
 	return filepath.Join(ConsolesDir(), containerID+".sock")
 }
 
 func EnsureDirs() error {
-	for _, d := range []string{DataDir(), ImagesDir(), ContainersDir(), LogsDir(), OverlayDir(), ConsolesDir(), VolumesDir()} {
+	for _, d := range []string{DataDir(), ImagesDir(), ContainersDir(), LogsDir(), OverlayDir(), ConsolesDir(), VolumesDir(), CacheDir(), LayerCacheDir()} {
 		if err := os.MkdirAll(d, 0755); err != nil {
 			return err
 		}

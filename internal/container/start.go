@@ -61,20 +61,8 @@ func (c *Container) Start() error {
 	}
 
 	for _, vol := range c.Volumes {
-		srcPath := state.ResolveVolume(vol.Source)
-		target := filepath.Join(merged, vol.Target)
-		os.MkdirAll(target, 0755)
-		os.MkdirAll(srcPath, 0755)
-
-		// Copy image content into empty volumes (Docker-compatible behavior)
-		empty, _ := isDirEmpty(srcPath)
-		if empty {
-			if err := commandContext30("cp", "-a", target+"/.", srcPath+"/").Run(); err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: cp -a %s/. %s/: %v\n", target, srcPath, err)
-			}
-		}
-
-		if err := commandContext30("mount", "--bind", srcPath, target).Run(); err != nil {
+		spec := ParseVolumeString(vol.Source + ":" + vol.Target)
+		if err := MountVolume(spec, merged); err != nil {
 			return fmt.Errorf("mount volume %s -> %s: %w", vol.Source, vol.Target, err)
 		}
 	}
@@ -156,8 +144,22 @@ func (c *Container) Start() error {
 
 	if c.NeedsNetwork() {
 		if runtime.GOOS == "linux" {
-			if err := setupNetworking(c, childPID); err != nil {
-				fmt.Fprintf(os.Stderr, "Network setup: %v (container will run without network)\n", err)
+			if IsRootless() {
+				if ip, err := SetupRootlessNetwork(childPID, c.ID); err != nil {
+					fmt.Fprintf(os.Stderr, "Rootless network: %v (container will run without network)\n", err)
+				} else {
+					c.IP = ip
+					// Set up port forwarding
+					for _, p := range c.Ports {
+						if err := RootlessPortForward(p.HostPort, p.ContainerPort, p.Protocol); err != nil {
+							fmt.Fprintf(os.Stderr, "  port %d -> %d: %v\n", p.HostPort, p.ContainerPort, err)
+						}
+					}
+				}
+			} else {
+				if err := setupNetworking(c, childPID); err != nil {
+					fmt.Fprintf(os.Stderr, "Network setup: %v (container will run without network)\n", err)
+				}
 			}
 		}
 	}

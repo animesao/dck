@@ -44,12 +44,18 @@ func Info(args []string) {
 	fmt.Printf("  %-22s %s / %s (%.1f%%)\n", "Memory:", formatBytes(memUsed), formatBytes(memTotal), memPct)
 	fmt.Printf("  %-22s %s / %s (%.1f%%)\n", "Disk:", formatBytes(diskUsed), formatBytes(diskTotal), diskPct)
 	fmt.Printf("  %-22s %.2f / %.2f / %.2f\n", "Load Average:", load1, load5, load15)
+	rootlessMode := "no"
+	if container.IsRootless() {
+		rootlessMode = "yes ✓"
+	}
+
 	fmt.Println(strings.Repeat("─", 50))
 	fmt.Printf("  %-22s %s\n", "Data Directory:", state.DataDir())
 	fmt.Printf("  %-22s %d\n", "Running Containers:", running)
 	fmt.Printf("  %-22s %d\n", "Stopped Containers:", stopped)
 	fmt.Printf("  %-22s %d\n", "Images:", len(images))
 	fmt.Printf("  %-22s %s\n", "Version:", version)
+	fmt.Printf("  %-22s %s\n", "Rootless:", rootlessMode)
 	fmt.Println(strings.Repeat("─", 50))
 }
 
