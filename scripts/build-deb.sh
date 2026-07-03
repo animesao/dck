@@ -7,6 +7,8 @@ cd "$DIR"
 
 VERSION="${VERSION:-$(cat VERSION 2>/dev/null | head -1 | tr -d '[:space:]')}"
 : "${VERSION:=1.10.0}"
+# Strip leading non-digit prefix for Debian version compliance (e.g. "<1.19.0" -> "1.19.0")
+VERSION_DEB="$(echo "$VERSION" | sed 's/^[^0-9]*//')"
 ARCH="${ARCH:-amd64}"
 
 echo "==> Building dck v$VERSION for linux/$ARCH..."
@@ -38,21 +40,21 @@ chmod 755 "$PKG_DIR/DEBIAN/postinst"
 chmod 755 "$PKG_DIR/DEBIAN/prerm"
 
 # Update version and architecture in control file
-sed -i "s/^Version: .*/Version: $VERSION/" "$PKG_DIR/DEBIAN/control"
+sed -i "s/^Version: .*/Version: $VERSION_DEB/" "$PKG_DIR/DEBIAN/control"
 sed -i "s/^Architecture: .*/Architecture: $ARCH/" "$PKG_DIR/DEBIAN/control"
 
 # Build .deb
 echo "==> Building .deb package..."
-fakeroot dpkg-deb --build "$PKG_DIR" "dist/dck_${VERSION}_${ARCH}.deb" 2>/dev/null || \
-dpkg-deb --build "$PKG_DIR" "dist/dck_${VERSION}_${ARCH}.deb"
+fakeroot dpkg-deb --build "$PKG_DIR" "dist/dck_${VERSION_DEB}_${ARCH}.deb" 2>/dev/null || \
+dpkg-deb --build "$PKG_DIR" "dist/dck_${VERSION_DEB}_${ARCH}.deb"
 
 # Clean up binary from package dir
 rm -f "$BIN_DEST/dck"
 
 echo ""
-echo "   Package: dist/dck_${VERSION}_${ARCH}.deb"
-echo "   Size:    $(ls -lh "dist/dck_${VERSION}_${ARCH}.deb" | awk '{print $5}')"
+echo "   Package: dist/dck_${VERSION_DEB}_${ARCH}.deb"
+echo "   Size:    $(ls -lh "dist/dck_${VERSION_DEB}_${ARCH}.deb" | awk '{print $5}')"
 echo ""
 echo "Install:"
-echo "   sudo dpkg -i dist/dck_${VERSION}_${ARCH}.deb"
+echo "   sudo dpkg -i dist/dck_${VERSION_DEB}_${ARCH}.deb"
 echo "   sudo apt-get install -f   # install dependencies"
