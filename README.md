@@ -1,5 +1,5 @@
 <p align="center">
-<  <img src="https://img.shields.io/badge/version-v1.19.0--stalbal.c01dd95-blue?style=flat-square">
+<  <img src="https://img.shields.io/badge/version-v1.19.1--stalbal.c01dd95-blue?style=flat-square">
   <img src="https://img.shields.io/badge/go-1.18+-00ADD8?style=flat-square&logo=go">
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square">
   <img src="https://img.shields.io/badge/no%20daemon-%E2%9C%93-brightgreen?style=flat-square">
@@ -478,6 +478,8 @@ dck run -d
 ---
 
 ## Changelog
+
+**v1.19.1** — Fixed `dck exec` and `dck console`: removed redundant `chroot` in `nsenter` that caused "No such file or directory" after `pivot_root`. TTY and stdin/stdout now work correctly inside containers.
 
 **v1.13.0** — Added `--startup` flag for custom startup scripts (inline or `@file`), `--healthcheck-*` flags, DCK_* environment variables injected into containers, resource limit enforcement via cgroups v2.
 
