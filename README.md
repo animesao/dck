@@ -117,9 +117,28 @@ dck exec web cat /etc/hostname              # Run command inside
 dck exec -it web /bin/sh                    # Interactive shell
 dck console web                             # Auto-detect shell
 dck top web                                 # Processes inside container
-dck cp web:/etc/hostname .                  # Copy file from container
-dck cp app.py web:/app/                     # Copy file to container
 ```
+
+### File Operations
+
+Copy files between host and container without rebuilding:
+
+```bash
+# Copy from host to container
+dck cp app.py web:/app/                     # Single file
+dck cp ./static/ web:/usr/share/nginx/html/ # Directory
+dck cp ./bot.py discord-bot:/bot/           # Bot code
+
+# Copy from container to host
+dck cp web:/etc/nginx/nginx.conf .          # Backup config
+dck cp web:/var/log/nginx/ ./logs/          # Backup logs
+
+# Upload files to running container
+dck cp ./index.html web:/usr/share/nginx/html/index.html
+dck cp ./config.yml myapp:/etc/app/config.yml
+```
+
+Use `-v` (bind mount) for live file sharing — changes on host are instantly visible inside the container.
 
 `dck attach` is **Ctrl+C safe** — container keeps running.
 
@@ -214,13 +233,15 @@ dck run -d --restart always \
 redis-cli -h localhost ping
 ```
 
-### Minecraft Server (itzg/minecraft-server)
+### Minecraft Server
 
 ```bash
+# Pre-built image (itzg/minecraft-server)
 dck run -d --restart always \
   -n mc -p 25565:25565 \
   -v mc_data:/data \
   -e EULA=TRUE -e TYPE=PAPER -e VERSION=1.20.4 \
+  -e MEMORY=2G -e DIFFICULTY=normal \
   itzg/minecraft-server
 ```
 
@@ -252,6 +273,12 @@ dck run -d --restart always \
   eclipse-temurin:21-jdk
 ```
 
+More examples (modded servers, custom JARs, backups) → [docs/en/websites.md](docs/en/websites.md#minecraft-server)
+
+### Bots (Telegram, Discord)
+
+Full bot deployment guide → [docs/en/bots.md](docs/en/bots.md)
+
 Для Paper 1.16.5 (Java 16):
 
 ```bash
@@ -276,6 +303,28 @@ dck run -d --restart always \
   eclipse-temurin:16-jdk
 ```
 
+### Copy files to container
+
+Upload your website, bot code, or configs into a running container:
+
+```bash
+# Website files
+dck cp ./index.html mc:/usr/share/nginx/html/
+dck cp ./style.css mc:/usr/share/nginx/html/
+
+# Bot code
+dck cp ./bot.py discord-bot:/bot/
+dck cp ./config.yml tg-bot:/bot/
+
+# App configs
+dck cp ./nginx.conf web:/etc/nginx/conf.d/default.conf
+
+# Entire directories
+dck cp ./static/ web:/usr/share/nginx/html/static/
+```
+
+See [deployment docs](docs/en/websites.md#file-operations) for more.
+
 ### Node.js App
 
 ```bash
@@ -292,44 +341,88 @@ dck run -d --restart always \
 curl http://localhost:3000
 ```
 
-### Bot + Database (Two Containers)
-
-Start the database first, then the bot connects via `10.0.2.1`:
+### Discord Bot
 
 ```bash
-# 1. MySQL
-dck run -d --restart always \
-  -n bot-mysql -p 3306:3306 \
-  -v bot_mysql_data:/var/lib/mysql \
-  -e MYSQL_ROOT_PASSWORD=rootpass \
-  -e MYSQL_DATABASE=botdb \
-  -e MYSQL_USER=bot -e MYSQL_PASSWORD=botpass \
-  mysql:8
-
-# 2. Discord bot
 mkdir -p /opt/discord-bot && cd /opt/discord-bot
+
 cat > bot.py << 'EOF'
-import discord
+import os, discord
 from discord.ext import commands
-bot = commands.Bot(command_prefix="!", intents=discord.Intents.default())
+TOKEN = os.environ["BOT_TOKEN"]
+intents = discord.Intents.default()
+intents.message_content = True
+bot = commands.Bot(command_prefix="!", intents=intents)
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user}")
-bot.run(os.environ["BOT_TOKEN"])
+@bot.command()
+async def ping(ctx):
+    await ctx.send("pong")
+bot.run(TOKEN)
 EOF
-echo "discord.py==2.3.2" > requirements.txt
+echo "discord.py==2.4.0" > requirements.txt
 
 dck run -d --restart always \
   -n discord-bot \
   -v /opt/discord-bot:/bot \
+  --workdir /bot \
   -e BOT_TOKEN=your_token_here \
-  python:3.11-slim sh -c "\
-    pip install --dry-run -r /bot/requirements.txt -q 2>/dev/null \
-      || pip install -r /bot/requirements.txt; \
-    exec python /bot/bot.py"
+  --startup "pip install -r /bot/requirements.txt && exec python /bot/bot.py" \
+  python:3.11-slim
 ```
 
-Packages install into the overlay — they persist across restarts. The `--dry-run` check skips pip if requirements haven't changed (pip 21.1+).
+### Telegram Bot
+
+```bash
+mkdir -p /opt/tg-bot && cd /opt/tg-bot
+
+cat > bot.py << 'EOF'
+import os
+from telegram import Update
+from telegram.ext import Application, CommandHandler
+TOKEN = os.environ["BOT_TOKEN"]
+async def start(update: Update, context):
+    await update.message.reply_text("Hello from dck!")
+async def ping(update: Update, context):
+    await update.message.reply_text("pong")
+app = Application.builder().token(TOKEN).build()
+app.add_handler(CommandHandler("start", start))
+app.add_handler(CommandHandler("ping", ping))
+app.run_polling()
+EOF
+echo "python-telegram-bot==20.7" > requirements.txt
+
+dck run -d --restart always \
+  -n tg-bot \
+  -v /opt/tg-bot:/bot \
+  --workdir /bot \
+  -e BOT_TOKEN=your_token_here \
+  --startup "pip install -r /bot/requirements.txt && exec python /bot/bot.py" \
+  python:3.11-slim
+```
+
+### Bot + Database
+
+```bash
+# 1. PostgreSQL
+dck run -d --restart always \
+  -n bot-db \
+  -v bot_pgdata:/var/lib/postgresql/data \
+  -e POSTGRES_DB=botdb \
+  -e POSTGRES_USER=bot -e POSTGRES_PASSWORD=secret \
+  postgres:16
+
+# 2. Bot connects via 10.0.2.1
+dck run -d --restart always \
+  -n db-bot \
+  -v /opt/mybot:/bot \
+  -e BOT_TOKEN=token -e DB_HOST=10.0.2.1 \
+  --startup "pip install -r /bot/requirements.txt && exec python /bot/bot.py" \
+  python:3.11-slim
+```
+
+Packages install into the overlay and persist across restarts.
 
 ---
 

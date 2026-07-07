@@ -11,6 +11,7 @@ All examples assume you have dck installed on a Linux server with a public IP.
 
 - [Static Site (nginx)](#static-site-nginx)
 - [Static Site with HTTPS (Let's Encrypt)](#static-site-with-https)
+- [File Operations](#file-operations)
 - [Python Flask App](#python-flask-app)
 - [Python FastAPI](#python-fastapi)
 - [Python Django](#python-django)
@@ -21,6 +22,13 @@ All examples assume you have dck installed on a Linux server with a public IP.
 - [Go HTTP Server](#go-http-server)
 - [Full-Stack with Database](#full-stack-with-database)
 - [Multi-Container with Compose](#multi-container-with-compose)
+- [Minecraft Server](#minecraft-server)
+- [Telegram Bot](#telegram-bot)
+- [Discord Bot](#discord-bot)
+- [Databases](#databases)
+  - [PostgreSQL](#postgresql)
+  - [MySQL](#mysql)
+  - [phpMyAdmin](#phpmyadmin)
 - [Production Checklist](#production-checklist)
 
 ---
@@ -143,6 +151,48 @@ dck run -d --restart always \
   -v /var/www/mysite:/usr/share/nginx/html:ro \
   -v /root/nginx-conf:/etc/nginx/conf.d \
   nginx:alpine
+```
+
+---
+
+## File Operations
+
+Copy files between your host machine and containers using `dck cp`:
+
+```bash
+# Copy from host into container
+dck cp ./index.html web:/usr/share/nginx/html/
+dck cp ./app.py flask-app:/app/
+dck cp ./config.yml mycontainer:/etc/app/config.yml
+dck cp ./mybot.py discord-bot:/bot/
+
+# Copy from container to host
+dck cp web:/etc/nginx/nginx.conf ./nginx.conf
+dck cp flask-app:/app/app.py ./backup-app.py
+
+# Copy entire directories
+dck cp ./static/ web:/usr/share/nginx/html/static/
+dck cp django-app:/app/media/ ./media-backup/
+
+# Copy with container ID instead of name
+dck cp ./file.txt abc123def456:/tmp/
+```
+
+This is useful for:
+- Uploading website files (HTML, CSS, JS) into a running web server
+- Deploying bot code without rebuilding the image
+- Backing up configuration or data from containers
+- Injecting config files (nginx, app configs, etc.)
+
+You can also use bind mounts (`-v`) for persistent file sharing — changes on the host are immediately visible inside the container:
+
+```bash
+dck run -d -n web -p 80:80 \
+  -v /var/www/mysite:/usr/share/nginx/html:ro \
+  nginx:alpine
+
+# Edit files on the host — nginx serves them instantly
+echo "<h1>Updated!</h1>" > /var/www/mysite/index.html
 ```
 
 ---
@@ -881,6 +931,387 @@ volumes:
 
 ```bash
 dck up -d
+```
+
+---
+
+## Minecraft Server
+
+Run a Minecraft server inside a dck container.
+
+### Quick start (itzg/minecraft-server)
+
+The easiest way — use the pre-built `itzg/minecraft-server` image:
+
+```bash
+dck run -d --restart always \
+  -n mc -p 25565:25565 \
+  -v mc_data:/data \
+  -e EULA=TRUE \
+  -e TYPE=PAPER \
+  -e VERSION=1.20.4 \
+  -e MEMORY=2G \
+  -e DIFFICULTY=normal \
+  -e MAX_PLAYERS=20 \
+  -e MOTD="Welcome to dck Minecraft!" \
+  itzg/minecraft-server
+```
+
+Connect to your server at `your-server-ip:25565`.
+
+### Custom server with --startup
+
+Download and run any Paper/Spigot/vanilla server JAR:
+
+```bash
+cat > /opt/mc/start.sh << 'EOF'
+#!/bin/sh
+set -e
+SERVER_DIR="/data"
+SERVER_JAR="server.jar"
+MAX_MEM="${DCK_MEMORY:-2G}"
+echo "eula=true" > "$SERVER_DIR/eula.txt"
+if [ ! -f "$SERVER_DIR/$SERVER_JAR" ]; then
+  curl -fsSL -o "$SERVER_DIR/$SERVER_JAR" \
+    "https://api.papermc.io/v2/projects/paper/versions/1.21/builds/100/downloads/paper-1.21-100.jar"
+fi
+exec java -Xms512M -Xmx$MAX_MEM -jar "$SERVER_DIR/$SERVER_JAR" nogui
+EOF
+
+dck run -d --restart always \
+  -n mc-paper -p 25565:25565 \
+  -v /opt/mc:/data --memory 4G \
+  --startup @/opt/mc/start.sh \
+  eclipse-temurin:21-jdk
+```
+
+### Server.properties via bind mount
+
+```bash
+mkdir -p /opt/mc-config
+cat > /opt/mc-config/server.properties << 'EOF'
+max-players=50
+difficulty=hard
+motd=A dck Minecraft Server
+pvp=true
+online-mode=true
+EOF
+
+dck run -d --restart always \
+  -n mc -p 25565:25565 \
+  -v /opt/mc-config:/data \
+  -e EULA=TRUE -e TYPE=PAPER -e VERSION=1.20.4 \
+  -e MEMORY=4G \
+  itzg/minecraft-server
+```
+
+### Modded (Forge/Fabric)
+
+```bash
+dck run -d --restart always \
+  -n mc-forge -p 25565:25565 \
+  -v mc_forge_data:/data \
+  -e EULA=TRUE -e TYPE=FORGE -e VERSION=1.20.1 \
+  -e FORGE_INSTALLER_URL=https://maven.minecraftforge.net/net/minecraftforge/forge/1.20.1-47.1.0/forge-1.20.1-47.1.0-installer.jar \
+  itzg/minecraft-server
+```
+
+### Backup your world
+
+```bash
+# Copy world files from container to host
+dck cp mc:/data/world ./world-backup
+
+# Or backup the entire volume
+tar -czf mc-backup.tar.gz /root/.dck/volumes/mc_data/
+```
+
+---
+
+## Bots
+
+Run bots (Telegram, Discord, Slack, etc.) in dck containers with persistent storage.
+
+### Telegram Bot
+
+```bash
+mkdir -p /opt/tg-bot
+cd /opt/tg-bot
+
+cat > bot.py << 'EOF'
+import os, logging
+from telegram import Update
+from telegram.ext import Application, CommandHandler
+
+TOKEN = os.environ["BOT_TOKEN"]
+
+async def start(update: Update, context):
+    await update.message.reply_text("Hello from dck Telegram bot!")
+
+async def ping(update: Update, context):
+    await update.message.reply_text("pong")
+
+def main():
+    app = Application.builder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("ping", ping))
+    print("Bot started...")
+    app.run_polling()
+
+if __name__ == "__main__":
+    main()
+EOF
+
+cat > requirements.txt << 'EOF'
+python-telegram-bot==20.7
+EOF
+
+cat > start.sh << 'EOF'
+#!/bin/sh
+set -e
+pip install --no-cache-dir --disable-pip-version-check -r /bot/requirements.txt
+exec python /bot/bot.py
+EOF
+
+dck run -d --restart always \
+  -n tg-bot \
+  -v /opt/tg-bot:/bot \
+  --workdir /bot \
+  -e BOT_TOKEN="YOUR_TELEGRAM_BOT_TOKEN" \
+  --startup @/bot/start.sh \
+  python:3.11-slim
+```
+
+### Discord Bot
+
+```bash
+mkdir -p /opt/discord-bot
+cd /opt/discord-bot
+
+cat > bot.py << 'EOF'
+import os, discord
+from discord.ext import commands
+
+TOKEN = os.environ["BOT_TOKEN"]
+intents = discord.Intents.default()
+intents.message_content = True
+bot = commands.Bot(command_prefix="!", intents=intents)
+
+@bot.event
+async def on_ready():
+    print(f"Logged in as {bot.user}")
+
+@bot.command()
+async def ping(ctx):
+    await ctx.send("pong")
+
+@bot.command()
+async def hello(ctx):
+    await ctx.send(f"Hello {ctx.author.mention}!")
+
+bot.run(TOKEN)
+EOF
+
+cat > requirements.txt << 'EOF'
+discord.py==2.4.0
+EOF
+
+cat > start.sh << 'EOF'
+#!/bin/sh
+set -e
+pip install --no-cache-dir --disable-pip-version-check -r /bot/requirements.txt
+exec python /bot/bot.py
+EOF
+
+dck run -d --restart always \
+  -n discord-bot \
+  -v /opt/discord-bot:/bot \
+  --workdir /bot \
+  -e BOT_TOKEN="YOUR_DISCORD_BOT_TOKEN" \
+  --startup @/bot/start.sh \
+  python:3.11-slim
+```
+
+### Bot with database
+
+```bash
+# 1. Start PostgreSQL
+dck run -d --restart always \
+  -n bot-db \
+  -v bot_pgdata:/var/lib/postgresql/data \
+  -e POSTGRES_DB=botdb \
+  -e POSTGRES_USER=bot \
+  -e POSTGRES_PASSWORD=secret \
+  postgres:16
+
+# 2. Bot with DB connection
+mkdir -p /opt/bot-db
+cd /opt/bot-db
+
+cat > bot.py << 'EOF'
+import os, discord, asyncpg
+from discord.ext import commands
+
+TOKEN = os.environ["BOT_TOKEN"]
+DB_DSN = f"postgres://bot:secret@{os.environ['DB_HOST']}/botdb"
+
+bot = commands.Bot(command_prefix="!", intents=discord.Intents.default())
+
+@bot.event
+async def on_ready():
+    bot.db = await asyncpg.connect(DB_DSN)
+    await bot.db.execute("CREATE TABLE IF NOT EXISTS users (id SERIAL, name TEXT)")
+    print(f"Logged in as {bot.user}")
+
+@bot.command()
+async def ping(ctx):
+    await ctx.send("pong")
+
+bot.run(TOKEN)
+EOF
+
+echo -e "discord.py==2.4.0\nasyncpg==0.29.0" > requirements.txt
+
+dck run -d --restart always \
+  -n db-bot \
+  -v /opt/bot-db:/bot \
+  --workdir /bot \
+  -e BOT_TOKEN="YOUR_TOKEN" \
+  -e DB_HOST=10.0.2.1 \
+  --startup "pip install -r /bot/requirements.txt && python /bot/bot.py" \
+  python:3.11-slim
+```
+
+### Bot health monitoring
+
+```bash
+# Check bot logs
+dck logs -f tg-bot
+
+# Check if bot is running
+dck ps | grep bot
+
+# Restart bot if needed
+dck restart discord-bot
+
+# Auto-restart on failure (already set with --restart always)
+dck run -d --restart always \
+  --healthcheck-cmd "curl -f http://localhost || exit 1" \
+  --healthcheck-interval 30 \
+  --healthcheck-retries 3 \
+  ...
+```
+
+---
+
+## Databases
+
+Run database servers inside dck containers with persistent storage.
+
+### PostgreSQL
+
+```bash
+# Quick start
+dck run -d --restart always \
+  -n pg -p 5432:5432 \
+  -v pgdata:/var/lib/postgresql/data \
+  -e POSTGRES_DB=myapp \
+  -e POSTGRES_USER=myapp \
+  -e POSTGRES_PASSWORD=secret \
+  postgres:16
+
+# Connect from another container (host=10.0.2.1)
+PGPASSWORD=secret psql -h 10.0.2.1 -U myapp -d myapp
+
+# Import SQL dump
+cat dump.sql | dck exec -i pg psql -U myapp -d myapp
+
+# Backup
+dck exec pg pg_dump -U myapp myapp > backup.sql
+
+# Restore backup
+cat backup.sql | dck exec -i pg psql -U myapp -d myapp
+```
+
+### MySQL
+
+```bash
+# Quick start
+dck run -d --restart always \
+  -n mysql -p 3306:3306 \
+  -v mysqldata:/var/lib/mysql \
+  -e MYSQL_ROOT_PASSWORD=rootpass \
+  -e MYSQL_DATABASE=myapp \
+  -e MYSQL_USER=myapp \
+  -e MYSQL_PASSWORD=secret \
+  mysql:8
+
+# Connect from another container
+mysql -h 10.0.2.1 -u myapp -psecret myapp
+
+# Import SQL
+dck exec -i mysql mysql -u root -prootpass myapp < dump.sql
+
+# Backup
+dck exec mysql mysqldump -u root -prootpass myapp > backup.sql
+
+# Interactive shell
+dck exec -i -t mysql mysql -u root -prootpass
+```
+
+### phpMyAdmin
+
+Run phpMyAdmin connected to your MySQL/PostgreSQL container:
+
+```bash
+# Connect to MySQL
+dck run -d --restart always \
+  -n phpmyadmin -p 8080:80 \
+  -e PMA_HOST=10.0.2.1 \
+  -e PMA_PORT=3306 \
+  -e UPLOAD_LIMIT=256M \
+  phpmyadmin:latest
+
+# Connect to PostgreSQL
+dck run -d --restart always \
+  -n pgadmin -p 8080:80 \
+  -e PMA_HOST=10.0.2.1 \
+  -e PMA_PORT=5432 \
+  phpmyadmin:latest
+
+# With custom server (via environment)
+dck run -d --restart always \
+  -n phpmyadmin -p 8080:80 \
+  -e PMA_ARBITRARY=1 \
+  phpmyadmin:latest
+# Then enter any server IP in the web UI
+
+# phpMyAdmin + MySQL together
+dck run -d --restart always \
+  -n mysql -p 3306:3306 \
+  -v mysqldata:/var/lib/mysql \
+  -e MYSQL_ROOT_PASSWORD=rootpass \
+  mysql:8
+
+# Wait for MySQL, then get its IP and run phpMyAdmin
+MYSQL_IP=$(dck inspect mysql | grep -o '"ip":"[^"]*"' | grep -o '[0-9.]*')
+dck run -d --restart always \
+  -n phpmyadmin -p 8080:80 \
+  -e PMA_HOST=$MYSQL_IP \
+  -e PMA_PORT=3306 \
+  phpmyadmin:latest
+
+# Access at http://your-server:8080 — login with MySQL credentials
+```
+
+**Примечание:** Для PostgreSQL используйте pgAdmin вместо phpMyAdmin:
+
+```bash
+dck run -d --restart always \
+  -n pgadmin -p 8080:80 \
+  -e PGADMIN_DEFAULT_EMAIL=admin@example.com \
+  -e PGADMIN_DEFAULT_PASSWORD=admin \
+  dpage/pgadmin4
 ```
 
 ---
