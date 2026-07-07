@@ -1,0 +1,937 @@
+# Deploying Websites with dck
+
+Complete examples of deploying websites with various stacks — static sites,
+Python, Node.js, PHP, Java, and full-stack apps with databases.
+
+All examples assume you have dck installed on a Linux server with a public IP.
+
+---
+
+## Table of Contents
+
+- [Static Site (nginx)](#static-site-nginx)
+- [Static Site with HTTPS (Let's Encrypt)](#static-site-with-https)
+- [Python Flask App](#python-flask-app)
+- [Python FastAPI](#python-fastapi)
+- [Python Django](#python-django)
+- [Node.js Express](#nodejs-express)
+- [Node.js Next.js](#nodejs-nextjs)
+- [PHP + Nginx](#php--nginx)
+- [Java Spring Boot](#java-spring-boot)
+- [Go HTTP Server](#go-http-server)
+- [Full-Stack with Database](#full-stack-with-database)
+- [Multi-Container with Compose](#multi-container-with-compose)
+- [Production Checklist](#production-checklist)
+
+---
+
+## Static Site (nginx)
+
+The simplest — serve HTML/CSS/JS files with nginx.
+
+```bash
+# Create site directory
+mkdir -p /var/www/mysite
+echo "<h1>Hello from dck!</h1>" > /var/www/mysite/index.html
+
+# Run nginx with mounted files
+dck run -d --restart always \
+  -n mysite -p 80:80 \
+  -v /var/www/mysite:/usr/share/nginx/html:ro \
+  nginx:alpine
+
+# Test
+curl http://localhost:80
+```
+
+### Custom nginx config
+
+```bash
+mkdir -p /var/www/mysite /etc/nginx-conf
+
+# Create nginx config
+cat > /etc/nginx-conf/default.conf << 'EOF'
+server {
+    listen 80;
+    server_name mysite.example.com;
+    root /usr/share/nginx/html;
+    index index.html;
+    location / { try_files $uri $uri/ =404; }
+    location /api/ { proxy_pass http://backend:3000; }
+}
+EOF
+
+dck run -d --restart always \
+  -n mysite -p 80:80 \
+  -v /var/www/mysite:/usr/share/nginx/html:ro \
+  -v /etc/nginx-conf:/etc/nginx/conf.d:ro \
+  nginx:alpine
+```
+
+---
+
+## Static Site with HTTPS
+
+Using Let's Encrypt / certbot with auto-renewal.
+
+### Option 1: Manual certs
+
+```bash
+# Install certbot on host
+apt-get install -y certbot
+
+# Get certificate
+certbot certonly --standalone -d mysite.example.com
+
+# Create nginx config with SSL
+mkdir -p /etc/nginx-ssl
+cat > /etc/nginx-ssl/default.conf << 'EOF'
+server {
+    listen 80;
+    server_name mysite.example.com;
+    return 301 https://$host$request_uri;
+}
+server {
+    listen 443 ssl http2;
+    server_name mysite.example.com;
+    ssl_certificate /etc/letsencrypt/live/mysite.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/mysite.example.com/privkey.pem;
+    root /usr/share/nginx/html;
+    index index.html;
+}
+EOF
+
+# Run nginx
+dck run -d --restart always \
+  -n mysite -p 80:80 -p 443:443 \
+  -v /var/www/mysite:/usr/share/nginx/html:ro \
+  -v /etc/nginx-ssl:/etc/nginx/conf.d:ro \
+  -v /etc/letsencrypt:/etc/letsencrypt:ro \
+  nginx:alpine
+```
+
+### Option 2: Self-signed (for testing)
+
+```bash
+mkdir -p /root/ssl /root/nginx-conf/ssl
+
+# Generate self-signed cert
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+  -keyout /root/ssl/server.key \
+  -out /root/ssl/server.crt \
+  -subj "/CN=localhost"
+
+# Copy ssl into config dir
+cp /root/ssl/server.crt /root/nginx-conf/ssl/
+cp /root/ssl/server.key /root/nginx-conf/ssl/
+
+# Nginx config
+cat > /root/nginx-conf/default.conf << 'EOF'
+server {
+    listen 443 ssl http2;
+    server_name localhost;
+    ssl_certificate /etc/nginx/conf.d/ssl/server.crt;
+    ssl_certificate_key /etc/nginx/conf.d/ssl/server.key;
+    root /usr/share/nginx/html;
+    index index.html;
+}
+EOF
+
+# Run
+dck run -d --restart always \
+  -n mysite -p 443:443 \
+  -v /var/www/mysite:/usr/share/nginx/html:ro \
+  -v /root/nginx-conf:/etc/nginx/conf.d \
+  nginx:alpine
+```
+
+---
+
+## Python Flask App
+
+### Basic Flask with Gunicorn
+
+```bash
+# Create app
+mkdir -p /opt/flask-app
+cd /opt/flask-app
+
+cat > app.py << 'EOF'
+from flask import Flask
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return '<h1>Hello from Flask on dck!</h1>'
+
+@app.route('/api')
+def api():
+    return {'message': 'Hello from dck!'}
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)
+EOF
+
+echo "flask==3.0.0\ngunicorn==22.0.0" > requirements.txt
+
+# Run with gunicorn via startup script
+dck run -d --restart always \
+  -n flask-app -p 5000:5000 \
+  -v /opt/flask-app:/app \
+  --workdir /app \
+  --startup "pip install -r /app/requirements.txt && gunicorn -w 4 -b 0.0.0.0:5000 app:app" \
+  python:3.11-slim
+
+# Test
+curl http://localhost:5000
+```
+
+### Flask with nginx reverse proxy
+
+```bash
+# Create nginx config
+mkdir -p /etc/flask-nginx
+cat > /etc/flask-nginx/default.conf << 'EOF'
+server {
+    listen 80;
+    server_name example.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:5000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    location /static/ {
+        alias /var/www/flask-app/static/;
+    }
+}
+EOF
+
+# Run flask app (no port needed - access via nginx)
+dck run -d --restart always \
+  -n flask-backend \
+  -v /opt/flask-app:/app \
+  --workdir /app \
+  --startup "pip install -r /app/requirements.txt && gunicorn -w 4 -b 0.0.0.0:5000 app:app" \
+  python:3.11-slim
+
+# Run nginx pointing to flask container by IP
+dck run -d --restart always \
+  -n flask-web -p 80:80 \
+  -v /etc/flask-nginx:/etc/nginx/conf.d:ro \
+  nginx:alpine
+
+# Find flask IP
+dck inspect flask-backend | grep IP
+# Then update nginx config with flask IP (10.0.2.x)
+```
+
+---
+
+## Python FastAPI
+
+```bash
+mkdir -p /opt/fastapi-app
+cd /opt/fastapi-app
+
+cat > main.py << 'EOF'
+from fastapi import FastAPI
+app = FastAPI()
+
+@app.get("/")
+async def root():
+    return {"message": "Hello from FastAPI on dck!"}
+
+@app.get("/items/{item_id}")
+async def read_item(item_id: int):
+    return {"item_id": item_id}
+EOF
+
+echo "fastapi==0.109.0\nuvicorn==0.27.0" > requirements.txt
+
+dck run -d --restart always \
+  -n fastapi-app -p 8000:8000 \
+  -v /opt/fastapi-app:/app \
+  --workdir /app \
+  --startup "pip install -r /app/requirements.txt && uvicorn main:app --host 0.0.0.0 --port 8000" \
+  python:3.11-slim
+
+curl http://localhost:8000
+curl http://localhost:8000/docs   # Swagger UI
+```
+
+---
+
+## Python Django
+
+```bash
+mkdir -p /opt/django-app
+cd /opt/django-app
+
+# Create requirements
+echo "django==5.0.0\ngunicorn==22.0.0\npsycopg2-binary==2.9.9" > requirements.txt
+
+# Create startup script
+cat > start.sh << 'SCRIPT'
+#!/bin/sh
+set -e
+cd /app
+pip install -r requirements.txt
+python manage.py migrate
+python manage.py collectstatic --noinput
+gunicorn myproject.wsgi:application -w 4 -b 0.0.0.0:8000
+SCRIPT
+
+# Create Django project (or copy existing)
+dck run --rm \
+  -v /opt/django-app:/app \
+  --workdir /app \
+  python:3.11-slim sh -c "pip install django && django-admin startproject myproject ."
+
+# Run with DB
+dck run -d --restart always \
+  -n django-db -p 5432:5432 \
+  -v django-pgdata:/var/lib/postgresql/data \
+  -e POSTGRES_DB=django \
+  -e POSTGRES_USER=django \
+  -e POSTGRES_PASSWORD=secret \
+  postgres:16
+
+# Wait for DB, then run Django
+dck run -d --restart always \
+  -n django-app -p 8000:8000 \
+  -v /opt/django-app:/app \
+  --workdir /app \
+  -e DB_HOST=10.0.2.1 \
+  -e DB_NAME=django \
+  -e DB_USER=django \
+  -e DB_PASSWORD=secret \
+  --startup @/app/start.sh \
+  python:3.11-slim
+```
+
+---
+
+## Node.js Express
+
+```bash
+mkdir -p /opt/express-app
+cd /opt/express-app
+
+cat > index.js << 'EOF'
+const express = require('express');
+const app = express();
+const port = 3000;
+
+app.get('/', (req, res) => {
+  res.send('<h1>Hello from Express on dck!</h1>');
+});
+
+app.get('/api', (req, res) => {
+  res.json({ message: 'Hello from dck!' });
+});
+
+app.listen(port, () => {
+  console.log(`App listening on port ${port}`);
+});
+EOF
+
+cat > package.json << 'EOF'
+{
+  "name": "express-app",
+  "scripts": { "start": "node index.js" },
+  "dependencies": { "express": "^4.18.2" }
+}
+EOF
+
+dck run -d --restart always \
+  -n express-app -p 3000:3000 \
+  -v /opt/express-app:/app \
+  --workdir /app \
+  --startup "npm install && npm start" \
+  node:20
+
+curl http://localhost:3000
+```
+
+---
+
+## Node.js Next.js
+
+```bash
+mkdir -p /opt/next-app
+cd /opt/next-app
+
+# Create Next.js project
+cat > package.json << 'EOF'
+{
+  "name": "next-app",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start -p 3000"
+  },
+  "dependencies": {
+    "next": "^14.0.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  }
+}
+EOF
+
+mkdir -p pages
+cat > pages/index.js << 'EOF'
+export default function Home() {
+  return <h1>Hello from Next.js on dck!</h1>;
+}
+EOF
+
+# Development mode (with hot reload)
+dck run -d --restart always \
+  -n next-dev -p 3000:3000 \
+  -v /opt/next-app:/app \
+  --workdir /app \
+  --startup "npm install && npm run dev" \
+  node:20
+
+# Production build
+dck run --rm \
+  -v /opt/next-app:/app \
+  --workdir /app \
+  node:20 sh -c "npm install && npm run build"
+
+dck run -d --restart always \
+  -n next-prod -p 3000:3000 \
+  -v /opt/next-app:/app \
+  --workdir /app \
+  --startup "npm start" \
+  node:20
+```
+
+---
+
+## PHP + Nginx
+
+```bash
+mkdir -p /opt/php-app
+cd /opt/php-app
+
+cat > index.php << 'EOF'
+<?php
+echo '<h1>Hello from PHP on dck!</h1>';
+echo '<p>PHP version: ' . phpversion() . '</p>';
+EOF
+
+# Create nginx config for PHP-FPM
+mkdir -p /etc/php-nginx
+cat > /etc/php-nginx/default.conf << 'EOF'
+server {
+    listen 80;
+    root /var/www/html;
+    index index.php;
+    location ~ \.php$ {
+        fastcgi_pass 127.0.0.1:9000;
+        fastcgi_index index.php;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        include fastcgi_params;
+    }
+}
+EOF
+
+# Run PHP-FPM container
+dck run -d --restart always \
+  -n php-fpm \
+  -v /opt/php-app:/var/www/html \
+  php:8.2-fpm
+
+# Run nginx with PHP-FPM (find PHP container IP)
+PHP_IP=$(dck inspect php-fpm | grep -o '"ip":"[^"]*"' | grep -o '[0-9.]*')
+echo "PHP container IP: $PHP_IP"
+
+# Update nginx config with actual PHP IP
+sed -i "s/127.0.0.1:9000/$PHP_IP:9000/" /etc/php-nginx/default.conf
+
+dck run -d --restart always \
+  -n php-web -p 80:80 \
+  -v /opt/php-app:/var/www/html:ro \
+  -v /etc/php-nginx:/etc/nginx/conf.d:ro \
+  nginx:alpine
+```
+
+---
+
+## Java Spring Boot
+
+```bash
+mkdir -p /opt/spring-app
+cd /opt/spring-app
+
+# Create a simple Spring Boot app (or use your JAR)
+# For testing, create a simple JAR or use existing
+
+cat > Dockerfile << 'EOF'
+FROM eclipse-temurin:21-jdk AS build
+WORKDIR /app
+COPY . .
+RUN apt-get update && apt-get install -y maven && mvn package -DskipTests
+
+FROM eclipse-temurin:21-jre
+WORKDIR /app
+COPY --from=build /app/target/*.jar app.jar
+EXPOSE 8080
+ENTRYPOINT ["java", "-jar", "app.jar"]
+EOF
+
+# Build and run
+dck build -t spring-app:v1 .
+dck run -d --restart always \
+  -n spring-app -p 8080:8080 \
+  spring-app:v1
+
+curl http://localhost:8080
+```
+
+### Quick Java test (no build needed)
+
+```bash
+cat > /opt/spring-app/HttpServer.java << 'EOF'
+import com.sun.net.httpserver.*;
+
+public class HttpServer {
+    public static void main(String[] args) throws Exception {
+        com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(
+            new InetSocketAddress(8080), 0);
+        server.createContext("/", exchange -> {
+            String resp = "<h1>Hello from Java on dck!</h1>";
+            exchange.sendResponseHeaders(200, resp.length());
+            exchange.getResponseBody().write(resp.getBytes());
+            exchange.close();
+        });
+        server.setExecutor(null);
+        server.start();
+        System.out.println("Server started on port 8080");
+        Thread.currentThread().join();
+    }
+}
+EOF
+
+dck run -d --restart always \
+  -n java-app -p 8080:8080 \
+  -v /opt/spring-app:/app \
+  --workdir /app \
+  --startup "javac HttpServer.java && java HttpServer" \
+  eclipse-temurin:21-jdk
+```
+
+---
+
+## Go HTTP Server
+
+```bash
+mkdir -p /opt/go-app
+cd /opt/go-app
+
+cat > main.go << 'EOF'
+package main
+
+import (
+    "fmt"
+    "net/http"
+)
+
+func main() {
+    http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+        fmt.Fprintf(w, "<h1>Hello from Go on dck!</h1>")
+    })
+    http.ListenAndServe(":8080", nil)
+}
+EOF
+
+# Multi-stage build with dck
+cat > Dockerfile << 'EOF'
+FROM golang:1.22 AS build
+WORKDIR /app
+COPY main.go .
+RUN CGO_ENABLED=0 go build -o server .
+
+FROM alpine:latest
+COPY --from=build /app/server /
+EXPOSE 8080
+CMD ["/server"]
+EOF
+
+dck build -t go-app:v1 .
+dck run -d --restart always \
+  -n go-app -p 8080:8080 \
+  go-app:v1
+
+curl http://localhost:8080
+```
+
+---
+
+## Full-Stack with Database
+
+### Flask + PostgreSQL
+
+```bash
+# 1. PostgreSQL
+mkdir -p /opt/postgres-data
+
+dck run -d --restart always \
+  -n pg -p 5432:5432 \
+  -v /opt/postgres-data:/var/lib/postgresql/data \
+  -e POSTGRES_DB=myapp \
+  -e POSTGRES_USER=myapp \
+  -e POSTGRES_PASSWORD=secret \
+  postgres:16
+
+# 2. Flask app
+mkdir -p /opt/flask-fullstack
+cd /opt/flask-fullstack
+
+cat > app.py << 'EOF'
+from flask import Flask, jsonify
+import psycopg2, os
+
+app = Flask(__name__)
+
+def get_db():
+    return psycopg2.connect(
+        host=os.environ.get('DB_HOST', '10.0.2.1'),
+        dbname=os.environ.get('DB_NAME', 'myapp'),
+        user=os.environ.get('DB_USER', 'myapp'),
+        password=os.environ.get('DB_PASS', 'secret')
+    )
+
+@app.route('/')
+def home():
+    return '<h1>Flask + PostgreSQL on dck!</h1>'
+
+@app.route('/db')
+def db_test():
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("SELECT version()")
+        ver = cur.fetchone()
+        cur.close()
+        conn.close()
+        return jsonify({'database': ver[0]})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/users')
+def users():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("CREATE TABLE IF NOT EXISTS users (id SERIAL, name TEXT)")
+    cur.execute("SELECT id, name FROM users")
+    users = [{'id': r[0], 'name': r[1]} for r in cur.fetchall()]
+    cur.close()
+    conn.close()
+    return jsonify(users)
+EOF
+
+echo -e "flask==3.0.0\ngunicorn==22.0.0\npsycopg2-binary==2.9.9" > requirements.txt
+
+# Wait for PostgreSQL to be ready, then run Flask
+dck run -d --restart always \
+  -n flask-app -p 5000:5000 \
+  -v /opt/flask-fullstack:/app \
+  --workdir /app \
+  -e DB_HOST=10.0.2.1 \
+  -e DB_NAME=myapp \
+  -e DB_USER=myapp \
+  -e DB_PASS=secret \
+  --startup "pip install -r /app/requirements.txt && gunicorn -w 4 -b 0.0.0.0:5000 app:app" \
+  python:3.11-slim
+
+# Test
+curl http://localhost:5000
+curl http://localhost:5000/db
+```
+
+### Node.js + MySQL
+
+```bash
+# 1. MySQL
+mkdir -p /opt/mysql-data
+
+dck run -d --restart always \
+  -n mysql -p 3306:3306 \
+  -v /opt/mysql-data:/var/lib/mysql \
+  -e MYSQL_ROOT_PASSWORD=rootpass \
+  -e MYSQL_DATABASE=myapp \
+  -e MYSQL_USER=myapp \
+  -e MYSQL_PASSWORD=secret \
+  mysql:8
+
+# 2. Node.js app
+mkdir -p /opt/node-mysql
+cd /opt/node-mysql
+
+cat > index.js << 'EOF'
+const express = require('express');
+const mysql = require('mysql2/promise');
+const app = express();
+
+const dbConfig = {
+    host: process.env.DB_HOST || '10.0.2.1',
+    user: process.env.DB_USER || 'myapp',
+    password: process.env.DB_PASS || 'secret',
+    database: process.env.DB_NAME || 'myapp'
+};
+
+app.get('/', async (req, res) => {
+    res.send('<h1>Node.js + MySQL on dck!</h1>');
+});
+
+app.get('/db', async (req, res) => {
+    try {
+        const conn = await mysql.createConnection(dbConfig);
+        const [rows] = await conn.execute('SELECT VERSION() AS ver');
+        await conn.end();
+        res.json({ database: rows[0].ver });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.listen(3000);
+EOF
+
+echo -e "express@^4.18.2\nmysql2@^3.6.0" > requirements.txt
+
+dck run -d --restart always \
+  -n node-app -p 3000:3000 \
+  -v /opt/node-mysql:/app \
+  --workdir /app \
+  -e DB_HOST=10.0.2.1 \
+  -e DB_NAME=myapp \
+  -e DB_USER=myapp \
+  -e DB_PASS=secret \
+  --startup "npm install && node index.js" \
+  node:20
+```
+
+### FastAPI + PostgreSQL + Redis
+
+```bash
+# 1. PostgreSQL
+dck run -d --restart always \
+  -n pg -p 5432:5432 \
+  -v pgdata:/var/lib/postgresql/data \
+  -e POSTGRES_DB=myapp \
+  -e POSTGRES_USER=myapp \
+  -e POSTGRES_PASSWORD=secret \
+  postgres:16
+
+# 2. Redis
+dck run -d --restart always \
+  -n redis -p 6379:6379 \
+  redis:7
+
+# 3. FastAPI app
+mkdir -p /opt/fastapi-stack
+cd /opt/fastapi-stack
+
+cat > main.py << 'EOF'
+from fastapi import FastAPI, HTTPException
+import asyncpg, redis.asyncio as redis_, os
+
+app = FastAPI()
+
+@app.on_event("startup")
+async def startup():
+    app.db = await asyncpg.connect(
+        host=os.environ.get('DB_HOST', '10.0.2.1'),
+        database=os.environ.get('DB_NAME', 'myapp'),
+        user=os.environ.get('DB_USER', 'myapp'),
+        password=os.environ.get('DB_PASS', 'secret')
+    )
+    app.redis = redis_.Redis(host=os.environ.get('REDIS_HOST', '10.0.2.1'), port=6379, db=0)
+    await app.db.execute('CREATE TABLE IF NOT EXISTS items (id SERIAL, name TEXT)')
+
+@app.get('/')
+async def root():
+    return {'message': 'FastAPI + PostgreSQL + Redis on dck!'}
+
+@app.get('/db')
+async def db_check():
+    ver = await app.db.fetchval('SELECT version()')
+    return {'database': ver}
+
+@app.get('/redis')
+async def redis_check():
+    await app.redis.set('test', 'ok')
+    val = await app.redis.get('test')
+    return {'redis': val.decode()}
+EOF
+
+echo -e "fastapi==0.109.0\nuvicorn==0.27.0\nasyncpg==0.29.0\nredis==5.0.0" > requirements.txt
+
+dck run -d --restart always \
+  -n fastapi-app -p 8000:8000 \
+  -v /opt/fastapi-stack:/app \
+  --workdir /app \
+  -e DB_HOST=10.0.2.1 \
+  -e DB_NAME=myapp \
+  -e DB_USER=myapp \
+  -e DB_PASS=secret \
+  -e REDIS_HOST=10.0.2.1 \
+  --startup "pip install -r /app/requirements.txt && uvicorn main:app --host 0.0.0.0 --port 8000" \
+  python:3.11-slim
+```
+
+---
+
+## Multi-Container with Compose
+
+Define everything in `compose.yaml` and start with one command:
+
+### WordPress + MySQL
+
+```yaml
+services:
+  db:
+    image: mysql:8
+    restart: always
+    volumes:
+      - wp_data:/var/lib/mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: wordpress
+      MYSQL_USER: wpuser
+      MYSQL_PASSWORD: wppass
+
+  wordpress:
+    image: wordpress:6-php8.2
+    restart: always
+    ports:
+      - "8080:80"
+    environment:
+      WORDPRESS_DB_HOST: db
+      WORDPRESS_DB_USER: wpuser
+      WORDPRESS_DB_PASSWORD: wppass
+      WORDPRESS_DB_NAME: wordpress
+    depends_on:
+      db:
+        condition: service_started
+    volumes:
+      - wp_uploads:/var/www/html/wp-content/uploads
+
+volumes:
+  wp_data:
+  wp_uploads:
+```
+
+```bash
+dck up -d
+```
+
+### Python API + PostgreSQL + Nginx
+
+```yaml
+services:
+  db:
+    image: postgres:16
+    restart: always
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: myapp
+      POSTGRES_USER: myapp
+      POSTGRES_PASSWORD: secret
+    healthcheck:
+      test: pg_isready -U myapp
+      interval: 5s
+      retries: 10
+
+  api:
+    build: ./api
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      DB_HOST: db
+      DB_NAME: myapp
+      DB_USER: myapp
+      DB_PASS: secret
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    image: nginx:alpine
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./static:/usr/share/nginx/html:ro
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
+```
+
+```bash
+dck up -d
+```
+
+---
+
+## Production Checklist
+
+### Security
+
+- Use `--restart always` for auto-recovery
+- Use `--cap-drop ALL --cap-add NET_BIND_SERVICE` for minimal privileges
+- Run as non-root user with `--user`
+- Use `--readonly` for rootfs when possible
+- Use HTTPS with Let's Encrypt
+- Keep images updated
+
+### Persistence
+
+- Use named volumes or bind mounts for data
+- Database data → mounted volume
+- Uploads → mounted volume
+- App code → mounted volume (dev) or baked into image (prod)
+
+### Performance
+
+- Set `--memory` and `--cpus` limits for each container
+- Use `--startup` for custom init logic (wait for DB, run migrations)
+- Use gunicorn/uvicorn with multiple workers for Python
+- Use PM2 or cluster mode for Node.js
+
+### Monitoring
+
+```bash
+# Check container resource usage
+dck stats
+
+# Follow logs
+dck logs -f web
+
+# Check health
+dck ps
+```
+
+### Backup
+
+```bash
+# Backup a container's overlay (all changes)
+tar -czf container-backup.tar.gz /root/.dck/overlay/<container-id>/
+
+# Backup volumes
+tar -czf volume-backup.tar.gz /root/.dck/volumes/<volume-name>/
+
+# Export an image
+dck export myapp:v1 -o myapp-backup.tar.gz
+```

@@ -7,6 +7,7 @@ dck is a lightweight container runtime — no daemon, no Docker. Just containers
 
 ## Table of Contents
 
+- [Deploying Websites](websites.md)
 - [Image Management](#image-management)
 - [Container Lifecycle](#container-lifecycle)
 - [Running Containers (`dck run`)](#dck-run)

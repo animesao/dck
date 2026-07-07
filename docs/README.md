@@ -14,6 +14,7 @@ dck serve                       dck fn deploy --name hello myfunc
 | English | Русский |
 |---|---|
 | [Usage & Commands](en/usage.md) | [Команды и использование](ru/usage.md) |
+| [Deploying Websites](en/websites.md) | [Развёртывание сайтов](ru/websites.md) |
 | [Compose / Deployment](en/compose.md) | [Compose / Развёртывание](ru/compose.md) |
 | [Cluster Orchestration](en/cluster.md) | [Кластерная оркестрация](ru/cluster.md) |
 | [FaaS / Serverless](en/faas.md) | [FaaS / Serverless](ru/faas.md) |
