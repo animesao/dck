@@ -259,6 +259,20 @@ dck run -d --restart always \
 Для Paper 1.16.5 (Java 16):
 
 ```bash
+#!/bin/sh
+set -e
+SERVER_DIR="/data"
+SERVER_JAR="server.jar"
+MAX_MEM="${DCK_MEMORY:-2G}"
+echo "eula=true" > "$SERVER_DIR/eula.txt"
+if [ ! -f "$SERVER_DIR/$SERVER_JAR" ]; then
+  curl -fsSL -o "$SERVER_DIR/$SERVER_JAR" \
+    "https://fill-data.papermc.io/v1/objects/e67da4851d08cde378ab2b89be58849238c303351ed2482181a99c2c2b489276/paper-1.16.5-794.jar"
+fi
+exec java -Xms512M -Xmx$MAX_MEM -jar "$SERVER_DIR/$SERVER_JAR" nogui
+```
+
+```bash
 dck run -d --restart always \
   -n mc-1165 -p 25565:25565 \
   -v mc1165_data:/data --memory 4G --cpus 4 \
