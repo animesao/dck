@@ -1,8 +1,4 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/animesao/dck-client/main/public/logo.png" alt="dck Panel" width="120">
-</p>
-
-<p align="center">
 <  <img src="https://img.shields.io/badge/version-v1.19.0--stalbal.8bc8ec2-blue?style=flat-square">
   <img src="https://img.shields.io/badge/go-1.18+-00ADD8?style=flat-square&logo=go">
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square">
