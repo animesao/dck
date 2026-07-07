@@ -16,15 +16,11 @@ func (c *Container) ExecOpts(cmd []string, interactive, tty bool) error {
 		return fmt.Errorf("container %s is not running", c.ID)
 	}
 
-	upper, _, merged := c.OverlayDirs()
-	_ = upper
-
 	args := []string{
 		"-t", strconv.Itoa(c.PID),
 		"-m", "-p", "-i", "-n",
 		"--",
 	}
-	args = append(args, "chroot", merged)
 	args = append(args, cmd...)
 
 	ecmd := exec.Command("nsenter", args...)

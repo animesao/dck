@@ -388,14 +388,10 @@ func (c *Container) runHealthcheck(ctx context.Context) {
 }
 
 func (c *Container) execHealthcheck(cmd string, timeout time.Duration) error {
-	upper, _, merged := c.OverlayDirs()
-	_ = upper
-
 	args := []string{
 		"-t", strconv.Itoa(c.PID),
 		"-m", "-p", "-i", "-n",
 		"--",
-		"chroot", merged,
 		"sh", "-c", cmd,
 	}
 
