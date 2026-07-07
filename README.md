@@ -241,7 +241,7 @@ MAX_MEM="${DCK_MEMORY:-2G}"
 echo "eula=true" > "$SERVER_DIR/eula.txt"
 if [ ! -f "$SERVER_DIR/$SERVER_JAR" ]; then
   curl -fsSL -o "$SERVER_DIR/$SERVER_JAR" \
-    "https://api.papermc.io/v2/projects/paper/versions/1.21.4/builds/latest/downloads/paper-1.21.4-latest.jar"
+    "https://fill-data.papermc.io/v1/objects/e708e8c132dc143ffd73528cccb9532e2eb17628b1a0eee74469bf466c7003f8/paper-1.21.11-116.jar"
 fi
 exec java -Xms512M -Xmx$MAX_MEM -jar "$SERVER_DIR/$SERVER_JAR" nogui
 ```
