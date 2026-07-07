@@ -25,11 +25,12 @@ mkdir -p /opt/mybot
 cd /opt/mybot
 
 # 1. Create bot code, requirements.txt, start.sh
-# 2. Run:
+# 2. Run (limit: 256MB RAM, 0.25 CPU, 1GB disk):
 dck run -d --restart always \
   -n mybot \
   -v /opt/mybot:/bot \
   --workdir /bot \
+  --memory 256m --cpus 0.25 --disk 1G \
   -e BOT_TOKEN="your_token" \
   --startup @/bot/start.sh \
   python:3.11-slim
@@ -84,10 +85,10 @@ dck run -d --restart always \
   -n tg-bot \
   -v /opt/tg-bot:/bot \
   --workdir /bot \
+  --memory 256m --cpus 0.25 --disk 1G \
   -e BOT_TOKEN="YOUR_TELEGRAM_BOT_TOKEN" \
   --startup @/bot/start.sh \
   python:3.11-slim
-```
 
 ---
 
@@ -136,20 +137,21 @@ dck run -d --restart always \
   -n discord-bot \
   -v /opt/discord-bot:/bot \
   --workdir /bot \
+  --memory 256m --cpus 0.25 --disk 1G \
   -e BOT_TOKEN="YOUR_DISCORD_BOT_TOKEN" \
   --startup @/bot/start.sh \
   python:3.11-slim
-```
 
 ---
 
 ## Bot with Database
 
 ```bash
-# 1. Start PostgreSQL
+# 1. Start PostgreSQL (limit: 1GB RAM, 1 CPU, 10GB disk)
 dck run -d --restart always \
   -n bot-db \
   -v bot_pgdata:/var/lib/postgresql/data \
+  --memory 1g --cpus 1 --disk 10G \
   -e POSTGRES_DB=botdb \
   -e POSTGRES_USER=bot \
   -e POSTGRES_PASSWORD=secret \
@@ -197,6 +199,7 @@ dck run -d --restart always \
   -n db-bot \
   -v /opt/bot-db:/bot \
   --workdir /bot \
+  --memory 256m --cpus 0.25 --disk 1G \
   -e BOT_TOKEN="YOUR_TOKEN" \
   -e DB_HOST=10.0.2.1 \
   --startup @/bot/start.sh \
@@ -241,6 +244,7 @@ dck run -d --restart always \
   -n js-bot \
   -v /opt/js-bot:/bot \
   --workdir /bot \
+  --memory 256m --cpus 0.25 --disk 1G \
   -e BOT_TOKEN="YOUR_TOKEN" \
   --startup @/bot/start.sh \
   node:20
@@ -265,6 +269,7 @@ dck run -d --restart always \
   -n tg-bot \
   -v /opt/tg-bot:/bot \
   --workdir /bot \
+  --memory 256m --cpus 0.25 --disk 1G \
   -e BOT_TOKEN="token" \
   --startup @/bot/start.sh \
   --healthcheck-cmd "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8080/health\")'" \

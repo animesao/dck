@@ -25,11 +25,12 @@ mkdir -p /opt/mybot
 cd /opt/mybot
 
 # 1. Создать код бота, requirements.txt, start.sh
-# 2. Запустить:
+# 2. Запустить (лимит: 256MB RAM, 0.25 CPU, 1GB диск):
 dck run -d --restart always \
   -n mybot \
   -v /opt/mybot:/bot \
   --workdir /bot \
+  --memory 256m --cpus 0.25 --disk 1G \
   -e BOT_TOKEN="ваш_токен" \
   --startup @/bot/start.sh \
   python:3.11-slim
@@ -84,10 +85,10 @@ dck run -d --restart always \
   -n tg-bot \
   -v /opt/tg-bot:/bot \
   --workdir /bot \
+  --memory 256m --cpus 0.25 --disk 1G \
   -e BOT_TOKEN="ВАШ_ТОКЕН_TELEGRAM_БОТА" \
   --startup @/bot/start.sh \
   python:3.11-slim
-```
 
 ---
 
@@ -136,6 +137,7 @@ dck run -d --restart always \
   -n discord-bot \
   -v /opt/discord-bot:/bot \
   --workdir /bot \
+  --memory 256m --cpus 0.25 --disk 1G \
   -e BOT_TOKEN="ТОКЕН_ВАШЕГО_DISCORD_БОТА" \
   --startup @/bot/start.sh \
   python:3.11-slim
@@ -146,10 +148,11 @@ dck run -d --restart always \
 ## Бот с базой данных
 
 ```bash
-# 1. PostgreSQL
+# 1. PostgreSQL (лимит: 1GB RAM, 1 CPU, 10GB диск)
 dck run -d --restart always \
   -n bot-db \
   -v bot_pgdata:/var/lib/postgresql/data \
+  --memory 1g --cpus 1 --disk 10G \
   -e POSTGRES_DB=botdb \
   -e POSTGRES_USER=bot \
   -e POSTGRES_PASSWORD=secret \
@@ -197,6 +200,7 @@ dck run -d --restart always \
   -n db-bot \
   -v /opt/bot-db:/bot \
   --workdir /bot \
+  --memory 256m --cpus 0.25 --disk 1G \
   -e BOT_TOKEN="ВАШ_ТОКЕН" \
   -e DB_HOST=10.0.2.1 \
   --startup @/bot/start.sh \
@@ -241,10 +245,10 @@ dck run -d --restart always \
   -n js-bot \
   -v /opt/js-bot:/bot \
   --workdir /bot \
+  --memory 256m --cpus 0.25 --disk 1G \
   -e BOT_TOKEN="ВАШ_ТОКЕН" \
   --startup @/bot/start.sh \
   node:20
-```
 
 ---
 
@@ -265,6 +269,7 @@ dck run -d --restart always \
   -n tg-bot \
   -v /opt/tg-bot:/bot \
   --workdir /bot \
+  --memory 256m --cpus 0.25 --disk 1G \
   -e BOT_TOKEN="токен" \
   --startup @/bot/start.sh \
   --healthcheck-cmd "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8080/health\")'" \

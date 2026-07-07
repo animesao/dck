@@ -5,6 +5,10 @@ Python, Node.js, PHP, Java, and full-stack apps with databases.
 
 All examples assume you have dck installed on a Linux server with a public IP.
 
+> **Resource limits:** Add `--memory 512m --cpus 0.5 --disk 2G` to any `dck run` command
+> to limit RAM, CPU, and disk usage. Prevents one container from eating all VPS resources.
+> Adjust values per app: bots → 256m/0.25, sites → 512m/0.5, databases → 1g/1.
+
 ---
 
 ## Table of Contents
@@ -42,10 +46,11 @@ The simplest — serve HTML/CSS/JS files with nginx.
 mkdir -p /var/www/mysite
 echo "<h1>Hello from dck!</h1>" > /var/www/mysite/index.html
 
-# Run nginx with mounted files
+# Run nginx with mounted files (limit: 256MB RAM, 0.5 CPU, 1GB disk)
 dck run -d --restart always \
   -n mysite -p 80:80 \
   -v /var/www/mysite:/usr/share/nginx/html:ro \
+  --memory 256m --cpus 0.5 --disk 1G \
   nginx:alpine
 
 # Test
@@ -1077,6 +1082,7 @@ dck run -d --restart always \
   -n tg-bot \
   -v /opt/tg-bot:/bot \
   --workdir /bot \
+  --memory 256m --cpus 0.25 --disk 1G \
   -e BOT_TOKEN="YOUR_TELEGRAM_BOT_TOKEN" \
   --startup @/bot/start.sh \
   python:3.11-slim
@@ -1127,6 +1133,7 @@ dck run -d --restart always \
   -n discord-bot \
   -v /opt/discord-bot:/bot \
   --workdir /bot \
+  --memory 256m --cpus 0.25 --disk 1G \
   -e BOT_TOKEN="YOUR_DISCORD_BOT_TOKEN" \
   --startup @/bot/start.sh \
   python:3.11-slim
@@ -1135,10 +1142,11 @@ dck run -d --restart always \
 ### Bot with database
 
 ```bash
-# 1. Start PostgreSQL
+# 1. Start PostgreSQL (limit: 1GB RAM, 1 CPU, 10GB disk)
 dck run -d --restart always \
   -n bot-db \
   -v bot_pgdata:/var/lib/postgresql/data \
+  --memory 1g --cpus 1 --disk 10G \
   -e POSTGRES_DB=botdb \
   -e POSTGRES_USER=bot \
   -e POSTGRES_PASSWORD=secret \
