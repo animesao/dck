@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	"dck/internal/container"
+	"dck/internal/state"
 )
 
 func Sftp(args []string) {
@@ -46,18 +47,15 @@ func Sftp(args []string) {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
-	if c.Status != container.Running {
-		fmt.Fprintf(os.Stderr, "Container %s is not running\n", remaining[0])
-		os.Exit(1)
-	}
 
 	if c.SFTPPort > 0 && !*start {
 		user := c.SFTPUser
 		if user == "" {
 			user = "dck"
 		}
-		fmt.Printf("SFTP running for container %s (%s)\n", c.Name, c.ID[:12])
-		fmt.Printf("  Connect: sftp://%s@host:%d\n", user, c.SFTPPort)
+		host := state.HostIP()
+		fmt.Printf("SFTP active for container %s (%s)\n", c.Name, c.ID[:12])
+		fmt.Printf("  Connect: sftp://%s@%s:%d\n", user, host, c.SFTPPort)
 		fmt.Printf("  Password: %s\n", c.SFTPPass())
 		return
 	}
@@ -114,8 +112,9 @@ func Sftp(args []string) {
 	c.SFTPServerPID = cmd.Process.Pid
 	c.Save()
 
+	host := state.HostIP()
 	fmt.Printf("SFTP server started for container %s\n", c.Name)
-	fmt.Printf("  Connect: sftp://%s@host:%d\n", user, *port)
+	fmt.Printf("  Connect: sftp://%s@%s:%d\n", user, host, *port)
 	fmt.Printf("  Password: %s\n", password)
 	fmt.Println("  Press Ctrl+C to stop server")
 

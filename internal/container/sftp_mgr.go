@@ -90,8 +90,9 @@ func (c *Container) StartSFTPServer(binPath string) error {
 	c.SFTPServerPID = cmd.Process.Pid
 	c.Save()
 
-	fmt.Printf("Connect: sftp://%s@host:%d password=%s\n", c.SFTPUser, port, c.SFTPPassword)
-	fmt.Printf("  (container: %s)\n", c.Name)
+	host := state.HostIP()
+	fmt.Printf("Connect: sftp://%s@%s:%d password=%s\n", c.SFTPUser, host, port, c.SFTPPassword)
+	fmt.Printf("  container: %s\n", c.Name)
 	return nil
 }
 
