@@ -17,20 +17,21 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/creack/pty"
 	gosftp "github.com/pkg/sftp"
 	gossh "golang.org/x/crypto/ssh"
-	"github.com/creack/pty"
 )
 
 type Server struct {
-	RootDir         string
-	Port            int
-	Password        string
-	ContainerPID    int
-	ContainerID     string
-	AuthorizedKey   string
-	ln              net.Listener
-	done            chan struct{}
+	RootDir       string
+	Port          int
+	Password      string
+	ContainerPID  int
+	ContainerID   string
+	AuthorizedKey string
+	ConsoleSocket string
+	ln            net.Listener
+	done          chan struct{}
 }
 
 func New(rootDir string, port int, password string) *Server {
@@ -68,6 +69,11 @@ func (s *Server) WithContainerPID(pid int) *Server {
 
 func (s *Server) WithContainerID(id string) *Server {
 	s.ContainerID = id
+	return s
+}
+
+func (s *Server) WithConsoleSocket(socket string) *Server {
+	s.ConsoleSocket = socket
 	return s
 }
 
@@ -229,6 +235,20 @@ func extractPID(jsonData string) int {
 }
 
 func (s *Server) handleShell(ch gossh.Channel, ptyReq *gossh.Request) {
+	// Try connecting to the container's console socket (like dck attach)
+	if s.ConsoleSocket != "" {
+		conn, err := net.DialTimeout("unix", s.ConsoleSocket, 2*time.Second)
+		if err == nil {
+			defer conn.Close()
+			ch.Write([]byte("Connected to container console. Type 'stop' to stop the server.\r\n"))
+			go func() {
+				io.Copy(conn, ch)
+			}()
+			io.Copy(ch, conn)
+			return
+		}
+	}
+
 	pid := s.findContainerPID()
 	shellCmd := "exec bash 2>/dev/null || exec sh"
 

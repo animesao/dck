@@ -341,8 +341,12 @@ func monitorContainer(c *Container, cmd *exec.Cmd, ctx context.Context) {
 		c.PID = 0
 		c.Status = Stopped
 		c.cleanupNetwork()
-		c.StopSFTPServer()
-		c.StopFTPServer()
+		if !c.EnableSFTP {
+			c.StopSFTPServer()
+		}
+		if !c.EnableFTP {
+			c.StopFTPServer()
+		}
 		c.Save()
 
 		if shouldRestart(c.Restart, exitCode, stoppedByUser) {
@@ -355,7 +359,9 @@ func monitorContainer(c *Container, cmd *exec.Cmd, ctx context.Context) {
 			cleanupContainer(c)
 		} else {
 			_, _, merged := c.OverlayDirs()
-			unmountOverlay(merged)
+			if !c.EnableSFTP && !c.EnableFTP {
+				unmountOverlay(merged)
+			}
 		}
 	}()
 }
