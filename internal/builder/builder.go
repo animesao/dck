@@ -472,6 +472,11 @@ func (bs *buildState) handleCmd(inst Instruction) {
 }
 
 func (bs *buildState) handleEntrypoint(inst Instruction) {
+	// ENTRYPOINT [] (reset to empty)
+	if len(inst.Args) == 0 {
+		bs.config.Config.Entrypoint = []string{}
+		return
+	}
 	if parsed, ok := GetExecForm(inst.Args); ok {
 		bs.config.Config.Entrypoint = parsed
 	} else {
@@ -479,7 +484,6 @@ func (bs *buildState) handleEntrypoint(inst Instruction) {
 		entry := strings.Join(inst.Args, " ")
 		bs.config.Config.Entrypoint = []string{"/bin/sh", "-c", entry}
 	}
-	// Reset CMD when entrypoint is set in exec form (Docker behavior)
 }
 
 func (bs *buildState) handleExpose(inst Instruction) {
