@@ -11,6 +11,10 @@ on:
 jobs:
   build:
     if: github.actor != 'github-actions[bot]'
+    strategy:
+      matrix:
+        goarch: [amd64, arm64, arm]
+      fail-fast: false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -38,25 +42,59 @@ jobs:
           echo "NEW_VER=$NEW_VER" >> $GITHUB_OUTPUT
           echo "$NEW_VER" > VERSION
 
-      - name: Build
+      - name: Build binary
         run: |
           VERSION=${{ steps.bump.outputs.NEW_VER }}
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+          SUFFIX="${{ matrix.goarch }}"
+          if [ "$SUFFIX" = "arm" ]; then
+            GOARM=6
+            SUFFIX="armv6"
+          fi
+          CGO_ENABLED=0 GOOS=linux GOARCH=${{ matrix.goarch }} GOARM=$GOARM go build \
             -tags netgo -installsuffix netgo \
             -ldflags="-s -w -X dck/cmd.version=$VERSION" \
-            -o dck-linux-amd64 .
+            -o "dck-linux-$SUFFIX" .
 
-      - name: Checksum
-        run: sha256sum dck-linux-amd64 > dck-linux-amd64.sha256
+      - name: Package tar.gz
+        run: |
+          SUFFIX="${{ matrix.goarch }}"
+          [ "$SUFFIX" = "arm" ] && SUFFIX="armv6"
+          VERSION="${{ steps.bump.outputs.NEW_VER }}"
+          mkdir -p "dck-$VERSION"
+          cp "dck-linux-$SUFFIX" "dck-$VERSION/dck"
+          tar czf "dck-$VERSION-linux-$SUFFIX.tar.gz" "dck-$VERSION/"
+          sha256sum "dck-$VERSION-linux-$SUFFIX.tar.gz" > "dck-$VERSION-linux-$SUFFIX.tar.gz.sha256"
+
+      - name: Build .deb
+        if: matrix.goarch == 'amd64'
+        run: |
+          VERSION="${{ steps.bump.outputs.NEW_VER }}"
+          mkdir -p debroot/usr/local/bin
+          cp dck-linux-amd64 debroot/usr/local/bin/dck
+          mkdir -p debroot/DEBIAN
+          cat > debroot/DEBIAN/control <<EOF
+          Package: dck
+          Version: $VERSION
+          Section: utils
+          Priority: optional
+          Architecture: amd64
+          Maintainer: animesao <igorerantaev66@gmail.com>
+          Description: Minimal container runtime
+           dck is a lightweight container runtime with no daemon,
+           OCI image support, bridge networking, and built-in SSH/SFTP.
+          EOF
+          dpkg-deb --root-owner-group -b debroot "dck-$VERSION-linux-amd64.deb"
+          sha256sum "dck-$VERSION-linux-amd64.deb" > "dck-$VERSION-linux-amd64.deb.sha256"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: dck-linux-amd64
+          name: dck-linux-${{ matrix.goarch }}
           path: |
-            dck-linux-amd64
-            dck-linux-amd64.sha256
+            dck-*-linux-*
+            dck-*.sha256
 
       - name: Commit VERSION and tag
+        if: matrix.goarch == 'amd64'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -66,10 +104,10 @@ jobs:
           git push origin main --tags
 
       - name: Release
+        if: matrix.goarch == 'amd64'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.bump.outputs.NEW_VER }}
           files: |
-            dck-linux-amd64
-            dck-linux-amd64.sha256
+            dck-*-linux-*
           generate_release_notes: true
