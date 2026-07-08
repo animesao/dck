@@ -269,6 +269,15 @@ func (bs *buildState) handleRun(inst Instruction, buildEnv []string, buildTmp st
 	if len(shell) == 0 {
 		shell = []string{"/bin/sh", "-c"}
 	}
+	// If the configured shell does not exist inside the rootfs, find an alternative
+	if _, err := os.Stat(filepath.Join(mergedDir, shell[0])); os.IsNotExist(err) {
+		for _, candidate := range []string{"/bin/sh", "/usr/bin/sh", "/bin/bash", "/usr/bin/bash", "/bin/dash", "/usr/bin/dash"} {
+			if _, err2 := os.Stat(filepath.Join(mergedDir, candidate)); err2 == nil {
+				shell = []string{candidate, "-c"}
+				break
+			}
+		}
+	}
 
 	// Build environment
 	env := os.Environ()
