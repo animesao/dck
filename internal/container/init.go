@@ -508,15 +508,18 @@ echo "  DCK_PORT_UDP_*     - Port mappings (UDP)"
 		os.WriteFile("/dck/"+name, []byte(content), 0755)
 	}
 
-	// If startup script is provided, write it and execute via shell
+	// If startup script is provided, write it and run it before CMD
 	if c.StartupScript != "" {
 		scriptPath := "/startup.sh"
 		if err := os.WriteFile(scriptPath, []byte(c.StartupScript), 0755); err != nil {
 			return fmt.Errorf("write startup script: %w", err)
 		}
-		cmdPath := "/bin/sh"
-		cmdArgs := []string{"/bin/sh", scriptPath}
-		return syscall.Exec(cmdPath, cmdArgs, c.Env)
+		cmd := exec.Command("/bin/sh", scriptPath)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("startup script: %w", err)
+		}
 	}
 
 	cmdPath := c.Cmd[0]
