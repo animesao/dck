@@ -229,6 +229,25 @@ func (bs *buildState) handleFrom(inst Instruction, buildTmp string) error {
 		}
 	}
 
+	// Include base image layers in the new image
+	manifest := image.ReadManifest(img.Name, img.Tag)
+	if manifest != nil {
+		for _, layer := range manifest.Layers {
+			cachedPath := image.ResolveLayer(layer.Digest)
+			if cachedPath == "" {
+				return fmt.Errorf("base image layer %s not found in cache", shortDigest(layer.Digest))
+			}
+			bl := buildLayer{
+				Digest:   layer.Digest,
+				Size:     layer.Size,
+				CacheKey: layer.Digest,
+				Command:  fmt.Sprintf("FROM %s", ref),
+			}
+			bs.layers = append(bs.layers, bl)
+			bs.config.Rootfs.DiffIDs = append(bs.config.Rootfs.DiffIDs, layer.Digest)
+		}
+	}
+
 	fmt.Printf("Step 1 : FROM %s\n", ref)
 	return nil
 }
