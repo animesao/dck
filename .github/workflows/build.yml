@@ -1,11 +1,9 @@
-name: build
+name: Build
 
 on:
   push:
     branches: [main, dev]
-  push:
-    tags:
-      - 'v*'
+  workflow_dispatch:
 
 jobs:
   build:
@@ -17,27 +15,15 @@ jobs:
         with:
           go-version: '1.21'
 
-      - name: Build static binary
+      - name: Build
         run: |
-          VERSION=$(cat VERSION 2>/dev/null || echo "dev")
-          CGO_ENABLED=0 go build \
-            -tags netgo \
-            -installsuffix netgo \
+          VERSION=$(cat VERSION)
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+            -tags netgo -installsuffix netgo \
             -ldflags="-s -w -X dck/cmd.version=$VERSION" \
             -o dck-linux-amd64 .
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: dck-linux-amd64
           path: dck-linux-amd64
-
-      - name: Upload to release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: svenstaro/upload-release-action@v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: dck-linux-amd64
-          asset_name: dck-linux-amd64
-          tag: ${{ github.ref_name }}
-          overwrite: true
