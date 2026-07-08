@@ -279,33 +279,6 @@ dck run -d --restart always \
   python:3.11-slim
 ```
 
-### Отладка бота через SSH/SFTP
-
-Для отладки бота можно использовать встроенный SSH+SFTP сервер:
-
-```bash
-# Запустить бота с SFTP доступом
-dck run -d --restart always --sftp \
-  -n tg-bot \
-  -v /opt/tg-bot:/bot \
-  --workdir /bot \
-  --memory 256m --cpus 0.25 --disk 1G \
-  -e BOT_TOKEN="токен" \
-  --startup @/bot/start.sh \
-  python:3.11-slim
-
-# Получить SSH ключ
-dck sshkey tg-bot
-
-# Подключиться по SFTP для просмотра/редактирования файлов
-sftp -P <порт> dck@хост
-
-# Подключиться по SSH для отладки
-ssh -p <порт> -i <ключ> dck@хост
-```
-
-Это позволяет просматривать файлы бота, логи и выполнять команды внутри контейнера без `dck exec`.
-
 ---
 
 ## Обновления и перезапуск

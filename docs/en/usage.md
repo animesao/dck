@@ -179,9 +179,7 @@ dck run -d -v /data:/data -e DB_URL=postgres://... myapp
 | `-t` | Allocate TTY (pseudo-terminal) |
 | `--rm` | Remove container on exit |
 | `--restart <policy>` | Restart: `no`, `always`, `on-failure`, `unless-stopped` |
-| `--sftp` | Enable built-in SFTP/SSH server (port 22000+) |
-| `--ssh` | Alias for --sftp |
-| `--ftp` | Enable built-in FTP server (port 23000+) |
+
 | `--memory <lim>` | Memory limit: `512m`, `1g`, `2g` |
 | `--disk <lim>` | Disk limit: `1G`, `512M`, `2T` (creates ext4 image) |
 | `--cpus <num>` | CPU limit: `1.5` |
@@ -250,7 +248,7 @@ dck rename web web-new
 
 ### `dck port <container>`
 
-Show port mappings, SFTP, and FTP information for a container.
+Show port mappings for a container.
 
 ```bash
 dck port web
@@ -409,61 +407,7 @@ dck run -d --dns 1.1.1.1 --dns 8.8.8.8 nginx
 
 ---
 
-## SSH, SFTP & FTP Access
 
-dck includes built-in SSH+SFTP and FTP servers — no external dependencies required.
-
-### SSH + SFTP Server
-
-Start a container with SSH/SFTP access:
-
-```bash
-dck run -d --sftp --name mycontainer nginx:alpine
-```
-
-- Jails users to the container's rootfs (chroot via overlay)
-- Supports both SSH terminal access and SFTP file transfer
-- Uses `nsenter` to provide shell inside the container
-- Auto-generates SSH keypair per container
-- Port range: 22000+
-
-**Connection:**
-
-```bash
-# Terminal access
-ssh -p <port> -i <key> dck@host
-
-# File transfer
-sftp -P <port> dck@host
-```
-
-**Authentication:**
-- Primary: SSH public key
-- Fallback: password (container ID, first 16 characters)
-
-### FTP Server
-
-Start a container with FTP access:
-
-```bash
-dck run -d --ftp --name mycontainer nginx:alpine
-```
-
-- Jails users to the container's rootfs
-- Port range: 23000+
-- Auth: username=`dck`, password=container ID[:16]
-
-### SSH Key Management
-
-```bash
-dck sshkey <container>          # Show SSH key info
-dck sshkey --pub <container>    # Show public key only
-dck sshkey --gen <container>    # Generate new keypair
-```
-
-Keys stored in `~/.dck/keys/<container-id>_rsa`.
-
----
 
 ## Storage & Volumes
 
