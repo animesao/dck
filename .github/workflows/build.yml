@@ -1,8 +1,9 @@
-name: Build
+name: Build & Release
 
 on:
   push:
     branches: [main, dev]
+    tags: ['v*.*.*-*']
   workflow_dispatch:
 
 jobs:
@@ -23,7 +24,21 @@ jobs:
             -ldflags="-s -w -X dck/cmd.version=$VERSION" \
             -o dck-linux-amd64 .
 
+      - name: Checksum
+        run: sha256sum dck-linux-amd64 > dck-linux-amd64.sha256
+
       - uses: actions/upload-artifact@v4
         with:
           name: dck-linux-amd64
-          path: dck-linux-amd64
+          path: |
+            dck-linux-amd64
+            dck-linux-amd64.sha256
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dck-linux-amd64
+            dck-linux-amd64.sha256
+          generate_release_notes: true
