@@ -69,18 +69,15 @@ type Container struct {
 	Secrets     []SecretMount       `json:"secrets,omitempty"`
 	Configs     []SecretMount       `json:"configs,omitempty"`
 
+	SFTPUser     string `json:"sftp_user,omitempty"`
 	SFTPPassword string `json:"sftp_password,omitempty"`
 	EnableSFTP   bool   `json:"enable_sftp,omitempty"`
 	EnableFTP  bool `json:"enable_ftp,omitempty"`
-	EnableSSH  bool `json:"enable_ssh,omitempty"`
 	SFTPPort   int  `json:"sftp_port,omitempty"`
 	FTPPort    int  `json:"ftp_port,omitempty"`
 	FTPPassiveStart int `json:"ftp_passive_start,omitempty"`
 	SFTPServerPID int `json:"sftp_server_pid,omitempty"`
 	FTPServerPID  int `json:"ftp_server_pid,omitempty"`
-	SSHServerPID  int `json:"ssh_server_pid,omitempty"`
-	SSHPublicKey  string `json:"ssh_public_key,omitempty"`
-	SSHPrivateKeyPath string `json:"ssh_private_key_path,omitempty"`
 
 	// Runtime-only (not persisted)
 	cancelHealth    context.CancelFunc `json:"-"`
@@ -149,7 +146,6 @@ type CreateOpts struct {
 	SFTPPassword string `json:"sftp_password,omitempty"`
 	EnableSFTP   bool   `json:"enable_sftp"`
 	EnableFTP    bool   `json:"enable_ftp"`
-	EnableSSH    bool   `json:"enable_ssh"`
 	SFTPPort     int    `json:"sftp_port,omitempty"`
 	FTPPort      int    `json:"ftp_port,omitempty"`
 }

@@ -51,10 +51,13 @@ func Sftp(args []string) {
 		os.Exit(1)
 	}
 
-	// Show info if already running
 	if c.SFTPPort > 0 && !*start {
-		fmt.Printf("SFTP running for container %s\n", c.ID[:12])
-		fmt.Printf("  Connect: sftp://dck@host:%d\n", c.SFTPPort)
+		user := c.SFTPUser
+		if user == "" {
+			user = "dck"
+		}
+		fmt.Printf("SFTP running for container %s (%s)\n", c.Name, c.ID[:12])
+		fmt.Printf("  Connect: sftp://%s@host:%d\n", user, c.SFTPPort)
 		fmt.Printf("  Password: %s\n", c.SFTPPass())
 		return
 	}
@@ -88,9 +91,15 @@ func Sftp(args []string) {
 		rootfs = merged
 	}
 
+	user := c.SFTPUser
+	if user == "" {
+		user = "dck"
+	}
+
 	cmd := exec.Command(binPath, "sftp-serve",
 		"--root", rootfs,
 		"--port", strconv.Itoa(*port),
+		"--user", user,
 		"--password", password,
 	)
 	cmd.Stdout = os.Stdout
@@ -105,8 +114,8 @@ func Sftp(args []string) {
 	c.SFTPServerPID = cmd.Process.Pid
 	c.Save()
 
-	fmt.Printf("SFTP server started for container %s\n", c.ID[:12])
-	fmt.Printf("  Connect: sftp://dck@host:%d\n", *port)
+	fmt.Printf("SFTP server started for container %s\n", c.Name)
+	fmt.Printf("  Connect: sftp://%s@host:%d\n", user, *port)
 	fmt.Printf("  Password: %s\n", password)
 	fmt.Println("  Press Ctrl+C to stop server")
 

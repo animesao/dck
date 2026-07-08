@@ -105,8 +105,6 @@ func Execute() {
 		Sftp(args)
 	case "ftp":
 		Ftp(args)
-	case "sshkey":
-		Sshkey(args)
 	case "sftp-serve":
 		SFTPServe(args)
 	case "ftp-serve":
@@ -218,23 +216,19 @@ Run options:
   --healthcheck-interval <s>   Health check interval
   --healthcheck-retries <n>    Health check retries
   --healthcheck-timeout <s>    Health check timeout
-   --sftp                       Enable SSH+SFTP server (file transfer + terminal, jailed)
-   --ssh                        Enable SSH terminal access via nsenter (file transfer + shell)
+   --sftp                       Enable SFTP server (file transfer, jailed to container root)
    --ftp                        Enable built-in FTP server (jailed to container root)
 
-SSH/SFTP/FTP commands:
-   dck sftp <container>         Show SSH/SFTP connection info
-   dck sftp --start <c>         Start SSH/SFTP server (blocking)
-   dck sftp --stop <c>          Stop SSH/SFTP server
+SFTP/FTP commands:
+   dck sftp <container>         Show SFTP connection info
+   dck sftp --start <c>         Start SFTP server (blocking)
+   dck sftp --stop <c>          Stop SFTP server
    dck ftp <container>          Show FTP connection info
    dck ftp --start <c>          Start FTP server (blocking)
    dck ftp --stop <c>           Stop FTP server
-   dck sshkey <container>       Show SSH private key path and public key
-   dck sshkey --gen <container> Generate new SSH keypair
 
-When run with --sftp/--ssh, a separate SSH server process is started
-that Jails the user to the container's filesystem (chroot via overlay).
-Connect via SSH: ssh -p <port> -i <key> dck@host
-Connect via SFTP: sftp -P <port> dck@host (password = container ID)
+When run with --sftp, a separate SFTP server process is started
+that jails the user to the container's filesystem.
+Connect: sftp -P <port> <user>@host (password shown on container start)
 Connect via FTP: ftp dck@host:<port> (password = container ID)`)
 }

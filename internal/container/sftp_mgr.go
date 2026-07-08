@@ -41,32 +41,6 @@ func getUsedPorts() map[int]bool {
 	return used
 }
 
-func (c *Container) ensureSSHKeypair() error {
-	if c.SSHPublicKey != "" && c.SSHPrivateKeyPath != "" {
-		if _, err := os.Stat(c.SSHPrivateKeyPath); err == nil {
-			return nil
-		}
-	}
-
-	privPEM, pubSSH, err := sftp.GenerateClientKey()
-	if err != nil {
-		return fmt.Errorf("generate SSH keypair: %w", err)
-	}
-
-	keyDir := filepath.Join(state.DataDir(), "keys")
-	os.MkdirAll(keyDir, 0700)
-
-	privPath := filepath.Join(keyDir, c.ID[:16]+"_rsa")
-	if err := os.WriteFile(privPath, []byte(privPEM), 0600); err != nil {
-		return fmt.Errorf("write private key: %w", err)
-	}
-
-	c.SSHPublicKey = pubSSH
-	c.SSHPrivateKeyPath = privPath
-	c.Save()
-	return nil
-}
-
 func killPort(port int) {
 	addr := fmt.Sprintf(":%d", port)
 	ln, err := net.Listen("tcp", addr)
@@ -79,17 +53,20 @@ func killPort(port int) {
 }
 
 func (c *Container) StartSFTPServer(binPath string) error {
-	if !c.EnableSFTP && !c.EnableSSH {
+	if !c.EnableSFTP {
 		return nil
-	}
-
-	if err := c.ensureSSHKeypair(); err != nil {
-		return fmt.Errorf("SSH keypair: %w", err)
 	}
 
 	used := getUsedPorts()
 	port := allocatePort(used, sftpBasePort)
 	c.SFTPPort = port
+
+	if c.SFTPUser == "" {
+		c.SFTPUser = sftp.RandomUser()
+	}
+	if c.SFTPPassword == "" {
+		c.SFTPPassword = sftp.RandomPass()
+	}
 
 	killPort(port)
 
@@ -102,24 +79,19 @@ func (c *Container) StartSFTPServer(binPath string) error {
 		"sftp-serve",
 		"--root", merged,
 		"--port", strconv.Itoa(port),
-		"--password", c.SFTPPass(),
-		"--pubkey", c.SSHPublicKey,
+		"--user", c.SFTPUser,
+		"--password", c.SFTPPassword,
 	}
-	if c.PID > 0 {
-		args = append(args, "--pid", strconv.Itoa(c.PID))
-	}
-	args = append(args, "--container-id", c.ID[:16])
-	args = append(args, "--console-socket", state.ConsolePath(c.ID))
 
 	cmd := exec.Command(binPath, args...)
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("start SSH/SFTP server process: %w", err)
+		return fmt.Errorf("start SFTP server process: %w", err)
 	}
 	c.SFTPServerPID = cmd.Process.Pid
 	c.Save()
 
-	fmt.Printf("SSH: ssh://dck@host:%d (key: %s)\n", port, c.SSHPrivateKeyPath)
-	fmt.Printf("SFTP: sftp://dck@host:%d password=%s\n", port, c.SFTPPass())
+	fmt.Printf("Connect: sftp://%s@host:%d password=%s\n", c.SFTPUser, port, c.SFTPPassword)
+	fmt.Printf("  (container: %s)\n", c.Name)
 	return nil
 }
 
@@ -131,7 +103,6 @@ func (c *Container) StopSFTPServer() {
 		c.SFTPServerPID = 0
 	}
 	c.SFTPPort = 0
-	c.SSHServerPID = 0
 	c.Save()
 }
 

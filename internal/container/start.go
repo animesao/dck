@@ -173,9 +173,9 @@ func (c *Container) Start() error {
 	c.Save()
 	EmitEvent(EventStart, c)
 
-	if c.EnableSFTP || c.EnableSSH {
+	if c.EnableSFTP {
 		if err := c.StartSFTPServer(binPath); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: SSH/SFTP: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Warning: SFTP: %v\n", err)
 		}
 	}
 	if c.EnableFTP {
