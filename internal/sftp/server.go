@@ -247,6 +247,7 @@ func (s *Server) handleShell(ch gossh.Channel, ptyReq *gossh.Request) {
 			io.Copy(ch, conn)
 			return
 		}
+		ch.Write([]byte("Console not available, starting shell instead...\n"))
 	}
 
 	pid := s.findContainerPID()
