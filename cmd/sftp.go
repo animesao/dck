@@ -55,7 +55,7 @@ func Sftp(args []string) {
 	if c.SFTPPort > 0 && !*start {
 		fmt.Printf("SFTP running for container %s\n", c.ID[:12])
 		fmt.Printf("  Connect: sftp://dck@host:%d\n", c.SFTPPort)
-		fmt.Printf("  Password: %s\n", c.ID[:16])
+		fmt.Printf("  Password: %s\n", c.SFTPPass())
 		return
 	}
 
@@ -81,7 +81,7 @@ func Sftp(args []string) {
 		*port = p
 	}
 
-	password := c.ID[:16]
+	password := c.SFTPPass()
 	rootfs := ""
 	_, _, merged := c.OverlayDirs()
 	if _, err := os.Stat(merged); err == nil {

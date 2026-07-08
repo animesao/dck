@@ -72,6 +72,7 @@ func Run(args []string) {
 	sftpEnable := fs.Bool("sftp", false, "Enable SSH+SFTP server (file transfer + terminal)")
 	sshEnable := fs.Bool("ssh", false, "Enable SSH server (terminal access via nsenter)")
 	ftpEnable := fs.Bool("ftp", false, "Enable FTP server for this container")
+	sftpPassword := fs.String("sftp-password", "", "Custom SSH/SFTP password (default: first 16 chars of container ID)")
 
 	fs.Parse(args)
 
@@ -252,6 +253,7 @@ func Run(args []string) {
 		NetworkMode:  *networkMode,
 		Entrypoint:   *entrypoint,
 		Ulimits:      parsedUlimits,
+		SFTPPassword: *sftpPassword,
 		EnableSFTP:   *sftpEnable,
 		EnableSSH:    *sshEnable || *sftpEnable,
 		EnableFTP:    *ftpEnable,

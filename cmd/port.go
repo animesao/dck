@@ -56,10 +56,10 @@ func portShow(args []string) {
 		fmt.Printf("%s -> %d:%d/%s\n", c.Name, p.HostPort, p.ContainerPort, p.Protocol)
 	}
 	if c.SFTPPort > 0 {
-		fmt.Printf("%s SFTP -> :%d (password: %s)\n", c.Name, c.SFTPPort, c.ID[:16])
+		fmt.Printf("%s SFTP -> :%d (password: %s)\n", c.Name, c.SFTPPort, c.SFTPPass())
 	}
 	if c.FTPPort > 0 {
-		fmt.Printf("%s FTP -> :%d (password: %s)\n", c.Name, c.FTPPort, c.ID[:16])
+		fmt.Printf("%s FTP -> :%d (password: %s)\n", c.Name, c.FTPPort, c.SFTPPass())
 	}
 }
 

@@ -102,7 +102,7 @@ func (c *Container) StartSFTPServer(binPath string) error {
 		"sftp-serve",
 		"--root", merged,
 		"--port", strconv.Itoa(port),
-		"--password", c.ID[:16],
+		"--password", c.SFTPPass(),
 		"--pubkey", c.SSHPublicKey,
 	}
 	if c.PID > 0 {
@@ -118,7 +118,7 @@ func (c *Container) StartSFTPServer(binPath string) error {
 	c.Save()
 
 	fmt.Printf("SSH: ssh://dck@host:%d (key: %s)\n", port, c.SSHPrivateKeyPath)
-	fmt.Printf("SFTP: sftp://dck@host:%d password=%s\n", port, c.ID[:16])
+	fmt.Printf("SFTP: sftp://dck@host:%d password=%s\n", port, c.SFTPPass())
 	return nil
 }
 
@@ -152,7 +152,7 @@ func (c *Container) StartFTPServer(binPath string) error {
 	cmd := exec.Command(binPath, "ftp-serve",
 		"--root", merged,
 		"--port", strconv.Itoa(port),
-		"--password", c.ID[:16],
+		"--password", c.SFTPPass(),
 		"--passive-start", strconv.Itoa(passStart),
 	)
 	if err := cmd.Start(); err != nil {
@@ -161,7 +161,7 @@ func (c *Container) StartFTPServer(binPath string) error {
 	c.FTPServerPID = cmd.Process.Pid
 	c.Save()
 
-	fmt.Printf("FTP: ftp://dck@host:%d password=%s\n", port, c.ID[:16])
+	fmt.Printf("FTP: ftp://dck@host:%d password=%s\n", port, c.SFTPPass())
 	return nil
 }
 
