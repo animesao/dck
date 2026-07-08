@@ -1324,6 +1324,28 @@ dck run -d --restart always \
 
 ---
 
+## Dynamic Port Management
+
+Add or remove port mappings on running containers without restart:
+
+```bash
+# Add a port
+dck port add player1 25566:25566
+
+# Add UDP port
+dck port add player1 27015:27015/udp
+
+# Remove a port
+dck port remove player1 25566
+dck port rm player1 25566       # alias
+```
+
+- Applies iptables DNAT rules instantly — no restart needed
+- Ports persist in container state across restarts
+- Useful for donator perks, temporary services, or emergency access
+
+---
+
 ## Production Checklist
 
 ### Security
