@@ -70,7 +70,6 @@ func Run(args []string) {
 	startupScript := fs.String("startup", "", "Startup script (inline script or @filepath)")
 
 	sftpEnable := fs.Bool("sftp", false, "Enable SFTP server (file transfer, jailed to container root)")
-	ftpEnable := fs.Bool("ftp", false, "Enable FTP server for this container")
 	sftpPassword := fs.String("sftp-password", "", "Custom SFTP password (default: random 16 chars)")
 
 	fs.Parse(args)
@@ -254,7 +253,6 @@ func Run(args []string) {
 		Ulimits:      parsedUlimits,
 		SFTPPassword: *sftpPassword,
 		EnableSFTP:   *sftpEnable,
-		EnableFTP:    *ftpEnable,
 	}
 
 	c := container.New(img, opts)

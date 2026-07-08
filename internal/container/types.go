@@ -72,12 +72,8 @@ type Container struct {
 	SFTPUser     string `json:"sftp_user,omitempty"`
 	SFTPPassword string `json:"sftp_password,omitempty"`
 	EnableSFTP   bool   `json:"enable_sftp,omitempty"`
-	EnableFTP  bool `json:"enable_ftp,omitempty"`
 	SFTPPort   int  `json:"sftp_port,omitempty"`
-	FTPPort    int  `json:"ftp_port,omitempty"`
-	FTPPassiveStart int `json:"ftp_passive_start,omitempty"`
 	SFTPServerPID int `json:"sftp_server_pid,omitempty"`
-	FTPServerPID  int `json:"ftp_server_pid,omitempty"`
 
 	// Runtime-only (not persisted)
 	cancelHealth    context.CancelFunc `json:"-"`
@@ -145,9 +141,7 @@ type CreateOpts struct {
 
 	SFTPPassword string `json:"sftp_password,omitempty"`
 	EnableSFTP   bool   `json:"enable_sftp"`
-	EnableFTP    bool   `json:"enable_ftp"`
 	SFTPPort     int    `json:"sftp_port,omitempty"`
-	FTPPort      int    `json:"ftp_port,omitempty"`
 }
 
 func (c *Container) Save() error {

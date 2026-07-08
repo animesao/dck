@@ -47,7 +47,7 @@ func List(all bool) ([]*Container, error) {
 
 func PrintContainers(containers []*Container) {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-	fmt.Fprintln(w, "ID\tIMAGE\tSTATUS\tNAME\tCMD\tSFTP\tFTP")
+	fmt.Fprintln(w, "ID\tIMAGE\tSTATUS\tNAME\tCMD\tSFTP")
 	for _, c := range containers {
 		shortID := c.ID[:12]
 		image := fmt.Sprintf("%s:%s", c.ImageName, c.ImageTag)
@@ -56,19 +56,13 @@ func PrintContainers(containers []*Container) {
 			cmd = cmd[:40] + "..."
 		}
 		sftpStr := "-"
-		ftpStr := "-"
 		if c.SFTPPort > 0 {
 			sftpStr = fmt.Sprintf(":%d", c.SFTPPort)
 		} else if c.EnableSFTP {
 			sftpStr = "enabled"
 		}
-		if c.FTPPort > 0 {
-			ftpStr = fmt.Sprintf(":%d", c.FTPPort)
-		} else if c.EnableFTP {
-			ftpStr = "enabled"
-		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-			shortID, image, c.Status, c.Name, cmd, sftpStr, ftpStr)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+			shortID, image, c.Status, c.Name, cmd, sftpStr)
 	}
 	w.Flush()
 }

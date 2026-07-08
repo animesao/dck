@@ -178,11 +178,6 @@ func (c *Container) Start() error {
 			fmt.Fprintf(os.Stderr, "Warning: SFTP: %v\n", err)
 		}
 	}
-	if c.EnableFTP {
-		if err := c.StartFTPServer(binPath); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: FTP: %v\n", err)
-		}
-	}
 
 	if c.Detach {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -197,7 +192,6 @@ func (c *Container) Start() error {
 	c.Status = Stopped
 	c.cleanupNetwork()
 	c.StopSFTPServer()
-	c.StopFTPServer()
 	c.Save()
 
 	exitCode := 0
@@ -344,9 +338,6 @@ func monitorContainer(c *Container, cmd *exec.Cmd, ctx context.Context) {
 		if !c.EnableSFTP {
 			c.StopSFTPServer()
 		}
-		if !c.EnableFTP {
-			c.StopFTPServer()
-		}
 		c.Save()
 
 		if shouldRestart(c.Restart, exitCode, stoppedByUser) {
@@ -359,7 +350,7 @@ func monitorContainer(c *Container, cmd *exec.Cmd, ctx context.Context) {
 			cleanupContainer(c)
 		} else {
 			_, _, merged := c.OverlayDirs()
-			if !c.EnableSFTP && !c.EnableFTP {
+			if !c.EnableSFTP {
 				unmountOverlay(merged)
 			}
 		}
@@ -464,7 +455,6 @@ func cleanupContainer(c *Container) {
 		c.cancelHealth = nil
 	}
 	c.StopSFTPServer()
-	c.StopFTPServer()
 	c.cleanupNetwork()
 	upper, _, merged := c.OverlayDirs()
 	unmountOverlay(merged)

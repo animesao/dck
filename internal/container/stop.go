@@ -83,12 +83,9 @@ func (c *Container) Stop() error {
 	if !c.EnableSFTP {
 		c.StopSFTPServer()
 	}
-	if !c.EnableFTP {
-		c.StopFTPServer()
-	}
 	c.cleanupNetwork()
 	cleanupContainerCgroup(c.ID, c.CgroupPath)
-	if !c.EnableSFTP && !c.EnableFTP {
+	if !c.EnableSFTP {
 		os.Remove(state.ConsolePath(c.ID))
 		_, _, merged := c.OverlayDirs()
 		unmountOverlay(merged)

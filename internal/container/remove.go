@@ -21,7 +21,6 @@ func (c *Container) Remove(force bool) error {
 		}
 	} else {
 		c.StopSFTPServer()
-		c.StopFTPServer()
 	}
 
 	// Remove named volumes

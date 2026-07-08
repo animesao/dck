@@ -47,7 +47,7 @@ func portShow(args []string) {
 		os.Exit(1)
 	}
 
-	if len(c.Ports) == 0 && c.SFTPPort == 0 && c.FTPPort == 0 {
+	if len(c.Ports) == 0 && c.SFTPPort == 0 {
 		fmt.Printf("Container %s has no port mappings\n", c.Name)
 		return
 	}
@@ -57,9 +57,6 @@ func portShow(args []string) {
 	}
 	if c.SFTPPort > 0 {
 		fmt.Printf("%s SFTP -> :%d (password: %s)\n", c.Name, c.SFTPPort, c.SFTPPass())
-	}
-	if c.FTPPort > 0 {
-		fmt.Printf("%s FTP -> :%d (password: %s)\n", c.Name, c.FTPPort, c.SFTPPass())
 	}
 }
 

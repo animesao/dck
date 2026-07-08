@@ -89,9 +89,7 @@ func New(img *image.Image, opts CreateOpts) *Container {
 		Entrypoint:   opts.Entrypoint,
 		Ulimits:      opts.Ulimits,
 		EnableSFTP:   opts.EnableSFTP,
-		EnableFTP:    opts.EnableFTP,
 		SFTPPort:     opts.SFTPPort,
-		FTPPort:      opts.FTPPort,
 		SFTPPassword: opts.SFTPPassword,
 	}
 }

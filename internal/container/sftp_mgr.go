@@ -14,7 +14,6 @@ import (
 )
 
 const sftpBasePort = 22000
-const sftpPassBasePort = 32000
 
 func allocatePort(existing map[int]bool, base int) int {
 	p := base
@@ -30,12 +29,6 @@ func getUsedPorts() map[int]bool {
 	for _, c := range all {
 		if c.SFTPPort > 0 {
 			used[c.SFTPPort] = true
-		}
-		if c.FTPPort > 0 {
-			used[c.FTPPort] = true
-		}
-		if c.FTPPassiveStart > 0 {
-			used[c.FTPPassiveStart] = true
 		}
 	}
 	return used
@@ -104,48 +97,5 @@ func (c *Container) StopSFTPServer() {
 		c.SFTPServerPID = 0
 	}
 	c.SFTPPort = 0
-	c.Save()
-}
-
-func (c *Container) StartFTPServer(binPath string) error {
-	if !c.EnableFTP {
-		return nil
-	}
-	used := getUsedPorts()
-	port := allocatePort(used, sftpBasePort+1000)
-	passStart := allocatePort(used, sftpPassBasePort)
-	c.FTPPort = port
-	c.FTPPassiveStart = passStart
-
-	merged := filepath.Join(state.OverlayDir(), c.ID, "merged")
-	if _, err := os.Stat(merged); os.IsNotExist(err) {
-		_, _, merged = c.OverlayDirs()
-	}
-
-	cmd := exec.Command(binPath, "ftp-serve",
-		"--root", merged,
-		"--port", strconv.Itoa(port),
-		"--password", c.SFTPPass(),
-		"--passive-start", strconv.Itoa(passStart),
-	)
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("start FTP server process: %w", err)
-	}
-	c.FTPServerPID = cmd.Process.Pid
-	c.Save()
-
-	fmt.Printf("FTP: ftp://dck@host:%d password=%s\n", port, c.SFTPPass())
-	return nil
-}
-
-func (c *Container) StopFTPServer() {
-	if c.FTPServerPID > 0 {
-		if proc, err := os.FindProcess(c.FTPServerPID); err == nil {
-			proc.Kill()
-		}
-		c.FTPServerPID = 0
-	}
-	c.FTPPort = 0
-	c.FTPPassiveStart = 0
 	c.Save()
 }

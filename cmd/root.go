@@ -101,14 +101,8 @@ func Execute() {
 		Fn(args)
 	case "blueprint":
 		Blueprint(args)
-	case "sftp":
-		Sftp(args)
-	case "ftp":
-		Ftp(args)
 	case "sftp-serve":
 		SFTPServe(args)
-	case "ftp-serve":
-		FTPServe(args)
 	case "version", "--version", "-v":
 		fmt.Println("dck version", version)
 		fmt.Printf("Run 'dck update --check' to check for newer versions.\n")
@@ -173,10 +167,6 @@ Usage:
    dck events                    Stream container events
    dck export <image> -o f.tar.gz Export image to file
    dck import <file.tar.gz>      Import image from file
-   dck sftp <container>          SSH+SFTP info for container (terminal + file transfer)
-   dck ftp <container>           FTP info for container
-   dck sshkey <container>        Show SSH private key for terminal access
-   dck sshkey --gen <container>  Generate new SSH keypair
      dck blueprint list           List available blueprints from all repositories
      dck blueprint install <name> Install a blueprint (pull + run container)
      dck blueprint repo add <url> Add a custom blueprint repository
@@ -217,18 +207,7 @@ Run options:
   --healthcheck-retries <n>    Health check retries
   --healthcheck-timeout <s>    Health check timeout
    --sftp                       Enable SFTP server (file transfer, jailed to container root)
-   --ftp                        Enable built-in FTP server (jailed to container root)
 
-SFTP/FTP commands:
-   dck sftp <container>         Show SFTP connection info
-   dck sftp --start <c>         Start SFTP server (blocking)
-   dck sftp --stop <c>          Stop SFTP server
-   dck ftp <container>          Show FTP connection info
-   dck ftp --start <c>          Start FTP server (blocking)
-   dck ftp --stop <c>           Stop FTP server
-
-When run with --sftp, a separate SFTP server process is started
-that jails the user to the container's filesystem.
-Connect: sftp -P <port> <user>@host (password shown on container start)
-Connect via FTP: ftp dck@host:<port> (password = container ID)`)
+When run with --sftp, connection info is shown on container start.
+Connect: sftp -P <port> <user>@<host> (password shown on container start)`)
 }
