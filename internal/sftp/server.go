@@ -1,6 +1,7 @@
 package sftp
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -234,8 +235,20 @@ func extractPID(jsonData string) int {
 	return pid
 }
 
+type crlfWriter struct {
+	w io.Writer
+}
+
+func (c *crlfWriter) Write(p []byte) (int, error) {
+	out := bytes.ReplaceAll(p, []byte{'\n'}, []byte{'\r', '\n'})
+	n, err := c.w.Write(out)
+	if n > len(out) {
+		n = len(p)
+	}
+	return n, err
+}
+
 func (s *Server) handleShell(ch gossh.Channel, ptyReq *gossh.Request) {
-	// Try connecting to the container's console socket (like dck attach)
 	if s.ConsoleSocket != "" {
 		conn, err := net.DialTimeout("unix", s.ConsoleSocket, 2*time.Second)
 		if err == nil {
@@ -244,7 +257,7 @@ func (s *Server) handleShell(ch gossh.Channel, ptyReq *gossh.Request) {
 			go func() {
 				io.Copy(conn, ch)
 			}()
-			io.Copy(ch, conn)
+			io.Copy(&crlfWriter{ch}, conn)
 			return
 		}
 		ch.Write([]byte("Console not available, starting shell instead...\n"))
