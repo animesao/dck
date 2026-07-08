@@ -70,8 +70,9 @@ func ConsoleServe(args []string) {
 
 			mu.Lock()
 			for c := range clients {
-				// Non-blocking write: skip if client is too slow
-				if err := c.SetWriteDeadline(time.Now().Add(100 * time.Millisecond)); err != nil {
+				if err := c.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
+					delete(clients, c)
+					c.Close()
 					continue
 				}
 				if _, err := c.Write(buf[:n]); err != nil {
@@ -93,8 +94,7 @@ func ConsoleServe(args []string) {
 
 		logFile.WriteString("[console-serve] client connected\n")
 
-		mu.Lock()
-		// Send only the tail of the log (last ~64KB), not the entire file
+		// Send log tail before adding to broadcast list (no lock needed)
 		if fi, err := os.Stat(logPath); err == nil {
 			f, err := os.Open(logPath)
 			if err == nil {
@@ -109,6 +109,7 @@ func ConsoleServe(args []string) {
 				f.Close()
 			}
 		}
+		mu.Lock()
 		clients[conn] = struct{}{}
 		mu.Unlock()
 
