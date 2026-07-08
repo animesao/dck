@@ -1,5 +1,5 @@
 <p align="center">
-<  <img src="https://img.shields.io/badge/version-v1.21.0--stalbal.2c52679-blue?style=flat-square">
+<  <img src="https://img.shields.io/badge/version-v1.21.0--stalbal.5b787c8-blue?style=flat-square">
   <img src="https://img.shields.io/badge/go-1.18+-00ADD8?style=flat-square&logo=go">
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square">
   <img src="https://img.shields.io/badge/no%20daemon-%E2%9C%93-brightgreen?style=flat-square">
