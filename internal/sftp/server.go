@@ -18,6 +18,7 @@ import (
 
 	gosftp "github.com/pkg/sftp"
 	gossh "golang.org/x/crypto/ssh"
+	"github.com/creack/pty"
 )
 
 type Server struct {
@@ -130,6 +131,8 @@ func (s *Server) handleConn(conn net.Conn, config *gossh.ServerConfig) {
 func (s *Server) handleSession(ch gossh.Channel, reqs <-chan *gossh.Request) {
 	defer ch.Close()
 
+	var ptyReq *gossh.Request
+
 	for req := range reqs {
 		switch req.Type {
 		case "subsystem":
@@ -140,9 +143,20 @@ func (s *Server) handleSession(ch gossh.Channel, reqs <-chan *gossh.Request) {
 			}
 			req.Reply(false, nil)
 
+		case "pty-req":
+			ptyReq = req
+			req.Reply(true, nil)
+
+		case "window-change":
+			if ptyReq != nil {
+				req.Reply(true, nil)
+			} else if req.WantReply {
+				req.Reply(false, nil)
+			}
+
 		case "shell":
 			req.Reply(true, nil)
-			s.handleShell(ch)
+			s.handleShell(ch, ptyReq)
 			return
 
 		case "exec":
@@ -171,8 +185,10 @@ func (s *Server) handleSFTP(ch gossh.Channel) {
 	rs.Serve()
 }
 
-func (s *Server) handleShell(ch gossh.Channel) {
+func (s *Server) handleShell(ch gossh.Channel, ptyReq *gossh.Request) {
 	pid := s.ContainerPID
+	shellCmd := "exec bash 2>/dev/null || exec sh"
+
 	if pid <= 0 {
 		ch.Write([]byte("Container PID not available, falling back to local shell\n"))
 		shell := exec.Command("/bin/sh")
@@ -186,14 +202,29 @@ func (s *Server) handleShell(ch gossh.Channel) {
 	nsArgs := []string{
 		"-t", strconv.Itoa(pid),
 		"-m", "-p", "-i", "-n",
-		"--",
-		"sh", "-c", "exec bash 2>/dev/null || exec sh",
+		"--", "sh", "-c", shellCmd,
 	}
 	cmd := exec.Command("nsenter", nsArgs...)
+
+	if ptyReq != nil && len(ptyReq.Payload) >= 4 {
+		rows := uint16(ptyReq.Payload[5])<<8 | uint16(ptyReq.Payload[6])
+		cols := uint16(ptyReq.Payload[3])<<8 | uint16(ptyReq.Payload[4])
+		wp := pty.Winsize{Rows: rows, Cols: cols}
+		f, err := pty.StartWithAttrs(cmd, &wp, nil)
+		if err == nil {
+			go func() {
+				io.Copy(f, ch)
+			}()
+			io.Copy(ch, f)
+			f.Close()
+			cmd.Wait()
+			return
+		}
+	}
+
 	cmd.Stdin = ch
 	cmd.Stdout = ch
 	cmd.Stderr = ch.Stderr()
-
 	cmd.Run()
 }
 
