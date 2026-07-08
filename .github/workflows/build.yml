@@ -65,6 +65,12 @@ jobs:
           tar czf "dck-$VERSION-linux-$SUFFIX.tar.gz" "dck-$VERSION/"
           sha256sum "dck-$VERSION-linux-$SUFFIX.tar.gz" > "dck-$VERSION-linux-$SUFFIX.tar.gz.sha256"
 
+      - name: Checksum raw binary
+        run: |
+          SUFFIX="${{ matrix.goarch }}"
+          [ "$SUFFIX" = "arm" ] && SUFFIX="armv6"
+          sha256sum "dck-linux-$SUFFIX" > "dck-linux-$SUFFIX.sha256"
+
       - name: Build .deb
         if: matrix.goarch == 'amd64'
         run: |
