@@ -43,8 +43,10 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add VERSION
           git commit -m "chore: bump version to ${{ steps.bump.outputs.NEW_VER }} [skip ci]"
+          git tag -d v${{ steps.bump.outputs.NEW_VER }} 2>/dev/null || true
           git tag v${{ steps.bump.outputs.NEW_VER }}
-          git push origin main --tags
+          git push origin main
+          git push origin refs/tags/v${{ steps.bump.outputs.NEW_VER }} -f
 
   build:
     needs: [version]
@@ -120,7 +122,6 @@ jobs:
   release:
     needs: [version, build]
     runs-on: ubuntu-latest
-    if: always()
     steps:
       - uses: actions/download-artifact@v4
         with:
