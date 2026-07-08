@@ -408,6 +408,11 @@ func (bs *buildState) handleCopy(inst Instruction, buildTmp string) error {
 	layerHash, layerSize := hashFile(layerFile)
 	layerDigest := "sha256:" + layerHash
 
+	// Ensure in shared content-addressable cache
+	if _, _, err := image.EnsureLayer(layerFile); err != nil {
+		return fmt.Errorf("cache layer: %w", err)
+	}
+
 	bl := buildLayer{
 		Digest:   layerDigest,
 		Size:     layerSize,
