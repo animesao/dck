@@ -1324,6 +1324,73 @@ dck run -d --restart always \
 
 ---
 
+## Selling Containers (Multi-Tenant)
+
+dck is ideal for selling container hosting. Each container gets isolated SSH/SFTP and FTP access, unique port mappings, and resource limits — perfect for game servers, web hosting, or donator perks.
+
+### Isolation per container
+
+| Feature | Detail |
+|---------|--------|
+| SSH/SFTP port | Unique per container (22000+) |
+| FTP port | Unique per container (23000+) |
+| SSH keypair | Unique per container |
+| Filesystem | Jailed — each user sees only their own container rootfs |
+| Resource limits | `--memory`, `--cpus`, `--disk` per container |
+| Port mappings | Dynamic add/remove without restart |
+
+### Example: Selling Minecraft Servers
+
+```bash
+# Provision a customer's Minecraft server
+dck run -d --sftp --name player1 \
+  -p 25565:25565 \
+  --memory 4G --cpus 4 \
+  itzg/minecraft-server
+
+# Get the SSH key to give to customer
+dck sshkey player1
+
+# Customer can now:
+#   ssh -p <sftp_port> -i <key> dck@host    # terminal access
+#   sftp -P <sftp_port> dck@host             # file upload
+
+# Later add a donator perk port
+dck port add player1 25566:25566
+```
+
+### Dynamic Port Management
+
+Add or remove ports on running containers instantly — no restart required:
+
+```bash
+# Add a game server port
+dck port add player1 27015:27015/udp
+
+# Remove a port
+dck port remove player1 25566
+dck port rm player1 25566       # alias
+```
+
+Ports persist across container restarts.
+
+### Security Isolation
+
+- **SSH jail:** Users are chrooted via overlay to their container's rootfs — they cannot see other containers
+- **SSH keypair:** Each container gets a unique auto-generated SSH keypair
+- **Network isolation:** Containers on separate IPs (10.0.2.X) with iptables isolation
+- **Resource limits:** cgroups v2 prevents one customer from hogging the server
+- **No daemon:** No central daemon to attack — each container is an isolated process
+
+### Use Cases
+
+- **Game servers:** Minecraft, Terraria, CS2, Valheim — each with SSH/SFTP access
+- **Web hosting:** Give customers SFTP access to upload their site files
+- **Development environments:** Isolated dev containers per developer with SSH access
+- **Donator perks:** Dynamic port adding for donator-only game servers
+
+---
+
 ## Production Checklist
 
 ### Security

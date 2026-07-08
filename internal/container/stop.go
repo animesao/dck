@@ -80,6 +80,8 @@ func (c *Container) Stop() error {
 
 	c.killConsoleServe()
 	c.cancelHealthcheck()
+	c.StopSFTPServer()
+	c.StopFTPServer()
 	c.cleanupNetwork()
 	os.Remove(state.ConsolePath(c.ID))
 	_, _, merged := c.OverlayDirs()

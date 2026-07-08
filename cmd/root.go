@@ -100,6 +100,16 @@ func Execute() {
 		Fn(args)
 	case "blueprint":
 		Blueprint(args)
+	case "sftp":
+		Sftp(args)
+	case "ftp":
+		Ftp(args)
+	case "sshkey":
+		Sshkey(args)
+	case "sftp-serve":
+		SFTPServe(args)
+	case "ftp-serve":
+		FTPServe(args)
 	case "version", "--version", "-v":
 		fmt.Println("dck version", version)
 		fmt.Printf("Run 'dck update --check' to check for newer versions.\n")
@@ -118,7 +128,9 @@ Usage:
   dck run [opts] <image> [cmd] Run container
   dck ps                       List running containers
   dck ps -a                    List all containers
-  dck port <container>         Show port mappings
+   dck port <container>         Show port mappings
+   dck port add <c> H:C[/p]     Add port mapping to running container
+   dck port rm <c> H[/p]        Remove port mapping from running container
   dck start <container>        Start a stopped container
   dck restart <container>      Restart container
   dck stop <container>         Stop container
@@ -162,18 +174,17 @@ Usage:
    dck events                    Stream container events
    dck export <image> -o f.tar.gz Export image to file
    dck import <file.tar.gz>      Import image from file
-   dck up [name] [-f dck.toml]  Create/start containers from dck.toml
-   dck up --autostart            Also install systemd service for reboot auto-start
-  dck down [name] [-f dck.toml] Stop/remove containers from dck.toml
-  dck down -a                  Remove all containers
-  dck bootstrap [--install]    Start all containers (--install = add systemd service)
-    dck blueprint list           List available blueprints from all repositories
-    dck blueprint install <name> Install a blueprint (pull + run container)
-    dck blueprint repo add <url> Add a custom blueprint repository
-    dck blueprint repo list      List blueprint repositories
-   dck update [--check]         Check for updates and self-update
-   dck --help                   Show this help
-   dck version, --version       Show version
+   dck sftp <container>          SSH+SFTP info for container (terminal + file transfer)
+   dck ftp <container>           FTP info for container
+   dck sshkey <container>        Show SSH private key for terminal access
+   dck sshkey --gen <container>  Generate new SSH keypair
+     dck blueprint list           List available blueprints from all repositories
+     dck blueprint install <name> Install a blueprint (pull + run container)
+     dck blueprint repo add <url> Add a custom blueprint repository
+     dck blueprint repo list      List blueprint repositories
+    dck update [--check]         Check for updates and self-update
+    dck --help                   Show this help
+    dck version, --version       Show version
 
 Run options:
   -d              Detach (background)
@@ -205,5 +216,24 @@ Run options:
   --healthcheck-cmd <cmd>      Health check command
   --healthcheck-interval <s>   Health check interval
   --healthcheck-retries <n>    Health check retries
-  --healthcheck-timeout <s>    Health check timeout`)
+  --healthcheck-timeout <s>    Health check timeout
+   --sftp                       Enable SSH+SFTP server (file transfer + terminal, jailed)
+   --ssh                        Enable SSH terminal access via nsenter (file transfer + shell)
+   --ftp                        Enable built-in FTP server (jailed to container root)
+
+SSH/SFTP/FTP commands:
+   dck sftp <container>         Show SSH/SFTP connection info
+   dck sftp --start <c>         Start SSH/SFTP server (blocking)
+   dck sftp --stop <c>          Stop SSH/SFTP server
+   dck ftp <container>          Show FTP connection info
+   dck ftp --start <c>          Start FTP server (blocking)
+   dck ftp --stop <c>           Stop FTP server
+   dck sshkey <container>       Show SSH private key path and public key
+   dck sshkey --gen <container> Generate new SSH keypair
+
+When run with --sftp/--ssh, a separate SSH server process is started
+that Jails the user to the container's filesystem (chroot via overlay).
+Connect via SSH: ssh -p <port> -i <key> dck@host
+Connect via SFTP: sftp -P <port> dck@host (password = container ID)
+Connect via FTP: ftp dck@host:<port> (password = container ID)`)
 }

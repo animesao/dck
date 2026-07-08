@@ -157,6 +157,9 @@ Use `-v` (bind mount) for live file sharing — changes on host are instantly vi
 | `-t` | Allocate TTY |
 | `--rm` | Auto-remove on exit |
 | `--restart` | Restart policy: `no`, `always`, `on-failure`, `unless-stopped` |
+| `--sftp` | Enable built-in SFTP/SSH server (port 22000+) |
+| `--ssh` | Alias for --sftp |
+| `--ftp` | Enable built-in FTP server (port 23000+) |
 | `-h` | Hostname |
 | `--startup` | Startup script (inline or `@file`) — overrides CMD |
 | `--healthcheck-cmd` | Health check command |
@@ -672,6 +675,119 @@ systemctl enable --now dck-wings
 # API (auth via Bearer token from /etc/dck-wings/config.toml)
 curl -H "Authorization: Bearer <api_key>" http://localhost:8080/api/containers
 ```
+
+---
+
+## SSH, SFTP & FTP Access
+
+dck includes built-in SSH+SFTP and FTP servers — no external dependencies required.
+These servers jail users to the container's rootfs, providing isolated terminal access and file transfer.
+
+### SSH + SFTP Server
+
+```bash
+dck run -d --sftp --name mycontainer nginx:alpine
+```
+
+- Starts a built-in SSH+SFTP server for the container
+- Jails users to the container's rootfs (chroot via overlay)
+- Supports both SSH terminal access AND SFTP file transfer
+- Uses `nsenter` to provide shell inside the container
+- Auto-generates SSH keypair per container
+- Port range: 22000+
+
+**Connection:**
+
+```bash
+# Terminal access
+ssh -p <port> -i <key> dck@host
+
+# File transfer
+sftp -P <port> dck@host
+```
+
+**Authentication:**
+- Primary: SSH public key
+- Fallback: password (container ID, first 16 characters)
+
+### FTP Server
+
+```bash
+dck run -d --ftp --name mycontainer nginx:alpine
+```
+
+- Starts a built-in FTP server jailed to the container rootfs
+- Port range: 23000+
+- Auth: username=`dck`, password=container ID[:16]
+
+## Dynamic Port Management
+
+Add or remove port mappings on running containers without restart.
+
+```bash
+# Add a port
+dck port add <container> <host>:<container>[/proto]
+
+# Remove a port
+dck port remove <container> <host>[/proto]
+dck port rm <container> <host>[/proto]     # alias
+```
+
+- Applies iptables DNAT rules instantly — no restart needed
+- Ports persist in container state across restarts
+
+## SSH Key Management
+
+```bash
+# Show SSH key info
+dck sshkey <container>
+
+# Show public key only
+dck sshkey --pub <container>
+
+# Generate new keypair
+dck sshkey --gen <container>
+```
+
+Keys are stored in `~/.dck/keys/<container-id>_rsa`.
+
+## Selling Containers (Multi-Tenant)
+
+Each container gets isolated SSH/SFTP and FTP access, making dck ideal for selling container hosting.
+
+### Isolation per container
+
+| Feature | Detail |
+|---------|--------|
+| SSH/SFTP port | Unique per container (22000+) |
+| FTP port | Unique per container (23000+) |
+| SSH keypair | Unique per container |
+| Filesystem | Jailed — each user sees only their own rootfs |
+| Resource limits | `--memory`, `--cpus`, `--disk` per container |
+
+### Example: Selling Minecraft Servers
+
+```bash
+# Provision a customer's server
+dck run -d --sftp --name player1 \
+  -p 25565:25565 \
+  --memory 4G --cpus 4 \
+  itzg/minecraft-server
+
+# Get the SSH key to give to customer
+dck sshkey player1
+
+# Later add a donator perk port
+dck port add player1 25566:25566
+```
+
+### Updated `dck ps` output
+
+The `dck ps` command now shows SFTP and FTP port columns when containers were started with `--sftp` or `--ftp`.
+
+### Updated `dck port` command
+
+The `dck port` command now displays SFTP and FTP information alongside regular port mappings.
 
 ---
 
