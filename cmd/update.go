@@ -68,8 +68,9 @@ func Update(args []string) {
 		binaryName += ".exe"
 	}
 
-	checksumURL := fmt.Sprintf("%s/releases/download/%s/%s.sha256", baseURL, latest, binaryName)
-	binaryURL := fmt.Sprintf("%s/releases/download/%s/%s", baseURL, latest, binaryName)
+	releaseTag := "v" + latest
+	checksumURL := fmt.Sprintf("%s/releases/download/%s/%s.sha256", releaseURL, releaseTag, binaryName)
+	binaryURL := fmt.Sprintf("%s/releases/download/%s/%s", releaseURL, releaseTag, binaryName)
 
 	fmt.Println("Downloading update...")
 	expectedChecksum, err := fetchURL(checksumURL)

@@ -6,6 +6,7 @@ import (
 )
 
 var repoURL = "https://raw.githubusercontent.com/animesao/dck"
+var releaseURL = "https://github.com/animesao/dck"
 var blueprintRepoURL = "https://raw.githubusercontent.com/dck-organization/dck-blueprints"
 
 func Execute() {
