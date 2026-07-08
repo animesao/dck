@@ -693,6 +693,8 @@ func (bs *buildState) finalize(buildTmp string) (*image.Image, error) {
 	if err := os.WriteFile(filepath.Join(imgDir, "manifest.json"), manifestData, 0644); err != nil {
 		return nil, fmt.Errorf("write manifest: %w", err)
 	}
+	// Also write oci-manifest.json for ReadManifest compatibility
+	os.WriteFile(filepath.Join(imgDir, "oci-manifest.json"), manifestData, 0644)
 
 	// Extract rootfs for runtime use
 	rootfsDir := state.ImageRootfsDir(name, tag)

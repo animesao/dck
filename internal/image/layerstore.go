@@ -131,13 +131,48 @@ func EnsureAllLayers(name, tag string) error {
 }
 
 // ReadManifest reads the OCI manifest from the image directory.
+// Falls back to reconstructing from config.json and layers/ directory.
 func ReadManifest(name, tag string) *ManifestV2 {
-	manifestPath := filepath.Join(state.ImageDir(name, tag), "manifest.json")
-	if !state.FileExists(manifestPath) {
+	imgDir := state.ImageDir(name, tag)
+
+	// Try oci-manifest.json first (pulled images), fallback to manifest.json (built images)
+	for _, f := range []string{"oci-manifest.json", "manifest.json"} {
+		p := filepath.Join(imgDir, f)
+		if !state.FileExists(p) {
+			continue
+		}
+		var m ManifestV2
+		if err := state.ReadJSON(p, &m); err == nil && len(m.Layers) > 0 {
+			return &m
+		}
+	}
+
+	// Fallback: reconstruct from layers/ directory
+	layersDir := filepath.Join(imgDir, "layers")
+	entries, err := os.ReadDir(layersDir)
+	if err != nil {
 		return nil
 	}
 	var m ManifestV2
-	if err := state.ReadJSON(manifestPath, &m); err != nil {
+	m.SchemaVersion = 2
+	m.MediaType = "application/vnd.docker.distribution.manifest.v2+json"
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		d := strings.ReplaceAll(e.Name(), "_", ":")
+		fi, _ := e.Info()
+		m.Layers = append(m.Layers, struct {
+			MediaType string `json:"mediaType"`
+			Size      int    `json:"size"`
+			Digest    string `json:"digest"`
+		}{
+			MediaType: "application/vnd.docker.image.rootfs.diff.tar.gzip",
+			Size:      int(fi.Size()),
+			Digest:    d,
+		})
+	}
+	if len(m.Layers) == 0 {
 		return nil
 	}
 	return &m

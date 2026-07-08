@@ -84,6 +84,11 @@ func Pull(ref string) (*Image, error) {
 		return nil, fmt.Errorf("save config: %w", err)
 	}
 
+	// Save OCI manifest for layer resolution
+	ociManifestPath := filepath.Join(state.ImageDir(name, tag), "oci-manifest.json")
+	ociManifestData, _ := json.Marshal(manifest)
+	os.WriteFile(ociManifestPath, ociManifestData, 0644)
+
 	img := &Image{Name: name, Tag: tag, Digest: manifest.Config.Digest}
 	if err := SaveToStore(img); err != nil {
 		return nil, err
