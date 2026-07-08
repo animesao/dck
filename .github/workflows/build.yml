@@ -91,6 +91,7 @@ jobs:
           name: dck-linux-${{ matrix.goarch }}
           path: |
             dck-*-linux-*
+            dck-linux-*
             dck-*.sha256
 
       - name: Commit VERSION and tag
@@ -110,4 +111,6 @@ jobs:
           tag_name: v${{ steps.bump.outputs.NEW_VER }}
           files: |
             dck-*-linux-*
+            dck-linux-amd64
+            dck-linux-amd64.sha256
           generate_release_notes: true
