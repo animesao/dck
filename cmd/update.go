@@ -195,16 +195,16 @@ func fetchURLWithWget(url string) (string, error) {
 }
 
 func fetchLatestVersion() (string, error) {
+	// Prefer git tags (e.g. v1.20.1) over VERSION file (e.g. 1.20.0-stalbal.xxx)
+	if v, err := fetchVersionViaGit(); err == nil {
+		return v, nil
+	}
 	url := baseURL + "/main/VERSION"
 	v, err := fetchURL(url)
 	if err == nil {
 		return v, nil
 	}
-	// Last resort: try git ls-remote over SSH
-	if v, err := fetchVersionViaGit(); err == nil {
-		return v, nil
-	}
-	return "", err
+	return "", fmt.Errorf("could not determine latest version: %w", err)
 }
 
 func fetchVersionViaGit() (string, error) {
@@ -225,8 +225,9 @@ func fetchVersionViaGit() (string, error) {
 		ref := parts[1]
 		if strings.HasPrefix(ref, "refs/tags/v") {
 			tag := strings.TrimPrefix(ref, "refs/tags/")
-			if compareVersions(tag, latest) > 0 {
-				latest = tag
+			ver := strings.TrimPrefix(tag, "v")
+			if compareVersions(ver, latest) > 0 {
+				latest = ver
 			}
 		}
 	}
