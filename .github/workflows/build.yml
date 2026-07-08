@@ -9,21 +9,16 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  version:
     if: github.actor != 'github-actions[bot]'
-    strategy:
-      matrix:
-        goarch: [amd64, arm64, arm]
-      fail-fast: false
     runs-on: ubuntu-latest
+    outputs:
+      new_ver: ${{ steps.bump.outputs.NEW_VER }}
     steps:
       - uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.21'
 
       - name: Bump version
         id: bump
@@ -42,14 +37,37 @@ jobs:
           echo "NEW_VER=$NEW_VER" >> $GITHUB_OUTPUT
           echo "$NEW_VER" > VERSION
 
+      - name: Commit and tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add VERSION
+          git commit -m "chore: bump version to ${{ steps.bump.outputs.NEW_VER }} [skip ci]"
+          git tag v${{ steps.bump.outputs.NEW_VER }}
+          git push origin main --tags
+
+  build:
+    needs: [version]
+    strategy:
+      matrix:
+        goarch: [amd64, arm64, arm]
+      fail-fast: false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
       - name: Build binary
         run: |
-          VERSION=${{ steps.bump.outputs.NEW_VER }}
+          VERSION=${{ needs.version.outputs.new_ver }}
           SUFFIX="${{ matrix.goarch }}"
-          if [ "$SUFFIX" = "arm" ]; then
-            GOARM=6
-            SUFFIX="armv6"
-          fi
+          GOARM=""
+          [ "$SUFFIX" = "arm" ] && GOARM=6 && SUFFIX="armv6"
           CGO_ENABLED=0 GOOS=linux GOARCH=${{ matrix.goarch }} GOARM=$GOARM go build \
             -tags netgo -installsuffix netgo \
             -ldflags="-s -w -X dck/cmd.version=$VERSION" \
@@ -57,9 +75,9 @@ jobs:
 
       - name: Package tar.gz
         run: |
+          VERSION=${{ needs.version.outputs.new_ver }}
           SUFFIX="${{ matrix.goarch }}"
           [ "$SUFFIX" = "arm" ] && SUFFIX="armv6"
-          VERSION="${{ steps.bump.outputs.NEW_VER }}"
           mkdir -p "dck-$VERSION"
           cp "dck-linux-$SUFFIX" "dck-$VERSION/dck"
           tar czf "dck-$VERSION-linux-$SUFFIX.tar.gz" "dck-$VERSION/"
@@ -74,7 +92,7 @@ jobs:
       - name: Build .deb
         if: matrix.goarch == 'amd64'
         run: |
-          VERSION="${{ steps.bump.outputs.NEW_VER }}"
+          VERSION=${{ needs.version.outputs.new_ver }}
           mkdir -p debroot/usr/local/bin
           cp dck-linux-amd64 debroot/usr/local/bin/dck
           mkdir -p debroot/DEBIAN
@@ -94,29 +112,30 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: dck-linux-${{ matrix.goarch }}
+          name: build-${{ matrix.goarch }}
           path: |
             dck-*-linux-*
             dck-linux-*
-            dck-*.sha256
 
-      - name: Commit VERSION and tag
-        if: matrix.goarch == 'amd64'
+  release:
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Gather release assets
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add VERSION
-          git commit -m "chore: bump version to ${{ steps.bump.outputs.NEW_VER }} [skip ci]"
-          git tag v${{ steps.bump.outputs.NEW_VER }}
-          git push origin main --tags
+          mkdir -p dist
+          find artifacts -type f -exec cp {} dist/ \;
+          echo "=== Release assets ==="
+          ls -la dist/
 
-      - name: Release
-        if: matrix.goarch == 'amd64'
+      - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.bump.outputs.NEW_VER }}
-          files: |
-            dck-*-linux-*
-            dck-linux-amd64
-            dck-linux-amd64.sha256
+          tag_name: v${{ needs.version.outputs.new_ver }}
+          files: dist/*
           generate_release_notes: true
