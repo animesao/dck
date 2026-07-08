@@ -232,6 +232,10 @@ func (bs *buildState) handleFrom(inst Instruction, buildTmp string) error {
 	// Include base image layers in the new image
 	manifest := image.ReadManifest(img.Name, img.Tag)
 	if manifest != nil {
+		// Ensure all base image layers are in shared cache
+		if err := image.EnsureAllLayers(img.Name, img.Tag); err != nil {
+			return fmt.Errorf("cache base layers: %w", err)
+		}
 		for _, layer := range manifest.Layers {
 			cachedPath := image.ResolveLayer(layer.Digest)
 			if cachedPath == "" {
