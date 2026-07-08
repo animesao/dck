@@ -101,8 +101,6 @@ func Execute() {
 		Fn(args)
 	case "blueprint":
 		Blueprint(args)
-	case "sftp-serve":
-		SFTPServe(args)
 	case "version", "--version", "-v":
 		fmt.Println("dck version", version)
 		fmt.Printf("Run 'dck update --check' to check for newer versions.\n")
@@ -205,9 +203,5 @@ Run options:
   --healthcheck-cmd <cmd>      Health check command
   --healthcheck-interval <s>   Health check interval
   --healthcheck-retries <n>    Health check retries
-  --healthcheck-timeout <s>    Health check timeout
-   --sftp                       Enable SFTP server (file transfer, jailed to container root)
-
-When run with --sftp, connection info is shown on container start.
-Connect: sftp -P <port> <user>@<host> (password shown on container start)`)
+   --healthcheck-timeout <s>    Health check timeout`)
 }

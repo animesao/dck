@@ -19,8 +19,6 @@ func (c *Container) Remove(force bool) error {
 		if err := c.Stop(); err != nil {
 			return err
 		}
-	} else {
-		c.StopSFTPServer()
 	}
 
 	// Remove named volumes

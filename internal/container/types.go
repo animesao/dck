@@ -69,12 +69,6 @@ type Container struct {
 	Secrets     []SecretMount       `json:"secrets,omitempty"`
 	Configs     []SecretMount       `json:"configs,omitempty"`
 
-	SFTPUser     string `json:"sftp_user,omitempty"`
-	SFTPPassword string `json:"sftp_password,omitempty"`
-	EnableSFTP   bool   `json:"enable_sftp,omitempty"`
-	SFTPPort   int  `json:"sftp_port,omitempty"`
-	SFTPServerPID int `json:"sftp_server_pid,omitempty"`
-
 	// Runtime-only (not persisted)
 	cancelHealth    context.CancelFunc `json:"-"`
 	mu              sync.Mutex         `json:"-"`
@@ -138,22 +132,11 @@ type CreateOpts struct {
 	NetworkMode  string
 	Entrypoint   string
 	Ulimits      []Ulimit
-
-	SFTPPassword string `json:"sftp_password,omitempty"`
-	EnableSFTP   bool   `json:"enable_sftp"`
-	SFTPPort     int    `json:"sftp_port,omitempty"`
 }
 
 func (c *Container) Save() error {
 	os.MkdirAll(state.ContainersDir(), 0755)
 	return state.WriteJSON(state.ContainerPath(c.ID), c)
-}
-
-func (c *Container) SFTPPass() string {
-	if c.SFTPPassword != "" {
-		return c.SFTPPassword
-	}
-	return c.ID[:16]
 }
 
 func (c *Container) DeleteState() error {

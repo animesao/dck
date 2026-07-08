@@ -2,7 +2,6 @@ package state
 
 import (
 	"encoding/json"
-	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -128,23 +127,4 @@ func ReadJSON(path string, v interface{}) error {
 func FileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
-}
-
-var cachedHostIP string
-
-func HostIP() string {
-	if cachedHostIP != "" {
-		return cachedHostIP
-	}
-	addrs, err := net.InterfaceAddrs()
-	if err != nil {
-		return "localhost"
-	}
-	for _, a := range addrs {
-		if ipnet, ok := a.(*net.IPNet); ok && !ipnet.IP.IsLoopback() && ipnet.IP.To4() != nil {
-			cachedHostIP = ipnet.IP.String()
-			return cachedHostIP
-		}
-	}
-	return "localhost"
 }
