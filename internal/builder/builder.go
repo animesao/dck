@@ -311,11 +311,9 @@ func (bs *buildState) handleRun(inst Instruction, buildEnv []string, buildTmp st
 		return fmt.Errorf("create layer: %w", err)
 	}
 
-	layerHash, layerSize := hashFile(layerFile)
-	layerDigest := "sha256:" + layerHash
-
 	// Ensure in shared content-addressable cache
-	if _, _, err := image.EnsureLayer(layerFile); err != nil {
+	layerDigest, layerSize, err := image.EnsureLayer(layerFile)
+	if err != nil {
 		return fmt.Errorf("cache layer: %w", err)
 	}
 
@@ -405,11 +403,9 @@ func (bs *buildState) handleCopy(inst Instruction, buildTmp string) error {
 		return fmt.Errorf("create layer: %w", err)
 	}
 
-	layerHash, layerSize := hashFile(layerFile)
-	layerDigest := "sha256:" + layerHash
-
 	// Ensure in shared content-addressable cache
-	if _, _, err := image.EnsureLayer(layerFile); err != nil {
+	layerDigest, layerSize, err := image.EnsureLayer(layerFile)
+	if err != nil {
 		return fmt.Errorf("cache layer: %w", err)
 	}
 
@@ -766,7 +762,11 @@ func hashFile(path string) (string, int) {
 	defer f.Close()
 
 	h := sha256.New()
-	size, _ := io.Copy(h, f)
+	size, err := io.Copy(h, f)
+	if err != nil {
+		f.Close()
+		return hex.EncodeToString(h.Sum(nil)), 0
+	}
 	return hex.EncodeToString(h.Sum(nil)), int(size)
 }
 
