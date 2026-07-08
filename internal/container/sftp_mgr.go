@@ -2,10 +2,12 @@ package container
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"time"
 
 	"dck/internal/sftp"
 	"dck/internal/state"
@@ -65,6 +67,17 @@ func (c *Container) ensureSSHKeypair() error {
 	return nil
 }
 
+func killPort(port int) {
+	addr := fmt.Sprintf(":%d", port)
+	ln, err := net.Listen("tcp", addr)
+	if err == nil {
+		ln.Close()
+		return
+	}
+	exec.Command("fuser", "-k", fmt.Sprintf("%d/tcp", port)).Run()
+	time.Sleep(200 * time.Millisecond)
+}
+
 func (c *Container) StartSFTPServer(binPath string) error {
 	if !c.EnableSFTP && !c.EnableSSH {
 		return nil
@@ -77,6 +90,8 @@ func (c *Container) StartSFTPServer(binPath string) error {
 	used := getUsedPorts()
 	port := allocatePort(used, sftpBasePort)
 	c.SFTPPort = port
+
+	killPort(port)
 
 	merged := filepath.Join(state.OverlayDir(), c.ID, "merged")
 	if _, err := os.Stat(merged); os.IsNotExist(err) {
