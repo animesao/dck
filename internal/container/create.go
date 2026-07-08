@@ -46,8 +46,12 @@ func New(img *image.Image, opts CreateOpts) *Container {
 		if len(cmd) == 0 {
 			cmd = []string{"/bin/sh"}
 		}
-	} else if opts.Entrypoint != "" {
-		cmd = append([]string{opts.Entrypoint}, cmd...)
+	} else {
+		if opts.Entrypoint != "" {
+			cmd = append([]string{opts.Entrypoint}, cmd...)
+		} else if cfg, err := image.ReadConfig(img.Name, img.Tag); err == nil && len(cfg.Config.Entrypoint) > 0 {
+			cmd = append(cfg.Config.Entrypoint, cmd...)
+		}
 	}
 
 	return &Container{
