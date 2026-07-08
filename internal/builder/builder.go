@@ -458,7 +458,10 @@ func (bs *buildState) handleEnv(inst Instruction) {
 }
 
 func (bs *buildState) handleCmd(inst Instruction) {
-	if parsed, ok := GetExecForm(inst.Args); ok {
+	// If raw line starts with CMD [, parser already parsed exec form
+	if strings.Contains(inst.Raw, "CMD [") {
+		bs.config.Config.Cmd = inst.Args
+	} else if parsed, ok := GetExecForm(inst.Args); ok {
 		bs.config.Config.Cmd = parsed
 	} else {
 		// Shell form - wrap with shell
@@ -477,7 +480,10 @@ func (bs *buildState) handleEntrypoint(inst Instruction) {
 		bs.config.Config.Entrypoint = []string{}
 		return
 	}
-	if parsed, ok := GetExecForm(inst.Args); ok {
+	// If raw line starts with ENTRYPOINT [, parser already parsed exec form
+	if strings.Contains(inst.Raw, "ENTRYPOINT [") {
+		bs.config.Config.Entrypoint = inst.Args
+	} else if parsed, ok := GetExecForm(inst.Args); ok {
 		bs.config.Config.Entrypoint = parsed
 	} else {
 		// Shell form
