@@ -108,6 +108,7 @@ func (c *Container) StartSFTPServer(binPath string) error {
 	if c.PID > 0 {
 		args = append(args, "--pid", strconv.Itoa(c.PID))
 	}
+	args = append(args, "--container-id", c.ID[:16])
 
 	cmd := exec.Command(binPath, args...)
 	if err := cmd.Start(); err != nil {

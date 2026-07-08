@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	gosftp "github.com/pkg/sftp"
@@ -22,13 +23,14 @@ import (
 )
 
 type Server struct {
-	RootDir       string
-	Port          int
-	Password      string
-	ContainerPID  int
-	AuthorizedKey string
-	ln            net.Listener
-	done          chan struct{}
+	RootDir         string
+	Port            int
+	Password        string
+	ContainerPID    int
+	ContainerID     string
+	AuthorizedKey   string
+	ln              net.Listener
+	done            chan struct{}
 }
 
 func New(rootDir string, port int, password string) *Server {
@@ -61,6 +63,11 @@ func (s *Server) WithAuthorizedKey(key string) *Server {
 
 func (s *Server) WithContainerPID(pid int) *Server {
 	s.ContainerPID = pid
+	return s
+}
+
+func (s *Server) WithContainerID(id string) *Server {
+	s.ContainerID = id
 	return s
 }
 
@@ -185,8 +192,44 @@ func (s *Server) handleSFTP(ch gossh.Channel) {
 	rs.Serve()
 }
 
+func (s *Server) findContainerPID() int {
+	if s.ContainerPID > 0 {
+		if syscall.Kill(s.ContainerPID, 0) == nil {
+			return s.ContainerPID
+		}
+	}
+	if s.ContainerID != "" {
+		out, err := exec.Command("dck", "inspect", s.ContainerID).Output()
+		if err == nil {
+			pidStr := extractPID(string(out))
+			if pidStr > 0 {
+				s.ContainerPID = pidStr
+				return pidStr
+			}
+		}
+	}
+	return 0
+}
+
+func extractPID(jsonData string) int {
+	idx := strings.Index(jsonData, `"pid":`)
+	if idx < 0 {
+		return 0
+	}
+	rest := jsonData[idx+6:]
+	end := strings.IndexAny(rest, ",}\n")
+	if end < 0 {
+		return 0
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(rest[:end]))
+	if err != nil {
+		return 0
+	}
+	return pid
+}
+
 func (s *Server) handleShell(ch gossh.Channel, ptyReq *gossh.Request) {
-	pid := s.ContainerPID
+	pid := s.findContainerPID()
 	shellCmd := "exec bash 2>/dev/null || exec sh"
 
 	if pid <= 0 {

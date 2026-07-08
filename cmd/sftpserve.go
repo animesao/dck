@@ -18,6 +18,7 @@ func SFTPServe(args []string) {
 	password := fs.String("password", "dck", "SSH password")
 	pid := fs.Int("pid", 0, "Container PID for nsenter shell access")
 	pubkey := fs.String("pubkey", "", "Authorized SSH public key")
+	containerID := fs.String("container-id", "", "Container ID for dynamic PID lookup")
 	fs.Parse(args)
 
 	if *root == "" {
@@ -28,6 +29,9 @@ func SFTPServe(args []string) {
 	svr := sftp.New(*root, *port, *password)
 	if *pid > 0 {
 		svr.WithContainerPID(*pid)
+	}
+	if *containerID != "" {
+		svr.WithContainerID(*containerID)
 	}
 	if *pubkey != "" {
 		svr.WithAuthorizedKey(*pubkey)
