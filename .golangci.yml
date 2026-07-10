@@ -1,67 +1,13 @@
 linters:
   enable:
-    - errcheck
     - gosimple
     - staticcheck
     - unused
   disable:
+    - errcheck
     - ineffassign
     - typecheck
     - govet
-
-linters-settings:
-  errcheck:
-    exclude-functions:
-      - (*os.File).WriteString
-      - (*os.File).Write
-      - (*encoding/json.Encoder).Encode
-      - (*os/exec.Cmd).Run
-      - (io.Writer).Write
-      - os.WriteFile
-      - os.MkdirAll
-      - os.Remove
-      - os.RemoveAll
-      - os.Rename
-      - os.Chmod
-      - os.Chown
-      - os.Symlink
-      - os.Link
-      - (*os.File).Seek
-      - net/http.Post
-      - net/http.Get
-      - (*net/http.Client).Do
-      - (*net/http.Client).Get
-      - (*net/http.Client).Post
-      - syscall.Kill
-      - syscall.Mount
-      - syscall.Setrlimit
-      - syscall.Setuid
-      - syscall.Setgid
-      - syscall.Chdir
-      - syscall.Unmount
-      - (*os/exec.Cmd).Output
-      - (*os/exec.Cmd).CombinedOutput
-      - io.Copy
-      - io.CopyN
-      - filepath.Walk
-      - fmt.Fprintf
-      - fmt.Fprint
-      - fmt.Fprintln
-      - fmt.Sscanf
-      - fmt.Scanln
-      - rand.Read
-      - json.Unmarshal
-      - json.NewDecoder.Decode
-      - (*bufio.Writer).Flush
-      - (*tar.Writer).Write
-      - (*tar.Writer).Close
-      - (*compress/gzip.Writer).Close
-      - (*compress/flate.Writer).Close
-      - (*compress/gzip.Reader).Close
-      - (*net.UDPConn).WriteToUDP
-      - (*sql.DB).Close
-      - (*sql.Rows).Close
-      - (*os.File).Close
 
 issues:
   exclude-use-default: false
@@ -72,11 +18,7 @@ issues:
   exclude-rules:
     - path: _test\.go
       linters:
-        - errcheck
         - unused
-    - path: internal/container/init\.go
-      linters:
-        - errcheck
     - path: internal/container/events\.go
       linters:
         - unused

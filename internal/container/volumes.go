@@ -155,10 +155,7 @@ func applyOptions(vs *VolumeSpec, opts string) {
 		case strings.HasPrefix(opt, "size="):
 			vs.TmpfsSize = opt[5:]
 		case strings.HasPrefix(opt, "mode="):
-			mode, err := fmt.Sscanf(opt[5:], "%o", &vs.TmpfsMode)
-			if err == nil && mode == 1 {
-				// ok
-			}
+			fmt.Sscanf(opt[5:], "%o", &vs.TmpfsMode)
 		case strings.HasPrefix(opt, "nfsopts="):
 			vs.NFOptions = opt[8:]
 		}
