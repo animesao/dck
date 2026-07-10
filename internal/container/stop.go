@@ -56,27 +56,36 @@ func (c *Container) Stop() error {
 		targetPID = unsharePID
 	}
 
-	// Kill the target (unshare parent). If unshare was started by a
-	// previous dck run -d process, --kill-child won't fire on SIGKILL
-	// so we must also SIGKILL the container init directly.
-	//
-	// If target is the container init itself (unshare already dead),
-	// SIGKILL is the only signal that works cross-namespace for PID 1.
+	// Graceful shutdown: SIGTERM first, then SIGKILL after timeout.
+	// If unshare was started by a previous dck run -d process,
+	// --kill-child won't fire on SIGTERM so we must also signal
+	// the container init directly.
 	//
 	// We can't use proc.Wait() — process was reparented to init, so
 	// Wait() would return ECHILD. Poll with kill(pid, 0) instead.
+	syscall.Kill(targetPID, syscall.SIGTERM)
+	if waitForExit(targetPID, 5*time.Second) {
+		goto cleanup
+	}
+
 	if err := syscall.Kill(targetPID, syscall.SIGKILL); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: kill target PID %d: %v\n", targetPID, err)
 	}
-	waitForExit(targetPID, 5*time.Second)
+	waitForExit(targetPID, 2*time.Second)
 
+cleanup:
 	// Kill the container init directly (survives if unshare was killed)
 	if unsharePID != 0 && c.PID > 0 {
+		syscall.Kill(c.PID, syscall.SIGTERM)
+		if waitForExit(c.PID, 3*time.Second) {
+			goto postcleanup
+		}
 		if err := syscall.Kill(c.PID, syscall.SIGKILL); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: kill container PID %d: %v\n", c.PID, err)
 		}
-		waitForExit(c.PID, 3*time.Second)
+		waitForExit(c.PID, 2*time.Second)
 	}
+postcleanup:
 
 	c.killConsoleServe()
 	c.cancelHealthcheck()
@@ -112,12 +121,13 @@ func isAlive(pid int) bool {
 	return syscall.Kill(pid, 0) == nil
 }
 
-func waitForExit(pid int, timeout time.Duration) {
+func waitForExit(pid int, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		if !isAlive(pid) {
-			return
+			return true
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
+	return false
 }

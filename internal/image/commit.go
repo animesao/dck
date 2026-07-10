@@ -159,9 +159,8 @@ func createLayer(rootfsDir, outputPath string) error {
 		if err != nil {
 			return err
 		}
-		defer f.Close()
-
 		_, err = io.Copy(tw, f)
+		f.Close()
 		return err
 	})
 }

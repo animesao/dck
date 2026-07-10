@@ -636,10 +636,12 @@ func parseDurationToSeconds(d string) int {
 }
 
 func normalizePort(p string) string {
+	// Already in host:container format
 	if strings.Contains(p, ":") {
 		return p
 	}
-	return p
+	// Container port only — expose on a random host port
+	return "0:" + p
 }
 
 func normalizeRestart(r string) string {

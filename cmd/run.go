@@ -99,8 +99,14 @@ func Run(args []string) {
 		if len(parts) != 2 {
 			return container.PortMap{}, fmt.Errorf("invalid port mapping: %s", s)
 		}
-		host, _ := strconv.Atoi(parts[0])
-		cont, _ := strconv.Atoi(parts[1])
+		host, err := strconv.Atoi(parts[0])
+		if err != nil {
+			return container.PortMap{}, fmt.Errorf("invalid host port %q: %w", parts[0], err)
+		}
+		cont, err := strconv.Atoi(parts[1])
+		if err != nil {
+			return container.PortMap{}, fmt.Errorf("invalid container port %q: %w", parts[1], err)
+		}
 		return container.PortMap{HostPort: host, ContainerPort: cont, Protocol: proto}, nil
 	}
 

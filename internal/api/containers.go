@@ -489,7 +489,6 @@ func handleContainerStart(w http.ResponseWriter, r *http.Request, c *container.C
 		writeJSON(w, 304, nil)
 		return
 	}
-	c.Status = container.Created
 	if err := c.Start(); err != nil {
 		writeError(w, 500, fmt.Sprintf("start: %v", err))
 		return

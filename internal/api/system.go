@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"dck/internal/container"
 	"dck/internal/state"
 )
 
@@ -19,6 +20,15 @@ func handleSystemPrune(w http.ResponseWriter, r *http.Request) {
 
 	var freedSpace int64
 	var removedContainers, removedImages int
+
+	// Collect IDs of running containers to protect their overlay dirs
+	runningIDs := make(map[string]bool)
+	all, _ := container.List(true)
+	for _, c := range all {
+		if c.Status == container.Running {
+			runningIDs[c.ID] = true
+		}
+	}
 
 	if pruneContainers {
 		entries, _ := os.ReadDir(state.ContainersDir())
@@ -36,12 +46,16 @@ func handleSystemPrune(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Remove unused overlay dirs
+	// Remove unused overlay dirs (skip running containers)
 	overlayEntries, _ := os.ReadDir(state.OverlayDir())
 	for _, e := range overlayEntries {
-		if e.IsDir() {
-			os.RemoveAll(filepath.Join(state.OverlayDir(), e.Name()))
+		if !e.IsDir() {
+			continue
 		}
+		if runningIDs[e.Name()] {
+			continue
+		}
+		os.RemoveAll(filepath.Join(state.OverlayDir(), e.Name()))
 	}
 
 	if pruneImages {

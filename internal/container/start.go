@@ -28,53 +28,94 @@ func commandContext30(name string, arg ...string) *exec.Cmd {
 }
 
 func (c *Container) Start() error {
-	if c.Status != Created && c.Status != Stopped {
-		return fmt.Errorf("container %s is %s, cannot start", c.ID, c.Status)
+	if c.Status == Running {
+		return fmt.Errorf("container %s is already running", c.ID)
 	}
+	c.Status = Created
 
 	state.EnsureDirs()
 
+	merged, err := c.setupFilesystem()
+	if err != nil {
+		return err
+	}
+
+	cmd, err := c.buildUnshareCmd(merged)
+	if err != nil {
+		return err
+	}
+
+	if err := c.setupIO(cmd); err != nil {
+		return err
+	}
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("start: %w", err)
+	}
+
+	childPID := c.resolveChildPID(cmd.Process.Pid)
+	c.PID = childPID
+	c.setupContainerResources(childPID)
+
+	c.Status = Running
+	c.Save()
+	EmitEvent(EventStart, c)
+
+	if c.Detach {
+		ctx, cancel := context.WithCancel(context.Background())
+		c.cancelHealth = cancel
+		monitorContainer(c, cmd, ctx)
+		fmt.Println(c.ID[:12])
+		return nil
+	}
+
+	return c.runForeground(cmd)
+}
+
+func (c *Container) setupFilesystem() (merged string, err error) {
 	img := image.LoadFromStore(c.ImageName, c.ImageTag)
 	if img == nil {
-		return fmt.Errorf("image %s:%s not found", c.ImageName, c.ImageTag)
+		return "", fmt.Errorf("image %s:%s not found", c.ImageName, c.ImageTag)
 	}
 
 	rootfsDir := state.ImageRootfsDir(c.ImageName, c.ImageTag)
-	upper, work, merged := c.OverlayDirs()
+	upper, work, mergedDir := c.OverlayDirs()
 	os.MkdirAll(filepath.Dir(upper), 0755)
 
 	if err := SetupDiskLimit(state.OverlayDir(), c.ID, c.DiskLimit); err != nil {
-		return fmt.Errorf("disk limit: %w", err)
+		return "", fmt.Errorf("disk limit: %w", err)
 	}
 
-	// When disk limit is set, upper and work live inside the mounted data dir
 	dataMnt := filepath.Join(state.OverlayDir(), c.ID, "data")
 	if isMounted(dataMnt) {
 		upper = filepath.Join(dataMnt, "upper")
 		work = filepath.Join(dataMnt, "work")
 	}
 
-	if _, err := os.Stat(merged); os.IsNotExist(err) || !isOverlayMounted(merged) {
-		if err := SetupOverlay(rootfsDir, upper, work, merged); err != nil {
-			return fmt.Errorf("overlay: %w", err)
+	if _, err := os.Stat(mergedDir); os.IsNotExist(err) || !isOverlayMounted(mergedDir) {
+		if err := SetupOverlay(rootfsDir, upper, work, mergedDir); err != nil {
+			return "", fmt.Errorf("overlay: %w", err)
 		}
 	}
 
 	for _, vol := range c.Volumes {
 		spec := ParseVolumeString(vol.Source + ":" + vol.Target)
-		if err := MountVolume(spec, merged); err != nil {
-			return fmt.Errorf("mount volume %s -> %s: %w", vol.Source, vol.Target, err)
+		if err := MountVolume(spec, mergedDir); err != nil {
+			return "", fmt.Errorf("mount volume %s -> %s: %w", vol.Source, vol.Target, err)
 		}
 	}
 
-	// Inject secrets/configs into rootfs
-	if err := c.InjectSecrets(merged); err != nil {
-		return fmt.Errorf("inject secrets: %w", err)
+	if err := c.InjectSecrets(mergedDir); err != nil {
+		return "", fmt.Errorf("inject secrets: %w", err)
 	}
 
+	return mergedDir, nil
+}
+
+func (c *Container) buildUnshareCmd(merged string) (*exec.Cmd, error) {
 	binPath, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("executable: %w", err)
+		return nil, fmt.Errorf("executable: %w", err)
 	}
 
 	unshareArgs := []string{
@@ -82,15 +123,21 @@ func (c *Container) Start() error {
 		binPath, "init", c.ID, merged,
 	}
 
-	// Only create a new network namespace for bridge/none modes.
-	// host mode shares the host's network namespace (needed for VPN containers).
 	if c.NetworkMode != "host" {
 		unshareArgs = append([]string{"--net"}, unshareArgs...)
 	}
 
-	cmd := exec.Command("unshare", unshareArgs...)
+	return exec.Command("unshare", unshareArgs...), nil
+}
 
-	if c.Detach {
+func (c *Container) setupIO(cmd *exec.Cmd) error {
+	binPath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("executable: %w", err)
+	}
+
+	switch {
+	case c.Detach:
 		stdinR, stdinW, err := os.Pipe()
 		if err != nil {
 			return fmt.Errorf("stdin pipe: %w", err)
@@ -112,11 +159,11 @@ func (c *Container) Start() error {
 		c.ConsoleServePID = serve.Process.Pid
 		stdinW.Close()
 		stdoutR.Close()
-	} else if c.Interactive || c.TTY {
+	case c.Interactive || c.TTY:
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
-	} else {
+	default:
 		RotateLogFile(c.LogFile())
 		logFile, err := os.OpenFile(c.LogFile(), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if err != nil {
@@ -126,20 +173,18 @@ func (c *Container) Start() error {
 		cmd.Stdout = io.MultiWriter(logFile, os.Stdout)
 		cmd.Stderr = io.MultiWriter(logFile, os.Stderr)
 	}
+	return nil
+}
 
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("start: %w", err)
-	}
-
-	unsharePID := cmd.Process.Pid
+func (c *Container) resolveChildPID(unsharePID int) int {
 	childPID := findChildPID(unsharePID)
 	if childPID == 0 {
 		childPID = unsharePID + 1
 	}
+	return childPID
+}
 
-	c.PID = childPID
-
-	// Always create cgroup (for stats), best-effort for limits
+func (c *Container) setupContainerResources(childPID int) {
 	cpath, err := setupContainerCgroup(c.ID, childPID, c.MemoryLimit, c.CPUCount)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Cgroup setup: %v (container will run without resource limits)\n", err)
@@ -147,41 +192,28 @@ func (c *Container) Start() error {
 		c.CgroupPath = cpath
 	}
 
-	if c.NeedsNetwork() {
-		if runtime.GOOS == "linux" {
-			if IsRootless() {
-				if ip, err := SetupRootlessNetwork(childPID, c.ID); err != nil {
-					fmt.Fprintf(os.Stderr, "Rootless network: %v (container will run without network)\n", err)
-				} else {
-					c.IP = ip
-					// Set up port forwarding
-					for _, p := range c.Ports {
-						if err := RootlessPortForward(p.HostPort, p.ContainerPort, p.Protocol); err != nil {
-							fmt.Fprintf(os.Stderr, "  port %d -> %d: %v\n", p.HostPort, p.ContainerPort, err)
-						}
+	if c.NeedsNetwork() && runtime.GOOS == "linux" {
+		if IsRootless() {
+			if ip, err := SetupRootlessNetwork(childPID, c.ID); err != nil {
+				fmt.Fprintf(os.Stderr, "Rootless network: %v (container will run without network)\n", err)
+			} else {
+				c.IP = ip
+				for _, p := range c.Ports {
+					if err := RootlessPortForward(p.HostPort, p.ContainerPort, p.Protocol); err != nil {
+						fmt.Fprintf(os.Stderr, "  port %d -> %d: %v\n", p.HostPort, p.ContainerPort, err)
 					}
 				}
-			} else {
-				if err := setupNetworking(c, childPID); err != nil {
-					fmt.Fprintf(os.Stderr, "Network setup: %v (container will run without network)\n", err)
-				}
+			}
+		} else {
+			if err := setupNetworking(c, childPID); err != nil {
+				fmt.Fprintf(os.Stderr, "Network setup: %v (container will run without network)\n", err)
 			}
 		}
 	}
+}
 
-	c.Status = Running
-	c.Save()
-	EmitEvent(EventStart, c)
-
-	if c.Detach {
-		ctx, cancel := context.WithCancel(context.Background())
-		c.cancelHealth = cancel
-		monitorContainer(c, cmd, ctx)
-		fmt.Println(c.ID[:12])
-		return nil
-	}
-
-	err = cmd.Wait()
+func (c *Container) runForeground(cmd *exec.Cmd) error {
+	err := cmd.Wait()
 	c.PID = 0
 	c.Status = Stopped
 	c.cleanupNetwork()
@@ -308,6 +340,12 @@ func monitorContainer(c *Container, cmd *exec.Cmd, ctx context.Context) {
 		exitCode := 0
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			exitCode = exitErr.ExitCode()
+		}
+
+		// Cancel healthcheck goroutine
+		if c.cancelHealth != nil {
+			c.cancelHealth()
+			c.cancelHealth = nil
 		}
 
 		c.mu.Lock()
