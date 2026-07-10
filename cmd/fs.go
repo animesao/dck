@@ -16,10 +16,41 @@ func Fs(args []string) {
 		fmt.Println("  dck fs cat <container> <path>")
 		fmt.Println("  dck fs tree <container> [path]")
 		fmt.Println("  dck fs find <container> [path] [--name <pattern>] [--grep <text>] [--type f|d] [--max-depth <n>]")
+		fmt.Println("  dck fs find [--name <pattern>] [--grep <text>] [--type f|d] [--max-depth <n>]  (search all containers)")
 		os.Exit(1)
 	}
 
 	sub := args[0]
+
+	// If second arg is a flag, search all containers (no container specified)
+	if len(args) > 1 && strings.HasPrefix(args[1], "--") {
+		if sub != "find" {
+			fmt.Fprintf(os.Stderr, "Error: container required for 'dck fs %s'\n", sub)
+			os.Exit(1)
+		}
+		containers, err := container.List(true)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		if len(containers) == 0 {
+			fmt.Fprintln(os.Stderr, "No containers found")
+			os.Exit(1)
+		}
+		for _, c := range containers {
+			_, _, merged := c.OverlayDirs()
+			if _, err := os.Stat(merged); err != nil {
+				continue
+			}
+			label := c.ID[:12]
+			if c.Name != "" {
+				label = c.Name
+			}
+			fsFind(merged, label, args[1:])
+		}
+		return
+	}
+
 	id := args[1]
 
 	c, err := container.Load(id)
