@@ -70,8 +70,8 @@ func TestListImages(t *testing.T) {
 		t.Errorf("ListImages() should be empty initially, got %d", len(images))
 	}
 
-	SaveToStore(&Image{Name: "alpine", Tag: "latest"})
-	SaveToStore(&Image{Name: "nginx", Tag: "1.21"})
+	SaveToStore(&Image{Name: "library/alpine", Tag: "latest"})
+	SaveToStore(&Image{Name: "library/nginx", Tag: "1.21"})
 
 	images, err = ListImages()
 	if err != nil {
