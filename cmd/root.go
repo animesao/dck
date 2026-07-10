@@ -187,7 +187,10 @@ Run options:
   -d              Detach (background)
   -n <name>       Container name
   -p H:C[/proto]  Port mapping (host:container/tcp|udp, default tcp)
+  --ports H:C     Port mapping (alias for -p)
   -v S:D          Volume mount (src:dst)
+  --volume S:D    Volume mount (alias for -v)
+  --vol S:D       Volume mount (alias for -v)
   -e K=V          Environment variable
   --env-file <f>  Read environment variables from file
   -i              Interactive
@@ -195,10 +198,16 @@ Run options:
   --rm            Remove on exit
   --restart       Restart policy (no, always, on-failure, unless-stopped)
   --memory <lim>  Memory limit (512m, 1g, 2g, etc.)
+  --ram <lim>     Memory limit (alias for --memory)
   --cpus <num>    CPU limit (e.g. 1.5)
+  --cpu <num>     CPU limit (alias for --cpus)
+  --disk <lim>    Disk limit (e.g. 1G, 512M)
   --workdir <dir> Working directory inside container
   -h <name>       Container hostname
   --entrypoint    Override image entrypoint
+  --image <img>   Container image (instead of positional arg)
+  --cmd <cmd>     Container command (instead of positional args)
+  --command <cmd> Container command (alias for --cmd)
   --cap-add       Add Linux capabilities (e.g. NET_ADMIN)
   --cap-drop      Drop Linux capabilities (e.g. ALL)
   --user <uid>    Username or UID:GID
@@ -213,5 +222,5 @@ Run options:
   --healthcheck-cmd <cmd>      Health check command
   --healthcheck-interval <s>   Health check interval
   --healthcheck-retries <n>    Health check retries
-   --healthcheck-timeout <s>    Health check timeout`)
+  --healthcheck-timeout <s>    Health check timeout`)
 }
