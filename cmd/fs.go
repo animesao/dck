@@ -193,10 +193,9 @@ func fsFind(merged string, args []string) {
 			}
 		}
 
-		// Filter by name pattern
+		// Filter by name pattern (substring match)
 		if opts.name != "" {
-			matched, err := filepath.Match(opts.name, fi.Name())
-			if err != nil || !matched {
+			if !strings.Contains(fi.Name(), opts.name) {
 				return nil
 			}
 		}
@@ -215,7 +214,9 @@ func fsFind(merged string, args []string) {
 			}
 		}
 
-		fmt.Println(rel)
+		containerRel, _ := filepath.Rel(merged, p)
+		containerPath := "/" + strings.ReplaceAll(containerRel, "\\", "/")
+		fmt.Println(containerPath)
 		return nil
 	})
 	if err != nil {
