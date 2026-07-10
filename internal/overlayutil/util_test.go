@@ -1,11 +1,42 @@
 package overlayutil
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func makeTarGz(t *testing.T, files map[string]string) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.tar.gz")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	gw := gzip.NewWriter(f)
+	tw := tar.NewWriter(gw)
+	for name, content := range files {
+		hdr := &tar.Header{
+			Name: name,
+			Size: int64(len(content)),
+			Mode: 0644,
+		}
+		if err := tw.WriteHeader(hdr); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tw.Write([]byte(content)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tw.Close()
+	gw.Close()
+	return path
+}
 
 func TestShortDigest(t *testing.T) {
 	tests := []struct {
@@ -42,7 +73,6 @@ func TestHashFile(t *testing.T) {
 		t.Errorf("HashFile hash length = %d, want 64 (SHA256 hex)", len(hash))
 	}
 
-	// Non-existent file
 	hash2, size2 := HashFile(filepath.Join(dir, "nonexistent"))
 	if hash2 != "" || size2 != 0 {
 		t.Errorf("HashFile for non-existent: hash=%q size=%d", hash2, size2)
@@ -50,54 +80,36 @@ func TestHashFile(t *testing.T) {
 }
 
 func TestExtractLayer(t *testing.T) {
-	// Create a minimal tar.gz
-	dir := t.TempDir()
-	tmpFile := filepath.Join(dir, "test.tar.gz")
-	extractDir := filepath.Join(dir, "extracted")
+	extractDir := t.TempDir()
+	tarFile := makeTarGz(t, map[string]string{"hello.txt": "world"})
 
-	// Write a minimal valid gzip with a tar inside
-	gzData := []byte{
-		0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff,
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	if err := ExtractLayer(tarFile, extractDir); err != nil {
+		t.Fatalf("ExtractLayer failed: %v", err)
 	}
-	os.WriteFile(tmpFile, gzData, 0644)
-
-	err := ExtractLayer(tmpFile, extractDir)
+	data, err := os.ReadFile(filepath.Join(extractDir, "hello.txt"))
 	if err != nil {
-		t.Fatalf("ExtractLayer on empty tar.gz should succeed, got: %v", err)
+		t.Fatalf("extracted file not found: %v", err)
+	}
+	if string(data) != "world" {
+		t.Errorf("content = %q, want %q", string(data), "world")
 	}
 
-	// Non-existent file
-	err = ExtractLayer(filepath.Join(dir, "nope.tar.gz"), extractDir)
+	err = ExtractLayer(filepath.Join(t.TempDir(), "nope.tar.gz"), extractDir)
 	if err == nil {
 		t.Error("ExtractLayer on non-existent file should fail")
 	}
 }
 
+func TestExtractLayerEmptyTar(t *testing.T) {
+	extractDir := t.TempDir()
+	tarFile := makeTarGz(t, nil)
+	if err := ExtractLayer(tarFile, extractDir); err != nil {
+		t.Fatalf("ExtractLayer on empty tar should succeed, got: %v", err)
+	}
+}
+
 func TestUnmountOverlay(t *testing.T) {
-	// UnmountOverlay should not panic on non-existent path
 	UnmountOverlay("/nonexistent/path/12345")
-}
-
-func TestMountOverlay(t *testing.T) {
-	// On non-Linux, MountOverlay should return nil
-	// (tested via cross-compilation)
-}
-
-func TestExtractLayerPathTraversal(t *testing.T) {
-	dir := t.TempDir()
-	extractDir := filepath.Join(dir, "rootfs")
-	os.MkdirAll(extractDir, 0755)
-
-	// Create a tar.gz with a path traversal attempt
-	tmpFile := filepath.Join(dir, "traversal.tar.gz")
-
-	// We can only test that the function doesn't panic with invalid data
-	invalidGz := []byte{0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0x01, 0x02, 0x03}
-	os.WriteFile(tmpFile, invalidGz, 0644)
-
-	_ = ExtractLayer(tmpFile, extractDir)
-	// Should not create files outside extractDir
 }
 
 func TestShortDigestEdgeCases(t *testing.T) {
