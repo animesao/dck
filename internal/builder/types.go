@@ -44,11 +44,13 @@ type Instruction struct {
 }
 
 type BuildConfig struct {
-	ContextDir string
-	Dockerfile string
-	ImageName  string
-	Tag        string
-	NoCache    bool
-	BuildArgs  map[string]string
-	Quiet      bool
+	ContextDir  string
+	Dockerfile  string
+	ImageName   string
+	Tag         string
+	NoCache     bool
+	BuildArgs   map[string]string
+	Quiet       bool
+	CPUCount    float64
+	MemoryLimit int64 // bytes
 }

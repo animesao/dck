@@ -28,14 +28,14 @@ func (c *Container) Logs(follow bool) error {
 	defer f.Close()
 
 	if follow {
-		return followLogs(f)
+		return c.followLogs(f)
 	}
 
 	_, err = io.Copy(os.Stdout, f)
 	return err
 }
 
-func followLogs(r io.ReadSeeker) error {
+func (c *Container) followLogs(r io.ReadSeeker) error {
 	r.Seek(0, io.SeekEnd)
 	reader := bufio.NewReader(r)
 
@@ -43,6 +43,12 @@ func followLogs(r io.ReadSeeker) error {
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			if err == io.EOF {
+				c.dataMu.RLock()
+				running := c.Status == Running
+				c.dataMu.RUnlock()
+				if !running {
+					return nil
+				}
 				time.Sleep(100 * time.Millisecond)
 				continue
 			}

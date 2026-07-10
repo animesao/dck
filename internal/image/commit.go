@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"dck/internal/overlayutil"
 	"dck/internal/state"
 )
 
@@ -166,13 +167,6 @@ func createLayer(rootfsDir, outputPath string) error {
 }
 
 func hashFile(path string) (string, int) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", 0
-	}
-	defer f.Close()
-
-	h := sha256.New()
-	size, _ := io.Copy(h, f)
-	return hex.EncodeToString(h.Sum(nil)), int(size)
+	h, size := overlayutil.HashFile(path)
+	return h, int(size)
 }

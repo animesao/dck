@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"dck/internal/log"
 	"dck/internal/state"
 )
 
@@ -245,7 +246,7 @@ func InitContainer(id, merged string) error {
 	// Bring up loopback interface (best-effort, iproute2 may not be in the image)
 	if err := exec.Command("ip", "link", "set", "lo", "up").Run(); err != nil {
 		if err2 := exec.Command("ifconfig", "lo", "up").Run(); err2 != nil {
-			fmt.Fprintf(os.Stderr, "Warning: could not bring up loopback (install iproute2 or net-tools): %v\n", err)
+			log.Warn("could not bring up loopback: %v", err)
 		}
 	}
 

@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"time"
 
 	"dck/internal/container"
 )
@@ -25,10 +24,8 @@ func Restart(args []string) {
 			fmt.Fprintf(os.Stderr, "Error stopping: %v\n", err)
 			os.Exit(1)
 		}
-		time.Sleep(1 * time.Second)
 	}
 
-	c.Status = container.Created
 	if err := c.Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error starting: %v\n", err)
 		os.Exit(1)

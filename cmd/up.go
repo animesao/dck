@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -32,6 +33,9 @@ func Up(args []string) {
 
 	fmt.Printf("Using config: %s\n", path)
 
+	// Load compose state for rename tracking
+	composeState := loadComposeState(path)
+
 	started := 0
 	for name, cc := range cfg.Container {
 		if filter != "" && name != filter {
@@ -50,9 +54,25 @@ func Up(args []string) {
 		}
 
 		existing := container.FindByName(name)
+		if existing == nil {
+			// Check compose state for renamed containers
+			if oldID, ok := composeState[name]; ok {
+				if c := findContainerByID(oldID); c != nil {
+					if c.Name != name {
+						if err := c.Rename(name); err != nil {
+							fmt.Fprintf(os.Stderr, "  %s: rename error: %v\n", name, err)
+						} else {
+							fmt.Printf("  %s: renamed from %s\n", name, oldID[:12])
+						}
+					}
+					existing = c
+				}
+			}
+		}
 		if existing != nil {
 			if existing.Status == container.Running {
 				fmt.Printf("  %s: already running\n", name)
+				composeState[name] = existing.ID
 				continue
 			}
 			fmt.Printf("  %s: starting existing container...\n", name)
@@ -63,6 +83,7 @@ func Up(args []string) {
 				fmt.Printf("  %s: started\n", name)
 				started++
 			}
+			composeState[name] = existing.ID
 			continue
 		}
 
@@ -209,9 +230,11 @@ func Up(args []string) {
 			continue
 		}
 		fmt.Printf("  %s: created and started (%s)\n", name, c.ID[:12])
+		composeState[name] = c.ID
 		started++
 	}
 
+	saveComposeState(path, composeState)
 	fmt.Printf("Up complete: %d containers started\n", started)
 
 	if *autostart || shouldAutostart() {
@@ -227,4 +250,36 @@ func shouldAutostart() bool {
 		return false // already installed
 	}
 	return true
+}
+
+type composeState map[string]string // service_name -> container_id
+
+func composeStatePath(configPath string) string {
+	return configPath + ".state"
+}
+
+func loadComposeState(configPath string) composeState {
+	sp := composeStatePath(configPath)
+	data, err := os.ReadFile(sp)
+	if err != nil {
+		return make(composeState)
+	}
+	var s composeState
+	if err := json.Unmarshal(data, &s); err != nil {
+		return make(composeState)
+	}
+	return s
+}
+
+func saveComposeState(configPath string, s composeState) {
+	data, _ := json.Marshal(s)
+	os.WriteFile(composeStatePath(configPath), data, 0644)
+}
+
+func findContainerByID(id string) *container.Container {
+	c, err := container.Load(id)
+	if err != nil {
+		return nil
+	}
+	return c
 }

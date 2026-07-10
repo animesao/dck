@@ -135,16 +135,17 @@ func SetupRootlessNetwork(pid int, containerID string) (string, error) {
 
 // RootlessPortForward sets up port forwarding using rootlesskit port driver
 // For now, we use socat as a simple forwarding mechanism
-func RootlessPortForward(hostPort, containerPort int, protocol string) error {
+// Returns the PIDs of spawned processes for later cleanup.
+func RootlessPortForward(hostPort, containerPort int, protocol string) ([]int, error) {
 	// Try rootlesskit first, fall back to socat
 	if _, err := exec.LookPath("rootlesskit"); err == nil {
 		cmd := exec.Command("rootlessctl", "add-ports",
 			fmt.Sprintf("127.0.0.1:%d/%s", hostPort, strings.ToUpper(protocol)),
 			fmt.Sprintf("10.0.2.100:%d", containerPort))
 		if out, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("rootlesskit port: %s: %w", strings.TrimSpace(string(out)), err)
+			return nil, fmt.Errorf("rootlesskit port: %s: %w", strings.TrimSpace(string(out)), err)
 		}
-		return nil
+		return nil, nil
 	}
 
 	// Fallback to socat
@@ -153,11 +154,22 @@ func RootlessPortForward(hostPort, containerPort int, protocol string) error {
 		cmd := exec.Command("socat",
 			fmt.Sprintf("%s-LISTEN:%d,reuseaddr,fork", proto, hostPort),
 			fmt.Sprintf("%s:10.0.2.100:%d", proto, containerPort))
-		cmd.Start()
-		return nil
+		if err := cmd.Start(); err != nil {
+			return nil, fmt.Errorf("socat start: %w", err)
+		}
+		return []int{cmd.Process.Pid}, nil
 	}
 
-	return fmt.Errorf("no port forwarding available (install rootlesskit or socat)")
+	return nil, fmt.Errorf("no port forwarding available (install rootlesskit or socat)")
+}
+
+// CleanupRootlessPorts kills socat/rootlesskit processes for a container.
+func CleanupRootlessPorts(pids []int) {
+	for _, pid := range pids {
+		if pid > 0 {
+			exec.Command("kill", strconv.Itoa(pid)).Run()
+		}
+	}
 }
 
 // PrintRootlessInfo prints information about rootless mode

@@ -18,6 +18,8 @@ func Build(args []string) {
 	var buildArgs builder.StringSlice
 	fs.Var(&buildArgs, "build-arg", "Build-time variables")
 	quiet := fs.Bool("quiet", false, "Suppress build output")
+	cpu := fs.Float64("cpu", 0, "CPU cores (e.g. 0.5, 2)")
+	memory := fs.Int("memory", 0, "Memory limit in bytes (e.g. 536870912 for 512MB)")
 
 	fs.Parse(args)
 
@@ -68,13 +70,15 @@ func Build(args []string) {
 	}
 
 	cfg := &builder.BuildConfig{
-		ContextDir: contextDir,
-		Dockerfile: dfPath,
-		ImageName:  imgName,
-		Tag:        imgTag,
-		NoCache:    *noCache,
-		BuildArgs:  buildArgMap,
-		Quiet:      *quiet,
+		ContextDir:  contextDir,
+		Dockerfile:  dfPath,
+		ImageName:   imgName,
+		Tag:         imgTag,
+		NoCache:     *noCache,
+		BuildArgs:   buildArgMap,
+		Quiet:       *quiet,
+		CPUCount:    *cpu,
+		MemoryLimit: int64(*memory),
 	}
 
 	_, err := builder.Build(cfg)

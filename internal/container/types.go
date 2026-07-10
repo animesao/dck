@@ -66,12 +66,14 @@ type Container struct {
 	Ulimits       []Ulimit           `json:"ulimits,omitempty"`
 
 	ConsoleServePID int                `json:"console_serve_pid,omitempty"`
+	PortForwardPIDs []int              `json:"port_forward_pids,omitempty"`
 	Secrets     []SecretMount       `json:"secrets,omitempty"`
 	Configs     []SecretMount       `json:"configs,omitempty"`
 
 	// Runtime-only (not persisted)
 	cancelHealth    context.CancelFunc `json:"-"`
 	mu              sync.Mutex         `json:"-"`
+	dataMu          sync.RWMutex       `json:"-"`
 	cleanupStarted  bool               `json:"-"`
 }
 
@@ -135,6 +137,8 @@ type CreateOpts struct {
 }
 
 func (c *Container) Save() error {
+	c.dataMu.RLock()
+	defer c.dataMu.RUnlock()
 	os.MkdirAll(state.ContainersDir(), 0755)
 	return state.WriteJSON(state.ContainerPath(c.ID), c)
 }

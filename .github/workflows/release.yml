@@ -1,0 +1,114 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Version bump: auto, major, minor, or patch'
+        required: true
+        default: 'auto'
+        type: choice
+        options:
+          - auto
+          - major
+          - minor
+          - patch
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache: true
+
+      - name: Determine next version
+        id: version
+        run: |
+          # Read current version from VERSION file
+          CURRENT=$(cat cmd/VERSION | tr -d ' \n')
+          echo "Current version: $CURRENT"
+
+          # Get latest git tag version
+          LATEST_TAG=$(git tag --list 'v*' --sort=-v:refname | head -1 | sed 's/^v//')
+          echo "Latest tag: $LATEST_TAG"
+
+          # Use the higher of the two as base
+          BASE=$CURRENT
+          if [ -n "$LATEST_TAG" ] && [ "$(printf '%s\n' "$LATEST_TAG" "$CURRENT" | sort -V | tail -1)" = "$LATEST_TAG" ]; then
+            BASE=$LATEST_TAG
+          fi
+          echo "Base version: $BASE"
+
+          # Parse semver
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$BASE"
+          MAJOR=${MAJOR:-0}
+          MINOR=${MINOR:-0}
+          PATCH=${PATCH:-0}
+
+          BUMP="${{ inputs.bump }}"
+
+          if [ "$BUMP" = "auto" ]; then
+            # Auto-detect: if patch >= 10, bump minor, else bump patch
+            if [ "$PATCH" -ge 10 ]; then
+              BUMP="minor"
+            else
+              BUMP="patch"
+            fi
+          fi
+
+          case "$BUMP" in
+            major)
+              MAJOR=$((MAJOR + 1))
+              MINOR=0
+              PATCH=0
+              ;;
+            minor)
+              MINOR=$((MINOR + 1))
+              PATCH=0
+              ;;
+            patch)
+              PATCH=$((PATCH + 1))
+              ;;
+          esac
+
+          NEXT="${MAJOR}.${MINOR}.${PATCH}"
+          echo "Next version: $NEXT"
+          echo "version=$NEXT" >> $GITHUB_OUTPUT
+          echo "tag=v$NEXT" >> $GITHUB_OUTPUT
+
+      - name: Update VERSION file
+        run: |
+          echo "${{ steps.version.outputs.version }}" > cmd/VERSION
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add cmd/VERSION
+          git commit -m "Bump version to ${{ steps.version.outputs.version }}"
+          git tag "v${{ steps.version.outputs.version }}"
+          git push origin main --tags
+
+      - name: Build binaries
+        run: |
+          mkdir -p dist
+          GOOS=linux GOARCH=amd64 go build -ldflags="-X dck/cmd.version=${{ steps.version.outputs.version }}" -o dist/dck-linux-amd64 .
+          cd dist
+          sha256sum dck-linux-amd64 > dck-linux-amd64.sha256
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "v${{ steps.version.outputs.version }}"
+          name: "v${{ steps.version.outputs.version }}"
+          body: |
+            ## dck v${{ steps.version.outputs.version }}
+
+            See [CHANGELOG](README.md#changelog) for details.
+          files: dist/*

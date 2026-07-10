@@ -1,0 +1,187 @@
+package container
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestParseMemoryString(t *testing.T) {
+	tests := []struct {
+		input string
+		want  int64
+		err   bool
+	}{
+		{"512m", 512 * 1024 * 1024, false},
+		{"1g", 1 * 1024 * 1024 * 1024, false},
+		{"256M", 256 * 1024 * 1024, false},
+		{"1.5g", 1.5 * 1024 * 1024 * 1024, false},
+		{"", 0, true},
+		{"invalid", 0, true},
+		{"100", 100, false},
+	}
+	for _, tt := range tests {
+		got, err := ParseMemoryString(tt.input)
+		if tt.err && err == nil {
+			t.Errorf("ParseMemoryString(%q) should error", tt.input)
+		}
+		if !tt.err && err != nil {
+			t.Errorf("ParseMemoryString(%q) unexpected error: %v", tt.input, err)
+		}
+		if got != tt.want {
+			t.Errorf("ParseMemoryString(%q) = %d, want %d", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestLogFile(t *testing.T) {
+	c := &Container{ID: "test123"}
+	path := c.LogFile()
+	if path == "" {
+		t.Error("LogFile() returned empty")
+	}
+	if !filepath.IsAbs(path) {
+		t.Errorf("LogFile() = %q, want absolute path", path)
+	}
+}
+
+func TestParseVolumeString(t *testing.T) {
+	tests := []struct {
+		input string
+		src   string
+		dst   string
+	}{
+		{"/host/path:/container/path", "/host/path", "/container/path"},
+		{"named:/path", "named", "/path"},
+	}
+	for _, tt := range tests {
+		got := ParseVolumeString(tt.input)
+		if got.Source != tt.src {
+			t.Errorf("ParseVolumeString(%q).Source = %q, want %q", tt.input, got.Source, tt.src)
+		}
+		if got.Target != tt.dst {
+			t.Errorf("ParseVolumeString(%q).Target = %q, want %q", tt.input, got.Target, tt.dst)
+		}
+	}
+}
+
+func TestNeedsNetwork(t *testing.T) {
+	tests := []struct {
+		mode string
+		want bool
+	}{
+		{"", true},
+		{"bridge", true},
+		{"host", false},
+		{"none", false},
+	}
+	for _, tt := range tests {
+		c := &Container{NetworkMode: tt.mode}
+		got := c.NeedsNetwork()
+		if got != tt.want {
+			t.Errorf("NeedsNetwork() with mode %q = %v, want %v", tt.mode, got, tt.want)
+		}
+	}
+}
+
+func TestSaveAndLoad(t *testing.T) {
+	// Save the original data dir
+	origDataDir := os.Getenv("DCK_DATA_DIR")
+	defer os.Setenv("DCK_DATA_DIR", origDataDir)
+
+	tmpDir := t.TempDir()
+	os.Setenv("DCK_DATA_DIR", tmpDir)
+
+	c := &Container{
+		ID:     "test-save-load",
+		Name:   "test-container",
+		Status: Created,
+		ImageName: "nginx",
+		ImageTag:  "latest",
+		Ports: []PortMap{
+			{HostPort: 8080, ContainerPort: 80, Protocol: "tcp"},
+		},
+	}
+
+	if err := c.Save(); err != nil {
+		t.Fatalf("Save() error: %v", err)
+	}
+
+	loaded, err := Load("test-save-load")
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	if loaded.Name != c.Name {
+		t.Errorf("Loaded Name = %q, want %q", loaded.Name, c.Name)
+	}
+	if loaded.ImageName != c.ImageName {
+		t.Errorf("Loaded ImageName = %q, want %q", loaded.ImageName, c.ImageName)
+	}
+	if len(loaded.Ports) != len(c.Ports) {
+		t.Errorf("Loaded Ports length = %d, want %d", len(loaded.Ports), len(c.Ports))
+	}
+}
+
+func TestContainerState(t *testing.T) {
+	c := &Container{ID: "test-state", Status: Created}
+	if c.Status != Created {
+		t.Errorf("Status should be Created initially")
+	}
+
+	c.Status = Running
+	if c.Status != Running {
+		t.Errorf("Status should be Running after change")
+	}
+
+	c.Status = Stopped
+	if c.Status != Stopped {
+		t.Errorf("Status should be Stopped after change")
+	}
+}
+
+func TestPortMap(t *testing.T) {
+	p := PortMap{
+		HostPort:      8080,
+		ContainerPort: 80,
+		Protocol:      "tcp",
+	}
+	if p.HostPort != 8080 {
+		t.Errorf("HostPort = %d", p.HostPort)
+	}
+	if p.ContainerPort != 80 {
+		t.Errorf("ContainerPort = %d", p.ContainerPort)
+	}
+	if p.Protocol != "tcp" {
+		t.Errorf("Protocol = %s", p.Protocol)
+	}
+}
+
+func TestFindByName(t *testing.T) {
+	origDataDir := os.Getenv("DCK_DATA_DIR")
+	defer os.Setenv("DCK_DATA_DIR", origDataDir)
+
+	tmpDir := t.TempDir()
+	os.Setenv("DCK_DATA_DIR", tmpDir)
+
+	c := &Container{
+		ID:   "findme",
+		Name: "find-me-by-name",
+	}
+	if err := c.Save(); err != nil {
+		t.Fatalf("Save() error: %v", err)
+	}
+
+	found := FindByName("find-me-by-name")
+	if found == nil {
+		t.Fatal("FindByName returned nil")
+	}
+	if found.ID != "findme" {
+		t.Errorf("Found ID = %s, want findme", found.ID)
+	}
+
+	notFound := FindByName("nonexistent")
+	if notFound != nil {
+		t.Error("FindByName for nonexistent should return nil")
+	}
+}

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"dck/internal/image"
+	"dck/internal/overlayutil"
 	"dck/internal/state"
 )
 
@@ -324,8 +325,18 @@ func (bs *buildState) handleRun(inst Instruction, buildEnv []string, buildTmp st
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("RUN command failed: %w", err)
+	if bs.cfg.CPUCount > 0 || bs.cfg.MemoryLimit > 0 {
+		if err := cmd.Start(); err != nil {
+			return fmt.Errorf("RUN command start: %w", err)
+		}
+		applyBuildCgroup(cmd.Process.Pid, bs.cfg.CPUCount, bs.cfg.MemoryLimit)
+		if err := cmd.Wait(); err != nil {
+			return fmt.Errorf("RUN command failed: %w", err)
+		}
+	} else {
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("RUN command failed: %w", err)
+		}
 	}
 
 	// Create layer from upperdir changes
@@ -725,16 +736,11 @@ func (bs *buildState) finalize(buildTmp string) (*image.Image, error) {
 
 // Overlay helpers
 func mountOverlay(buildTmp, lower, upper, work, merged string) error {
-	if err := exec.Command("mount", "-t", "overlay", "overlay",
-		"-o", fmt.Sprintf("lowerdir=%s,upperdir=%s,workdir=%s", lower, upper, work),
-		merged).Run(); err != nil {
-		return fmt.Errorf("mount overlay: %w", err)
-	}
-	return nil
+	return overlayutil.MountOverlay(lower, upper, work, merged)
 }
 
 func unmountOverlay(merged string) {
-	exec.Command("umount", merged).Run()
+	overlayutil.UnmountOverlay(merged)
 }
 
 func createLayerFromDir(srcDir, outputPath string) error {
@@ -789,79 +795,38 @@ func createLayerFromDir(srcDir, outputPath string) error {
 }
 
 func hashFile(path string) (string, int) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", 0
-	}
-	defer f.Close()
-
-	h := sha256.New()
-	size, err := io.Copy(h, f)
-	if err != nil {
-		f.Close()
-		return hex.EncodeToString(h.Sum(nil)), 0
-	}
-	return hex.EncodeToString(h.Sum(nil)), int(size)
+	h, size := overlayutil.HashFile(path)
+	return h, int(size)
 }
 
 func extractLayer(cachePath, rootfsDir string) error {
-	f, err := os.Open(cachePath)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	gzr, err := gzip.NewReader(f)
-	if err != nil {
-		return fmt.Errorf("gzip: %w", err)
-	}
-	defer gzr.Close()
-
-	tr := tar.NewReader(gzr)
-	for {
-		hdr, err := tr.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return err
-		}
-
-		path := filepath.Join(rootfsDir, hdr.Name)
-		if !strings.HasPrefix(path, filepath.Clean(rootfsDir)+string(os.PathSeparator)) {
-			continue
-		}
-
-		switch hdr.Typeflag {
-		case tar.TypeDir:
-			os.MkdirAll(path, os.FileMode(hdr.Mode))
-		case tar.TypeReg:
-			os.MkdirAll(filepath.Dir(path), 0755)
-			f, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, os.FileMode(hdr.Mode))
-			if err != nil {
-				return err
-			}
-			if _, err := io.Copy(f, tr); err != nil {
-				f.Close()
-				return err
-			}
-			f.Close()
-		case tar.TypeSymlink:
-			os.Remove(path)
-			os.Symlink(hdr.Linkname, path)
-		case tar.TypeLink:
-			os.Remove(path)
-			os.Link(filepath.Join(rootfsDir, hdr.Linkname), path)
-		}
-	}
-	return nil
+	return overlayutil.ExtractLayer(cachePath, rootfsDir)
 }
 
 func shortDigest(d string) string {
-	if len(d) > 19 {
-		return d[:19]
+	return overlayutil.ShortDigest(d)
+}
+
+func applyBuildCgroup(pid int, cpu float64, mem int64) {
+	if cpu <= 0 && mem <= 0 {
+		return
 	}
-	return d
+	basePath := "/sys/fs/cgroup"
+	dckCg := filepath.Join(basePath, "dck-build")
+	os.MkdirAll(dckCg, 0755)
+
+	cgPath := filepath.Join(basePath, "dck-build", fmt.Sprintf("run_%d", pid))
+	os.MkdirAll(cgPath, 0755)
+
+	if mem > 0 {
+		os.WriteFile(filepath.Join(cgPath, "memory.max"), []byte(fmt.Sprintf("%d", mem)), 0644)
+	}
+	if cpu > 0 {
+		quota := int64(cpu * 100000)
+		os.WriteFile(filepath.Join(cgPath, "cpu.max"), []byte(fmt.Sprintf("%d 100000", quota)), 0644)
+	}
+
+	os.WriteFile(filepath.Join(cgPath, "cgroup.procs"), []byte(fmt.Sprintf("%d", pid)), 0644)
 }
 
 func copyFile(src, dst string) error {

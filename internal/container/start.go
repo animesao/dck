@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"dck/internal/image"
+	"dck/internal/log"
 	"dck/internal/network"
 	"dck/internal/state"
 )
@@ -28,10 +29,13 @@ func commandContext30(name string, arg ...string) *exec.Cmd {
 }
 
 func (c *Container) Start() error {
+	c.dataMu.Lock()
 	if c.Status == Running {
+		c.dataMu.Unlock()
 		return fmt.Errorf("container %s is already running", c.ID)
 	}
 	c.Status = Created
+	c.dataMu.Unlock()
 
 	state.EnsureDirs()
 
@@ -61,10 +65,20 @@ func (c *Container) Start() error {
 	}
 
 	childPID := c.resolveChildPID(cmd.Process.Pid)
-	c.PID = childPID
 	c.setupContainerResources(childPID)
 
+	// Register DNS name and inject container hostnames
+	if c.IP != "" {
+		RegisterDNSName(c.Name, c.IP)
+	}
+	if c.DNS != nil || c.IP != "" {
+		EnsureContainerHosts(merged, c.Name, c.IP, c.DNS)
+	}
+
+	c.dataMu.Lock()
+	c.PID = childPID
 	c.Status = Running
+	c.dataMu.Unlock()
 	c.Save()
 	EmitEvent(EventStart, c)
 
@@ -195,7 +209,7 @@ func (c *Container) resolveChildPID(unsharePID int) int {
 func (c *Container) setupContainerResources(childPID int) {
 	cpath, err := setupContainerCgroup(c.ID, childPID, c.MemoryLimit, c.CPUCount)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Cgroup setup: %v (container will run without resource limits)\n", err)
+		log.Warn("Cgroup setup: %v (container will run without resource limits)", err)
 	} else {
 		c.CgroupPath = cpath
 	}
@@ -203,18 +217,21 @@ func (c *Container) setupContainerResources(childPID int) {
 	if c.NeedsNetwork() && runtime.GOOS == "linux" {
 		if IsRootless() {
 			if ip, err := SetupRootlessNetwork(childPID, c.ID); err != nil {
-				fmt.Fprintf(os.Stderr, "Rootless network: %v (container will run without network)\n", err)
+				log.Warn("Rootless network: %v (container will run without network)", err)
 			} else {
 				c.IP = ip
 				for _, p := range c.Ports {
-					if err := RootlessPortForward(p.HostPort, p.ContainerPort, p.Protocol); err != nil {
-						fmt.Fprintf(os.Stderr, "  port %d -> %d: %v\n", p.HostPort, p.ContainerPort, err)
+					pids, err := RootlessPortForward(p.HostPort, p.ContainerPort, p.Protocol)
+					if err != nil {
+						log.Warn("  port %d -> %d: %v", p.HostPort, p.ContainerPort, err)
+					} else {
+						c.PortForwardPIDs = append(c.PortForwardPIDs, pids...)
 					}
 				}
 			}
 		} else {
 			if err := setupNetworking(c, childPID); err != nil {
-				fmt.Fprintf(os.Stderr, "Network setup: %v (container will run without network)\n", err)
+				log.Warn("Network setup: %v (container will run without network)", err)
 			}
 		}
 	}
@@ -222,8 +239,10 @@ func (c *Container) setupContainerResources(childPID int) {
 
 func (c *Container) runForeground(cmd *exec.Cmd) error {
 	err := cmd.Wait()
+	c.dataMu.Lock()
 	c.PID = 0
 	c.Status = Stopped
+	c.dataMu.Unlock()
 	c.cleanupNetwork()
 	c.Save()
 
@@ -308,7 +327,7 @@ func setupNetworking(c *Container, pid int) error {
 
 	for _, p := range c.Ports {
 		if err := network.AddPortForwarding(ip, p.HostPort, p.ContainerPort, p.Protocol); err != nil {
-			fmt.Fprintf(os.Stderr, "  port %d -> %d: %v\n", p.HostPort, p.ContainerPort, err)
+			log.Warn("  port %d -> %d: %v", p.HostPort, p.ContainerPort, err)
 		}
 	}
 
@@ -368,8 +387,11 @@ func monitorContainer(c *Container, cmd *exec.Cmd, ctx context.Context) {
 			}
 		}
 
+		UnregisterDNSName(c.Name)
+		c.dataMu.Lock()
 		c.PID = 0
 		c.Status = Stopped
+		c.dataMu.Unlock()
 		c.cleanupNetwork()
 		c.Save()
 
@@ -408,7 +430,10 @@ func (c *Container) runHealthcheck(ctx context.Context) {
 		case <-time.After(interval):
 		}
 
-		if c.Status != Running {
+		c.dataMu.RLock()
+		isRunning := c.Status == Running
+		c.dataMu.RUnlock()
+		if !isRunning {
 			return
 		}
 
@@ -417,7 +442,7 @@ func (c *Container) runHealthcheck(ctx context.Context) {
 			failures++
 			if failures >= retries {
 				if err := commandContext30("kill", "-9", strconv.Itoa(c.PID)).Run(); err != nil {
-					fmt.Fprintf(os.Stderr, "Warning: kill -9 %d: %v\n", c.PID, err)
+					log.Warn("kill -9 %d: %v", c.PID, err)
 				}
 				return
 			}

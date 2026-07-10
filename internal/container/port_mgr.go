@@ -15,9 +15,11 @@ func (c *Container) AddPort(hostPort, containerPort int, protocol string) error 
 	if c.Status == Running && c.IP != "" {
 		if runtime.GOOS == "linux" {
 			if IsRootless() {
-				if err := RootlessPortForward(hostPort, containerPort, protocol); err != nil {
+				pids, err := RootlessPortForward(hostPort, containerPort, protocol)
+				if err != nil {
 					return fmt.Errorf("rootless port forward: %w", err)
 				}
+				c.PortForwardPIDs = append(c.PortForwardPIDs, pids...)
 			} else {
 				if err := network.AddPortForwarding(c.IP, hostPort, containerPort, protocol); err != nil {
 					return fmt.Errorf("add port forwarding: %w", err)

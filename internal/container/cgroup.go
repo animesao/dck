@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+
+	"dck/internal/log"
 )
 
 const (
@@ -95,7 +97,7 @@ func setupContainerCgroup(id string, pid int, memoryLimit int64, cpuCount float6
 			data, _ := os.ReadFile(dckSub)
 			if !strings.Contains(string(data), ctrl) {
 				if err := os.WriteFile(dckSub, []byte("+"+ctrl+"\n"), 0644); err != nil {
-					fmt.Fprintf(os.Stderr, "Warning: enable cgroup controller %s: %v\n", ctrl, err)
+					log.Warn("enable cgroup controller %s: %v", ctrl, err)
 				}
 			}
 		}
@@ -109,7 +111,7 @@ func setupContainerCgroup(id string, pid int, memoryLimit int64, cpuCount float6
 	if memoryLimit > 0 {
 		val := strconv.FormatInt(memoryLimit, 10)
 		if err := os.WriteFile(filepath.Join(cPath, "memory.max"), []byte(val), 0644); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: set memory.max: %v\n", err)
+			log.Warn("set memory.max: %v", err)
 		}
 	}
 
@@ -117,13 +119,13 @@ func setupContainerCgroup(id string, pid int, memoryLimit int64, cpuCount float6
 		quota := int64(cpuCount * float64(cpuPeriod))
 		val := fmt.Sprintf("%d %d", quota, cpuPeriod)
 		if err := os.WriteFile(filepath.Join(cPath, "cpu.max"), []byte(val), 0644); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: set cpu.max: %v\n", err)
+			log.Warn("set cpu.max: %v", err)
 		}
 	}
 
 	pidStr := strconv.Itoa(pid)
 	if err := os.WriteFile(filepath.Join(cPath, "cgroup.procs"), []byte(pidStr), 0644); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: set cgroup.procs: %v\n", err)
+		log.Warn("set cgroup.procs: %v", err)
 	}
 
 	return cPath, nil

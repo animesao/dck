@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"dck/internal/log"
 	"dck/internal/state"
 )
 
@@ -69,7 +70,7 @@ func (c *Container) Stop() error {
 	}
 
 	if err := syscall.Kill(targetPID, syscall.SIGKILL); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: kill target PID %d: %v\n", targetPID, err)
+		log.Warn("kill target PID %d: %v", targetPID, err)
 	}
 	waitForExit(targetPID, 2*time.Second)
 
@@ -81,17 +82,19 @@ cleanup:
 			goto postcleanup
 		}
 		if err := syscall.Kill(c.PID, syscall.SIGKILL); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: kill container PID %d: %v\n", c.PID, err)
+			log.Warn("kill container PID %d: %v", c.PID, err)
 		}
 		waitForExit(c.PID, 2*time.Second)
 	}
 postcleanup:
 
+	c.cleanupRootlessPorts()
 	c.killConsoleServe()
 	c.cancelHealthcheck()
 	c.cleanupNetwork()
 	cleanupContainerCgroup(c.ID, c.CgroupPath)
 	os.Remove(state.ConsolePath(c.ID))
+	UnregisterDNSName(c.Name)
 	c.PID = 0
 	c.Status = Stopped
 	c.Save()
@@ -99,10 +102,17 @@ postcleanup:
 	return nil
 }
 
+func (c *Container) cleanupRootlessPorts() {
+	if len(c.PortForwardPIDs) > 0 {
+		CleanupRootlessPorts(c.PortForwardPIDs)
+		c.PortForwardPIDs = nil
+	}
+}
+
 func (c *Container) killConsoleServe() {
 	if c.ConsoleServePID > 0 {
 		if err := syscall.Kill(c.ConsoleServePID, syscall.SIGKILL); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: kill console-serve PID %d: %v\n", c.ConsoleServePID, err)
+			log.Warn("kill console-serve PID %d: %v", c.ConsoleServePID, err)
 		}
 		c.ConsoleServePID = 0
 	}

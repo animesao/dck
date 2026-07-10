@@ -187,6 +187,24 @@ type SystemInfo struct {
 	DockerRootDir  string    `json:"DockerRootDir"`
 	Name           string    `json:"Name"`
 	ServerVersion  string    `json:"ServerVersion"`
+	HTTPProxy      string    `json:"HttpProxy,omitempty"`
+	HTTPSProxy     string    `json:"HttpsProxy,omitempty"`
+	NoProxy        string    `json:"NoProxy,omitempty"`
+	ExperimentalBuild bool   `json:"ExperimentalBuild"`
+	DefaultRuntime  string   `json:"DefaultRuntime"`
+	LiveRestoreEnabled bool  `json:"LiveRestoreEnabled"`
+	IndexServerAddress string `json:"IndexServerAddress,omitempty"`
+	Runtimes       map[string]RuntimeInfo `json:"Runtimes,omitempty"`
+	InitBinary     string   `json:"InitBinary,omitempty"`
+	SecurityOptions []string `json:"SecurityOptions,omitempty"`
+	CgroupDriver   string   `json:"CgroupDriver"`
+	CgroupVersion  string   `json:"CgroupVersion"`
+	Warnings       []string `json:"Warnings,omitempty"`
+}
+
+type RuntimeInfo struct {
+	Path        string   `json:"path"`
+	RuntimeArgs []string `json:"runtimeArgs,omitempty"`
 }
 
 // CreateContainerRequest is the JSON body for POST /containers/create

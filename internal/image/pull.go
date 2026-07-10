@@ -1,8 +1,6 @@
 package image
 
 import (
-	"archive/tar"
-	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"dck/internal/overlayutil"
 	"dck/internal/state"
 )
 
@@ -65,19 +64,46 @@ func Pull(ref string) (*Image, error) {
 	layersDir := filepath.Join(state.ImageDir(name, tag), "layers")
 	os.MkdirAll(layersDir, 0755)
 
+	isTerminal := isTerminalOutput()
+
 	for i, layer := range manifest.Layers {
-		fmt.Printf("  Layer %d/%d: %s\n", i+1, len(manifest.Layers), shortDigest(layer.Digest))
+		label := fmt.Sprintf(" %s", shortDigest(layer.Digest))
+		if isTerminal {
+			fmt.Printf("  %s\r", label)
+		} else {
+			fmt.Printf("  Layer %d/%d: %s\n", i+1, len(manifest.Layers), shortDigest(layer.Digest))
+		}
 		cachePath := filepath.Join(layersDir, strings.ReplaceAll(layer.Digest, ":", "_"))
 
 		if _, err := os.Stat(cachePath); os.IsNotExist(err) {
-			if err := downloadBlobToFile(name, layer.Digest, token, cachePath); err != nil {
+			percentFn := func(pct int) {
+				if isTerminal {
+					fmt.Printf("  %s [%s%s] %d%%\r", label, bar(pct, 30), bar(100-pct, 30), pct)
+				}
+			}
+			if err := downloadBlobToFile(name, layer.Digest, token, cachePath, percentFn); err != nil {
+				if isTerminal {
+					fmt.Println()
+				}
 				return nil, fmt.Errorf("layer %d: %w", i, err)
+			}
+			if isTerminal {
+				fmt.Printf("  %s [%s] 100%%\n", label, bar(100, 30))
 			}
 		}
 
+		if isTerminal {
+			fmt.Printf("  %s extracting...\r", label)
+		}
 		if err := extractLayer(cachePath, rootfsDir); err != nil {
+			if isTerminal {
+				fmt.Println()
+			}
 			return nil, fmt.Errorf("extract layer %d: %w", i, err)
 		}
+	}
+	if isTerminal {
+		fmt.Print(strings.Repeat(" ", 60) + "\r")
 	}
 
 	if err := saveConfig(state.ImageDir(name, tag), configData); err != nil {
@@ -233,7 +259,7 @@ func downloadBlob(repo, digest, token string) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
-func downloadBlobToFile(repo, digest, token, dest string) error {
+func downloadBlobToFile(repo, digest, token, dest string, onProgress progressFn) error {
 	u := fmt.Sprintf("%s/v2/%s/blobs/%s", registryURL, repo, digest)
 	req, _ := http.NewRequest("GET", u, nil)
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -250,72 +276,70 @@ func downloadBlobToFile(repo, digest, token, dest string) error {
 		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
 	}
 
+	contentLength := resp.ContentLength
+
 	f, err := os.Create(dest)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
 
+	if contentLength > 0 && onProgress != nil {
+		written := int64(0)
+		buf := make([]byte, 32*1024)
+		for {
+			n, readErr := resp.Body.Read(buf)
+			if n > 0 {
+				if _, writeErr := f.Write(buf[:n]); writeErr != nil {
+					return writeErr
+				}
+				written += int64(n)
+				onProgress(int(written * 100 / contentLength))
+			}
+			if readErr == io.EOF {
+				break
+			}
+			if readErr != nil {
+				return readErr
+			}
+		}
+		return nil
+	}
+
 	_, err = io.Copy(f, resp.Body)
 	return err
 }
 
 func extractLayer(cachePath, rootfsDir string) error {
-	f, err := os.Open(cachePath)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	gzr, err := gzip.NewReader(f)
-	if err != nil {
-		return fmt.Errorf("gzip: %w", err)
-	}
-	defer gzr.Close()
-
-	tr := tar.NewReader(gzr)
-	for {
-		hdr, err := tr.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return err
-		}
-
-		path := filepath.Join(rootfsDir, hdr.Name)
-		if !strings.HasPrefix(path, filepath.Clean(rootfsDir)+string(os.PathSeparator)) {
-			continue
-		}
-
-		switch hdr.Typeflag {
-		case tar.TypeDir:
-			os.MkdirAll(path, os.FileMode(hdr.Mode))
-		case tar.TypeReg:
-			os.MkdirAll(filepath.Dir(path), 0755)
-			f, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, os.FileMode(hdr.Mode))
-			if err != nil {
-				return err
-			}
-			if _, err := io.Copy(f, tr); err != nil {
-				f.Close()
-				return err
-			}
-			f.Close()
-		case tar.TypeSymlink:
-			os.Remove(path)
-			os.Symlink(hdr.Linkname, path)
-		case tar.TypeLink:
-			os.Remove(path)
-			os.Link(filepath.Join(rootfsDir, hdr.Linkname), path)
-		}
-	}
-	return nil
+	return overlayutil.ExtractLayer(cachePath, rootfsDir)
 }
 
 func shortDigest(d string) string {
-	if len(d) > 19 {
-		return d[:19]
+	return overlayutil.ShortDigest(d)
+}
+
+type progressFn func(pct int)
+
+func isTerminalOutput() bool {
+	fi, err := os.Stdout.Stat()
+	if err != nil {
+		return false
 	}
-	return d
+	return (fi.Mode() & os.ModeCharDevice) != 0
+}
+
+func bar(pct, width int) string {
+	filled := pct * width / 100
+	if filled > width {
+		filled = width
+	}
+	b := make([]byte, width)
+	for i := 0; i < width; i++ {
+		if i < filled {
+			b[i] = '='
+		} else {
+			b[i] = ' '
+		}
+	}
+	return string(b)
 }

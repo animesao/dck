@@ -15,6 +15,14 @@ import (
 
 const DockerAPIVersion = "1.44"
 
+var authToken string
+
+// SetAuthToken sets the Bearer token required for API access.
+// When empty, authentication is disabled.
+func SetAuthToken(token string) {
+	authToken = token
+}
+
 func StartServer(port int, host string) error {
 	mux := http.NewServeMux()
 
@@ -50,7 +58,26 @@ func StartServer(port int, host string) error {
 	fmt.Printf("  curl http://%s/containers/json\n", addr)
 	fmt.Printf("  curl http://%s/images/json\n", addr)
 
-	return http.Serve(listener, corsMiddleware(jsonContentType(mux)))
+	return http.Serve(listener, authMiddleware(corsMiddleware(jsonContentType(mux))))
+}
+
+func authMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if authToken == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		auth := r.Header.Get("Authorization")
+		if auth == "" {
+			auth = r.URL.Query().Get("token")
+		}
+		expected := "Bearer " + authToken
+		if auth == expected || auth == authToken {
+			next.ServeHTTP(w, r)
+			return
+		}
+		writeError(w, http.StatusForbidden, "Forbidden: invalid or missing authentication token")
+	})
 }
 
 func corsMiddleware(next http.Handler) http.Handler {
@@ -138,6 +165,16 @@ func handleInfo(w http.ResponseWriter, r *http.Request) {
 
 	images, _ := ListAllImages()
 
+	cgroupVer := "1"
+	if _, err := os.Stat("/sys/fs/cgroup/cgroup.controllers"); err == nil {
+		cgroupVer = "2"
+	}
+
+	cgroupDriver := "cgroupfs"
+	if _, err := os.Stat("/sys/fs/cgroup/systemd"); err == nil {
+		cgroupDriver = "systemd"
+	}
+
 	info := SystemInfo{
 		Containers:        len(containers),
 		ContainersRunning: running,
@@ -164,6 +201,20 @@ func handleInfo(w http.ResponseWriter, r *http.Request) {
 		DockerRootDir:   state.DataDir(),
 		Name:            hostname,
 		ServerVersion:   "24.0.0-dck",
+		HTTPProxy:       os.Getenv("HTTP_PROXY"),
+		HTTPSProxy:      os.Getenv("HTTPS_PROXY"),
+		NoProxy:         os.Getenv("NO_PROXY"),
+		ExperimentalBuild: false,
+		DefaultRuntime:  "runc",
+		LiveRestoreEnabled: false,
+		IndexServerAddress: "https://index.docker.io/v1/",
+		InitBinary:      "",
+		SecurityOptions: []string{"name=seccomp,profile=default"},
+		CgroupDriver:    cgroupDriver,
+		CgroupVersion:   cgroupVer,
+		Runtimes: map[string]RuntimeInfo{
+			"runc": {Path: "runc"},
+		},
 	}
 	info.Plugins.Volume = []string{"local"}
 	info.Plugins.Network = []string{"bridge", "host", "none"}

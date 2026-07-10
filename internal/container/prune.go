@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"dck/internal/image"
+	"dck/internal/log"
 	"dck/internal/state"
 )
 
@@ -22,7 +23,7 @@ func SystemPrune() error {
 	for _, c := range containers {
 		if c.Status != Running {
 			if err := c.Remove(false); err != nil {
-				fmt.Fprintf(os.Stderr, "Error removing container %s: %v\n", c.ID[:12], err)
+				log.Error("Error removing container %s: %v", c.ID[:12], err)
 				continue
 			}
 			removedContainers++
@@ -47,7 +48,7 @@ func SystemPrune() error {
 			continue
 		}
 		if err := image.RemoveImage(img.Name, img.Tag); err != nil {
-			fmt.Fprintf(os.Stderr, "Error removing image %s:%s: %v\n", img.Name, img.Tag, err)
+			log.Error("Error removing image %s:%s: %v", img.Name, img.Tag, err)
 			continue
 		}
 		removedImages++

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"dck/internal/image"
+	"dck/internal/log"
 	"dck/internal/state"
 )
 
@@ -98,8 +99,14 @@ func Load(id string) (*Container, error) {
 		if err := state.ReadJSON(path, &c); err != nil {
 			return nil, err
 		}
-		if c.Status == Running && !pidAlive(c.PID) {
+		c.dataMu.RLock()
+		running := c.Status == Running
+		pid := c.PID
+		c.dataMu.RUnlock()
+		if running && !pidAlive(pid) {
+			c.dataMu.Lock()
 			c.Status = Stopped
+			c.dataMu.Unlock()
 		}
 		return &c, nil
 	}
@@ -115,8 +122,14 @@ func Load(id string) (*Container, error) {
 			if err := state.ReadJSON(filepath.Join(state.ContainersDir(), e.Name()), &c); err != nil {
 				return nil, err
 			}
-			if c.Status == Running && !pidAlive(c.PID) {
+			c.dataMu.RLock()
+			running := c.Status == Running
+			pid := c.PID
+			c.dataMu.RUnlock()
+			if running && !pidAlive(pid) {
+				c.dataMu.Lock()
 				c.Status = Stopped
+				c.dataMu.Unlock()
 			}
 			return &c, nil
 		}
@@ -128,8 +141,14 @@ func Load(id string) (*Container, error) {
 			continue
 		}
 		if c.Name == id {
-			if c.Status == Running && !pidAlive(c.PID) {
+			c.dataMu.RLock()
+			running := c.Status == Running
+			pid := c.PID
+			c.dataMu.RUnlock()
+			if running && !pidAlive(pid) {
+				c.dataMu.Lock()
 				c.Status = Stopped
+				c.dataMu.Unlock()
 			}
 			return &c, nil
 		}
@@ -206,7 +225,7 @@ func TeardownDiskLimit(overlayBase, id string) {
 	mnt := filepath.Join(overlayBase, id, "data")
 	if isMounted(mnt) {
 		if err := exec.Command("umount", mnt).Run(); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: umount %s: %v\n", mnt, err)
+			log.Warn("umount %s: %v", mnt, err)
 		}
 	}
 }

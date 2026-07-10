@@ -15,6 +15,7 @@ func Serve(args []string) {
 	port := fs.Int("p", 2375, "API port")
 	host := fs.String("H", "0.0.0.0", "API host")
 	daemon := fs.Bool("d", false, "Run as daemon (background)")
+	token := fs.String("token", "", "Authentication token (or DCK_TOKEN env)")
 
 	fs.Parse(args)
 
@@ -24,6 +25,15 @@ func Serve(args []string) {
 			*host = h
 			*port = p
 		}
+	}
+
+	// Token: flag > env var > disabled
+	apiToken := *token
+	if apiToken == "" {
+		apiToken = os.Getenv("DCK_TOKEN")
+	}
+	if apiToken != "" {
+		api.SetAuthToken(apiToken)
 	}
 
 	if *daemon {
