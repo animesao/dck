@@ -128,7 +128,11 @@ Usage:
   dck restart <container>      Restart container
   dck stop <container>         Stop container
   dck rm [-f] <container>      Remove container
-  dck logs [-f] <container>    Show/follow container logs
+    dck logs [-f] <container>    Show/follow container logs
+    dck fs ls <c> [path]         List files in container
+    dck fs cat <c> <path>        Show file content
+    dck fs tree <c> [path]       Directory tree
+    dck fs find <c> [path] [opts] Find files (--name, --grep, --type, --max-depth)
   dck stats [container]        Show live resource usage stats (CPU, RAM, IO, PIDs)
    dck exec <container> <cmd>   Execute command in container
    dck console <container>      Interactive shell in container

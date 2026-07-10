@@ -62,7 +62,7 @@ PID/Mount/Net/UTS/IPC namespaces + overlayfs.
 |---------|-------------|
 | **Image** | Read-only rootfs (`python:3.11-slim`, `nginx:alpine`). Pulled once via `dck pull`. |
 | **Container** | Image + writable overlay layer. Changes live in the overlay, not the image. |
-| **Overlay** | Diff layer on top of the image. Persists across restarts — packages stay installed. |
+| **Overlay** | Diff layer on top of the image. Persists across restarts — packages stay installed. Stays mounted after `stop` — browse with `dck fs`. |
 | **Volume** | Host bind mount into the container. `-v /opt/mybot:/bot` mounts `/opt/mybot` as `/bot`. |
 | **Network** | Every container gets IP `10.0.2.X` on bridge `dck0`. Host at `10.0.2.1`. |
 
@@ -97,10 +97,10 @@ dck run --rm alpine echo hi                 # One-shot
 dck run -d -n web -p 80:80 nginx            # Detached
 dck run -it alpine sh                       # Interactive
 dck ps -a                                   # List all containers
-dck stop web                                # Stop
+dck stop web                                # Stop (files remain accessible via dck fs)
 dck start web                               # Start stopped
 dck restart web                             # Restart
-dck rm -f web                               # Force remove
+dck rm -f web                               # Force remove (deletes files)
 dck rename web web-new                      # Rename container
 dck system prune                            # Remove unused containers and images
 dck info                                    # System information
@@ -113,11 +113,39 @@ dck commit web my-image:v1                  # Create image from container
 dck logs web                                # Last output
 dck logs -f web                             # Follow
 dck attach web                              # Full history + live stdin/stdout
+dck fs ls web /etc/nginx                    # List files in container
+dck fs cat web /etc/nginx/conf.d/default.conf  # Show file
+dck fs find web --name "*.conf"             # Search files
 dck exec web cat /etc/hostname              # Run command inside
 dck exec -it web /bin/sh                    # Interactive shell
 dck console web                             # Auto-detect shell
 dck top web                                 # Processes inside container
 ```
+
+### Filesystem Browser
+
+Browse container files without starting a shell:
+
+```bash
+dck fs ls <container> [path]              # List files
+dck fs cat <container> <path>             # Show file content
+dck fs tree <container> [path]            # Directory tree
+dck fs find <container> [path] [flags]    # Find files
+  --name <pattern>    Filter by name (glob, e.g. "*.conf")
+  --grep <text>       Search inside files
+  --type f|d          Files or directories only
+  --max-depth <n>     Max recursion depth
+```
+
+Examples:
+```bash
+dck fs ls web /etc/nginx
+dck fs cat web /etc/nginx/conf.d/default.conf
+dck fs tree mc-server /data --max-depth 2
+dck fs find web --name "*.conf" --grep "server_name"
+```
+
+Works on both **running** and **stopped** containers — overlay stays mounted after `dck stop`.
 
 ### File Operations
 
@@ -828,6 +856,8 @@ dck run -d
 ---
 
 ## Changelog
+
+**v1.22.0** — Filesystem browser (`dck fs ls/cat/tree/find`). Overlay stays mounted after `stop`. Graceful shutdown (SIGTERM → SIGKILL). Healthcheck goroutine leak fixed. System prune no longer destroys running containers.
 
 **v1.20.0** — Added dynamic port management (`dck port add/rm`). Russian (ru) docs.
 

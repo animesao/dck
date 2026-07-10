@@ -15,6 +15,7 @@ dck is a lightweight container runtime — no daemon, no Docker. Just containers
 - [Exec & Attach](#exec--attach)
 - [Logs & Monitoring](#logs--monitoring)
 - [Networking](#networking)
+- [Filesystem Browser](#filesystem-browser--dck-fs)
 - [Storage & Volumes](#storage--volumes)
 - [Resource Limits](#resource-limits)
 - [Security](#security)
@@ -469,6 +470,29 @@ Changes (installed packages, modified files, created files) live in the overlay.
 They persist across restarts (`dck stop` + `dck start`) but are **deleted** when the container is removed (`dck rm`).
 
 To save changes permanently, use `dck commit` to create an image from the container.
+
+### Filesystem Browser — `dck fs`
+
+Browse container files without starting a shell. Works on both **running** and **stopped** containers — overlay stays mounted after `stop`.
+
+```bash
+dck fs ls <container> [path]              # List files
+dck fs cat <container> <path>             # Show file content
+dck fs tree <container> [path]            # Directory tree
+dck fs find <container> [path] [flags]    # Find files
+  --name <pattern>    Filter by name (glob, e.g. "*.conf")
+  --grep <text>       Search inside files
+  --type f|d          Files or directories only
+  --max-depth <n>     Max recursion depth
+```
+
+Examples:
+```bash
+dck fs ls web /etc/nginx
+dck fs cat web /etc/nginx/conf.d/default.conf
+dck fs tree mc-server /data --max-depth 2
+dck fs find web --name "*.conf" --grep "server_name"
+```
 
 ### Copying files
 
