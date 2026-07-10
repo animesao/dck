@@ -19,9 +19,7 @@ func DeployFunction(name, image string, port int, opts FnOpts) (*Function, error
 	fnLock.Lock()
 	defer fnLock.Unlock()
 
-	if err := loadFunctions(); err != nil {
-		// OK if empty
-	}
+	_ = loadFunctions()
 
 	fn := &Function{
 		Name:        name,

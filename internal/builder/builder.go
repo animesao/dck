@@ -196,9 +196,7 @@ func (bs *buildState) handleFrom(inst Instruction, buildTmp string) error {
 	ref := inst.Args[0]
 
 	// Parse optional AS alias (skip for now)
-	if len(inst.Args) > 1 && strings.ToUpper(inst.Args[1]) == "AS" {
-		// Multi-stage alias - now we just use the image ref
-	}
+	_ = len(inst.Args) > 1 && strings.ToUpper(inst.Args[1]) == "AS"
 
 	img, err := image.Pull(ref)
 	if err != nil {

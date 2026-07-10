@@ -20,9 +20,7 @@ func CreateService(name, image string, replicas int, opts ServiceOpts) (*Service
 	serviceLock.Lock()
 	defer serviceLock.Unlock()
 
-	if err := loadServices(); err != nil {
-		// OK if empty
-	}
+	_ = loadServices()
 
 	if _, exists := clusterConf.Services[name]; exists {
 		return nil, fmt.Errorf("service %q already exists", name)

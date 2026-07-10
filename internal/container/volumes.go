@@ -161,8 +161,6 @@ func applyOptions(vs *VolumeSpec, opts string) {
 			}
 		case strings.HasPrefix(opt, "nfsopts="):
 			vs.NFOptions = opt[8:]
-		case strings.HasPrefix(opt, "addr="):
-			// nfs server address in bind format (for mount -t nfs)
 		}
 	}
 }

@@ -49,9 +49,7 @@ func Serve(args []string) {
 }
 
 func parseHost(s string) (string, int, error) {
-	if strings.HasPrefix(s, "tcp://") {
-		s = s[6:]
-	}
+	s = strings.TrimPrefix(s, "tcp://")
 	parts := strings.Split(s, ":")
 	if len(parts) != 2 {
 		return "", 0, fmt.Errorf("invalid host format: %s (expected host:port)", s)

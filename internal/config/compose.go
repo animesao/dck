@@ -183,20 +183,12 @@ func LoadCompose(path string) (*Config, error) {
 
 	// Top-level secrets
 	for name, s := range cf.Secrets {
-		cfg.Secrets[name] = SecretSpec{
-			File:     s.File,
-			External: s.External,
-			Name:     s.Name,
-		}
+		cfg.Secrets[name] = SecretSpec(s)
 	}
 
 	// Top-level configs
 	for name, c := range cf.Configs {
-		cfg.Configs[name] = ConfigSpec{
-			File:     c.File,
-			External: c.External,
-			Name:     c.Name,
-		}
+		cfg.Configs[name] = ConfigSpec(c)
 	}
 
 	for name, svc := range cf.Services {
