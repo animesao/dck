@@ -238,9 +238,6 @@ func (c *Container) runForeground(cmd *exec.Cmd) error {
 
 	if c.RemoveOnExit {
 		cleanupContainer(c)
-	} else {
-		_, _, merged := c.OverlayDirs()
-		unmountOverlay(merged)
 	}
 
 	return err
@@ -384,9 +381,6 @@ func monitorContainer(c *Container, cmd *exec.Cmd, ctx context.Context) {
 			}()
 		} else if c.RemoveOnExit {
 			cleanupContainer(c)
-		} else {
-			_, _, merged := c.OverlayDirs()
-			unmountOverlay(merged)
 		}
 	}()
 }

@@ -92,8 +92,6 @@ postcleanup:
 	c.cleanupNetwork()
 	cleanupContainerCgroup(c.ID, c.CgroupPath)
 	os.Remove(state.ConsolePath(c.ID))
-	_, _, merged := c.OverlayDirs()
-	unmountOverlay(merged)
 	c.PID = 0
 	c.Status = Stopped
 	c.Save()
