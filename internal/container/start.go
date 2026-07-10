@@ -45,12 +45,19 @@ func (c *Container) Start() error {
 		return err
 	}
 
-	if err := c.setupIO(cmd); err != nil {
+	cleanupIO, err := c.setupIO(cmd)
+	if err != nil {
 		return err
 	}
 
 	if err := cmd.Start(); err != nil {
+		if cleanupIO != nil {
+			cleanupIO()
+		}
 		return fmt.Errorf("start: %w", err)
+	}
+	if cleanupIO != nil {
+		defer cleanupIO()
 	}
 
 	childPID := c.resolveChildPID(cmd.Process.Pid)
@@ -130,23 +137,23 @@ func (c *Container) buildUnshareCmd(merged string) (*exec.Cmd, error) {
 	return exec.Command("unshare", unshareArgs...), nil
 }
 
-func (c *Container) setupIO(cmd *exec.Cmd) error {
+func (c *Container) setupIO(cmd *exec.Cmd) (func(), error) {
 	binPath, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("executable: %w", err)
+		return nil, fmt.Errorf("executable: %w", err)
 	}
 
 	switch {
 	case c.Detach:
 		stdinR, stdinW, err := os.Pipe()
 		if err != nil {
-			return fmt.Errorf("stdin pipe: %w", err)
+			return nil, fmt.Errorf("stdin pipe: %w", err)
 		}
 		stdoutR, stdoutW, err := os.Pipe()
 		if err != nil {
 			stdinR.Close()
 			stdinW.Close()
-			return fmt.Errorf("stdout pipe: %w", err)
+			return nil, fmt.Errorf("stdout pipe: %w", err)
 		}
 
 		cmd.Stdin = stdinR
@@ -159,21 +166,22 @@ func (c *Container) setupIO(cmd *exec.Cmd) error {
 		c.ConsoleServePID = serve.Process.Pid
 		stdinW.Close()
 		stdoutR.Close()
+		return nil, nil
 	case c.Interactive || c.TTY:
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
+		return nil, nil
 	default:
 		RotateLogFile(c.LogFile())
 		logFile, err := os.OpenFile(c.LogFile(), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if err != nil {
-			return fmt.Errorf("log: %w", err)
+			return nil, fmt.Errorf("log: %w", err)
 		}
-		defer logFile.Close()
 		cmd.Stdout = io.MultiWriter(logFile, os.Stdout)
 		cmd.Stderr = io.MultiWriter(logFile, os.Stderr)
+		return func() { logFile.Close() }, nil
 	}
-	return nil
 }
 
 func (c *Container) resolveChildPID(unsharePID int) int {
