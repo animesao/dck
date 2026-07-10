@@ -1,6 +1,7 @@
 package image
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,9 @@ import (
 
 func SaveToStore(img *Image) error {
 	imgDir := state.ImageDir(img.Name, img.Tag)
+	if err := os.MkdirAll(imgDir, 0755); err != nil {
+		return fmt.Errorf("mkdir image dir: %w", err)
+	}
 	return state.WriteJSON(filepath.Join(imgDir, "manifest.json"), img)
 }
 

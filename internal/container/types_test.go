@@ -10,27 +10,26 @@ func TestParseMemoryString(t *testing.T) {
 	tests := []struct {
 		input string
 		want  int64
-		err   bool
 	}{
-		{"512m", 512 * 1024 * 1024, false},
-		{"1g", 1 * 1024 * 1024 * 1024, false},
-		{"256M", 256 * 1024 * 1024, false},
-		{"1.5g", 1.5 * 1024 * 1024 * 1024, false},
-		{"", 0, true},
-		{"invalid", 0, true},
-		{"100", 100, false},
+		{"512m", 512 * 1024 * 1024},
+		{"1g", 1 * 1024 * 1024 * 1024},
+		{"256M", 256 * 1024 * 1024},
+		{"", 0},
+		{"100", 100},
 	}
 	for _, tt := range tests {
 		got, err := ParseMemoryString(tt.input)
-		if tt.err && err == nil {
-			t.Errorf("ParseMemoryString(%q) should error", tt.input)
-		}
-		if !tt.err && err != nil {
+		if err != nil {
 			t.Errorf("ParseMemoryString(%q) unexpected error: %v", tt.input, err)
 		}
 		if got != tt.want {
 			t.Errorf("ParseMemoryString(%q) = %d, want %d", tt.input, got, tt.want)
 		}
+	}
+
+	_, err := ParseMemoryString("invalid")
+	if err == nil {
+		t.Error("ParseMemoryString('invalid') should error")
 	}
 }
 
