@@ -38,7 +38,11 @@ func Fs(args []string) {
 	case "tree":
 		fsTree(merged, args[2:])
 	case "find":
-		fsFind(merged, args[2:])
+		label := c.ID[:12]
+		if c.Name != "" {
+			label = c.Name
+		}
+		fsFind(merged, label, args[2:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown fs command: %s\n", sub)
 		os.Exit(1)
@@ -130,7 +134,7 @@ type findOpts struct {
 	maxDepth int
 }
 
-func fsFind(merged string, args []string) {
+func fsFind(merged, label string, args []string) {
 	opts := findOpts{maxDepth: -1}
 	path := "."
 
@@ -216,7 +220,7 @@ func fsFind(merged string, args []string) {
 
 		containerRel, _ := filepath.Rel(merged, p)
 		containerPath := "/" + strings.ReplaceAll(containerRel, "\\", "/")
-		fmt.Println(containerPath)
+		fmt.Printf("%s  %s\n", label, containerPath)
 		return nil
 	})
 	if err != nil {
