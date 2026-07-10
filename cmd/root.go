@@ -37,6 +37,8 @@ func Execute() {
 		Rm(args)
 	case "logs":
 		Logs(args)
+	case "fs":
+		Fs(args)
 	case "exec":
 		Exec(args)
 	case "console":
@@ -169,6 +171,10 @@ Usage:
      dck blueprint install <name> Install a blueprint (pull + run container)
      dck blueprint repo add <url> Add a custom blueprint repository
      dck blueprint repo list      List blueprint repositories
+    dck fs ls <c> [path]          List files in container
+    dck fs cat <c> <path>         Show file content
+    dck fs tree <c> [path]        Show directory tree
+    dck fs find <c> [path] [opts] Find files (--name, --grep, --type, --max-depth)
     dck update [--check]         Check for updates and self-update
     dck --help                   Show this help
     dck version, --version       Show version
