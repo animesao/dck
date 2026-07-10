@@ -35,11 +35,19 @@ func Run(args []string) {
 	fs.Var(&envVars, "e", "Environment variables (key=val)")
 	envFile := fs.String("env-file", "", "Path to .env file")
 	portMapping := fs.String("p", "", "Port mapping (host:container[/protocol])")
+	portsAlias := fs.String("ports", "", "Port mapping (host:container[/protocol])")
 	volumeMounts := fs.String("v", "", "Volume mounts (src:dst)")
+	volumeAlias := fs.String("volume", "", "Volume mounts (src:dst)")
+	volAlias := fs.String("vol", "", "Volume mounts (src:dst)")
 	memory := fs.String("memory", "", "Memory limit (e.g. 512m, 1g)")
+	ramAlias := fs.String("ram", "", "Memory limit (e.g. 512m, 1g)")
 	cpus := fs.Float64("cpus", 0, "CPU limit (number of CPUs, e.g. 1.5)")
+	cpuAlias := fs.Float64("cpu", 0, "CPU limit (number of CPUs, e.g. 1.5)")
 	disk := fs.String("disk", "", "Disk limit (e.g. 1G, 512M, 2T)")
 	workdir := fs.String("workdir", "", "Working directory inside container")
+	imageFlag := fs.String("image", "", "Container image")
+	cmdFlag := fs.String("cmd", "", "Container command")
+	commandFlag := fs.String("command", "", "Container command")
 
 	// New flags
 	entrypoint := fs.String("entrypoint", "", "Override image entrypoint")
@@ -72,14 +80,42 @@ func Run(args []string) {
 	fs.Parse(args)
 
 	freeArgs := fs.Args()
-	if len(freeArgs) < 1 {
-		fmt.Println("Usage: dck run [opts] <image> [cmd...]")
-		os.Exit(1)
+
+	// Merge aliases
+	if *portMapping == "" && *portsAlias != "" {
+		portMapping = portsAlias
+	}
+	if *volumeMounts == "" && *volumeAlias != "" {
+		volumeMounts = volumeAlias
+	}
+	if *volumeMounts == "" && *volAlias != "" {
+		volumeMounts = volAlias
+	}
+	if *memory == "" && *ramAlias != "" {
+		memory = ramAlias
+	}
+	if *cpus == 0 && *cpuAlias != 0 {
+		cpus = cpuAlias
 	}
 
-	imageRef := freeArgs[0]
+	imageRef := *imageFlag
+	hasImageFlag := *imageFlag != ""
+	if !hasImageFlag {
+		if len(freeArgs) < 1 {
+			fmt.Println("Usage: dck run [opts] <image> [cmd...]")
+			os.Exit(1)
+		}
+		imageRef = freeArgs[0]
+	}
+
 	var cmd []string
-	if len(freeArgs) > 1 {
+	if *cmdFlag != "" {
+		cmd = strings.Fields(*cmdFlag)
+	} else if *commandFlag != "" {
+		cmd = strings.Fields(*commandFlag)
+	} else if hasImageFlag && len(freeArgs) > 0 {
+		cmd = freeArgs
+	} else if !hasImageFlag && len(freeArgs) > 1 {
 		cmd = freeArgs[1:]
 	}
 
