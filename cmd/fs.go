@@ -44,7 +44,7 @@ func Fs(args []string) {
 			}
 			label := c.ID[:12]
 			if c.Name != "" {
-				label = c.Name
+				label = c.ID[:12] + "  " + c.Name
 			}
 			fsFind(merged, label, args[1:])
 		}
@@ -71,7 +71,7 @@ func Fs(args []string) {
 	case "find":
 		label := c.ID[:12]
 		if c.Name != "" {
-			label = c.Name
+			label = c.ID[:12] + "  " + c.Name
 		}
 		fsFind(merged, label, args[2:])
 	default:
