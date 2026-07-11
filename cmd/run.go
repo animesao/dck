@@ -22,8 +22,47 @@ func (s *stringSlice) Set(v string) error {
 	return nil
 }
 
+func reorderRunFlags(args []string, fs *flag.FlagSet) []string {
+	var flags, positional []string
+	i := 0
+	for i < len(args) {
+		if args[i] == "--" {
+			positional = append(positional, args[i:]...)
+			break
+		}
+		if !strings.HasPrefix(args[i], "-") {
+			positional = append(positional, args[i])
+			i++
+			continue
+		}
+		name := strings.TrimLeft(args[i], "-")
+		if eq := strings.IndexByte(name, '='); eq >= 0 {
+			flags = append(flags, args[i])
+			i++
+			continue
+		}
+		f := fs.Lookup(name)
+		if f == nil {
+			positional = append(positional, args[i])
+			i++
+			continue
+		}
+		flags = append(flags, args[i])
+		if ib, ok := f.Value.(interface{ IsBoolFlag() bool }); ok && ib.IsBoolFlag() {
+			i++
+		} else if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+			flags = append(flags, args[i+1])
+			i += 2
+		} else {
+			i++
+		}
+	}
+	return append(flags, positional...)
+}
+
 func Run(args []string) {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
+	args = reorderRunFlags(args, fs)
 	detach := fs.Bool("d", false, "Detach mode")
 	name := fs.String("n", "", "Container name")
 	interactive := fs.Bool("i", false, "Interactive mode")
