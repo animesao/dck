@@ -892,6 +892,10 @@ Blueprints are pre-configured container templates that can be installed from rep
 # List available blueprints
 dck blueprint list
 
+# Show blueprint details with examples
+dck blueprint info mysql-8
+dck blueprint info minecraft-server
+
 # Install a blueprint
 dck blueprint install nginx-proxy
 

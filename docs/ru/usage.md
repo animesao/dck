@@ -916,6 +916,10 @@ dck fn rm hello
 # Список доступных
 dck blueprint list
 
+# Информация о блюпринте с примерами
+dck blueprint info mysql-8
+dck blueprint info minecraft-server
+
 # Установить
 dck blueprint install nginx-proxy
 
