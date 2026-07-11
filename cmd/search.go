@@ -13,7 +13,7 @@ import (
 
 const (
 	dockerHubSearchURL = "https://hub.docker.com/v2/search/repositories/"
-	dockerHubTagsURL   = "https://hub.docker.com/v2/repositories/%s/tags?page_size=50"
+	dockerHubTagsURL   = "https://hub.docker.com/v2/repositories/%s/tags?page_size=100"
 )
 
 type searchResult struct {
