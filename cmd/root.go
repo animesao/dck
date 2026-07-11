@@ -79,6 +79,8 @@ func Execute() {
 		Search(args)
 	case "set":
 		Set(args)
+	case "inspect":
+		Inspect(args)
 	case "info":
 		Info(args)
 	case "serve":
@@ -144,6 +146,7 @@ Usage:
     dck logs [-f] [--tail <n>] <c>         Show/follow/tail logs
     dck stats [container]                  CPU, RAM, IO stats
     dck top <container>                    Show running processes
+    dck inspect <container>                Detailed container info
     dck info                               System-wide info
 
   Network:
