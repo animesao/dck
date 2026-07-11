@@ -7,9 +7,13 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 )
 
-const dockerHubSearchURL = "https://hub.docker.com/v2/search/repositories/"
+const (
+	dockerHubSearchURL = "https://hub.docker.com/v2/search/repositories/"
+	dockerHubTagsURL   = "https://hub.docker.com/v2/repositories/%s/tags?page_size=5"
+)
 
 type searchResult struct {
 	Count   int              `json:"count"`
@@ -24,6 +28,39 @@ type searchRepoItem struct {
 	Official    bool   `json:"is_official"`
 }
 
+type tagsResponse struct {
+	Results []tagItem `json:"results"`
+}
+
+type tagItem struct {
+	Name string `json:"name"`
+}
+
+func fetchTags(repo string) []string {
+	u := fmt.Sprintf(dockerHubTagsURL, repo)
+	resp, err := http.Get(u)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+
+	var tr tagsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&tr); err != nil {
+		return nil
+	}
+
+	var tags []string
+	for _, t := range tr.Results {
+		if t.Name != "latest" {
+			tags = append(tags, t.Name)
+		}
+	}
+	if len(tags) > 5 {
+		tags = tags[:5]
+	}
+	return tags
+}
+
 func Search(args []string) {
 	if len(args) < 1 {
 		fmt.Fprintln(os.Stderr, "Usage: dck search <term>")
@@ -31,7 +68,7 @@ func Search(args []string) {
 	}
 
 	term := strings.Join(args, " ")
-	u := fmt.Sprintf("%s?query=%s&page_size=25", dockerHubSearchURL, url.QueryEscape(term))
+	u := fmt.Sprintf("%s?query=%s&page_size=10", dockerHubSearchURL, url.QueryEscape(term))
 
 	resp, err := http.Get(u)
 	if err != nil {
@@ -56,23 +93,54 @@ func Search(args []string) {
 		return
 	}
 
-	fmt.Printf("Found %d results for \"%s\":\n\n", sr.Count, term)
-	for _, r := range sr.Results {
+	fmt.Printf("Found %d results for \"%s\". Top tags:\n\n", sr.Count, term)
+
+	type repoWithTags struct {
+		item searchRepoItem
+		tags []string
+	}
+
+	results := make([]repoWithTags, len(sr.Results))
+	for i, r := range sr.Results {
+		results[i] = repoWithTags{item: r}
+	}
+
+	var wg sync.WaitGroup
+	lim := make(chan struct{}, 5)
+	for i := range results {
+		wg.Add(1)
+		go func(r *repoWithTags) {
+			defer wg.Done()
+			lim <- struct{}{}
+			defer func() { <-lim }()
+			repo := r.item.Name
+			if r.item.Official {
+				repo = "library/" + repo
+			}
+			r.tags = fetchTags(repo)
+		}(&results[i])
+	}
+	wg.Wait()
+
+	for _, r := range results {
 		official := ""
-		if r.Official {
+		if r.item.Official {
 			official = " [official]"
 		}
-		desc := strings.TrimSpace(r.Description)
+		desc := strings.TrimSpace(r.item.Description)
 		if len(desc) > 80 {
 			desc = desc[:77] + "..."
 		}
 		if desc == "" {
 			desc = "(no description)"
 		}
-		fmt.Printf("  %s%s\n", r.Name, official)
-		if desc != "" {
-			fmt.Printf("    %s\n", desc)
+		fmt.Printf("  %s%s\n", r.item.Name, official)
+		fmt.Printf("    %s\n", desc)
+		fmt.Printf("    Stars: %d  Pulls: %d\n", r.item.Stars, r.item.Pulls)
+		if len(r.tags) > 0 {
+			fmt.Printf("    Tags: %s\n", strings.Join(r.tags, ", "))
+			fmt.Printf("    Copy: dck pull %s:<tag>\n", r.item.Name)
 		}
-		fmt.Printf("    Stars: %d  Pulls: %d\n\n", r.Stars, r.Pulls)
+		fmt.Println()
 	}
 }
