@@ -41,13 +41,14 @@ dck — лёгкий container runtime. Нет демона, нет Docker. Пр
 
 ## Управление образами
 
-### `dck pull <образ>[:тег]`
+### `dck pull [--platform os/arch] <образ>[:тег]`
 
 Скачать образ из registry (по умолчанию Docker Hub).
 
 ```bash
 dck pull nginx
 dck pull alpine:3.19
+dck pull --platform linux/arm64 eclipse-temurin:21-jre
 dck pull registry.example.com/myapp:v1.0
 ```
 
@@ -249,6 +250,17 @@ dck rm -f web         # удалить даже если запущен
 
 **Важно:** При удалении контейнера стирается его overlay-слой — все изменения (установленные пакеты, файлы) пропадают.
 
+### `dck set <контейнер> [опции]`
+
+Изменить параметры контейнера без удаления (overlay сохраняется). Останавливает, меняет JSON и запускает заново.
+
+```bash
+dck set mc --memory 4g --cpus 2
+dck set mc --restart always
+dck set mc -e DIFFICULTY=hard
+dck set mc --workdir /data-mc
+```
+
 ### `dck rename <контейнер> <новое-имя>`
 
 Переименовать контейнер.
@@ -347,13 +359,15 @@ dck console myproject
 
 ## Логи и мониторинг
 
-### `dck logs [-f] <контейнер>`
+### `dck logs [-f] [--tail <n>] <контейнер>`
 
 Показать логи контейнера.
 
 ```bash
 dck logs web            # последние логи
 dck logs -f web         # следить (tail -f)
+dck logs --tail 20 web  # последние 20 строк
+dck logs -f --tail 10 web  # последние 10 + следить
 ```
 
 ### `dck stats [контейнер]`

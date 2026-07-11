@@ -40,13 +40,14 @@ dck is a lightweight container runtime — no daemon, no Docker. Just containers
 
 ## Image Management
 
-### `dck pull <image>[:tag]`
+### `dck pull [--platform os/arch] <image>[:tag]`
 
 Pull an image from a registry (Docker Hub by default).
 
 ```bash
 dck pull nginx
 dck pull alpine:3.19
+dck pull --platform linux/arm64 eclipse-temurin:21-jre
 dck pull registry.example.com/myapp:v1.0
 ```
 
@@ -249,6 +250,17 @@ dck rm -f web         # force remove even if running
 
 **Warning:** Removing a container deletes its overlay layer — all changes (installed packages, files) are lost.
 
+### `dck set <container> [options]`
+
+Modify container parameters without deleting (overlay data preserved). Stops, updates, and restarts.
+
+```bash
+dck set mc --memory 4g --cpus 2
+dck set mc --restart always
+dck set mc -e DIFFICULTY=hard
+dck set mc --workdir /data-mc
+```
+
 ### `dck rename <container> <new-name>`
 
 Rename a container.
@@ -337,13 +349,15 @@ dck console myproject
 
 ## Logs & Monitoring
 
-### `dck logs [-f] <container>`
+### `dck logs [-f] [--tail <n>] <container>`
 
 Show container logs.
 
 ```bash
 dck logs web            # last output
 dck logs -f web         # follow (tail -f style)
+dck logs --tail 20 web  # last 20 lines
+dck logs -f --tail 10 web  # last 10 lines + follow
 ```
 
 ### `dck stats [container]`
