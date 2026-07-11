@@ -199,6 +199,7 @@ Usage:
 
   Blueprints:
     dck blueprint list                     List available blueprints
+    dck blueprint info <name>              Show blueprint details + example
     dck blueprint install <name>           Install a blueprint
     dck blueprint repo add <url>           Add blueprint repository
     dck blueprint repo list                List repositories

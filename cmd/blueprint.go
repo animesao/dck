@@ -65,6 +65,8 @@ func Blueprint(args []string) {
 	switch sub {
 	case "list", "ls":
 		blueprintList()
+	case "info", "show":
+		blueprintInfo(subArgs)
 	case "install", "i":
 		blueprintInstall(subArgs)
 	case "repo", "repos":
@@ -95,15 +97,203 @@ func Blueprint(args []string) {
 	}
 }
 
+func blueprintInfo(args []string) {
+	if len(args) < 1 || args[0] == "" {
+		fmt.Println("Usage: dck blueprint info <name>")
+		os.Exit(1)
+	}
+
+	bpName := args[0]
+
+	reg, err := fetchBlueprintRegistry()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error fetching blueprint registry: %v\n", err)
+		os.Exit(1)
+	}
+
+	bp, ok := reg.Blueprints[bpName]
+	if !ok {
+		// Try matching by prefix
+		for name := range reg.Blueprints {
+			if strings.HasPrefix(name, bpName) {
+				bp = reg.Blueprints[name]
+				bpName = name
+				ok = true
+				break
+			}
+		}
+	}
+	if !ok {
+		fmt.Fprintf(os.Stderr, "Blueprint %q not found\n", bpName)
+		fmt.Println("Use 'dck blueprint list' to see available blueprints.")
+		os.Exit(1)
+	}
+
+	repoBase := bp.RepoURL
+	repoBranch := bp.Branch
+	if repoBase == "" {
+		repoBase = blueprintRepoURL
+		repoBranch = "main"
+	}
+	tplURL := fmt.Sprintf("%s/%s/%s", repoBase, repoBranch, bp.File)
+	tplData, err := fetchURL(tplURL)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error fetching blueprint %q: %v\n", bpName, err)
+		os.Exit(1)
+	}
+
+	var tpl templateJSON
+	if err := json.Unmarshal([]byte(tplData), &tpl); err != nil {
+		fmt.Fprintf(os.Stderr, "Error parsing blueprint %q: %v\n", bpName, err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("  %s\n\n", strings.ToUpper(bpName))
+	fmt.Printf("  %s\n", bp.Description)
+	fmt.Printf("  Category: %s\n\n", bp.Category)
+
+	fmt.Printf("  Image:\n")
+	fmt.Printf("    %s:%s\n\n", tpl.Image, tpl.Tag)
+
+	if tpl.Command != "" {
+		fmt.Printf("  Command:\n")
+		fmt.Printf("    %s\n\n", tpl.Command)
+	}
+
+	if tpl.Ports != "" {
+		fmt.Printf("  Ports:\n")
+		for _, p := range strings.Split(tpl.Ports, ",") {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				fmt.Printf("    -p %s\n", p)
+			}
+		}
+		fmt.Println()
+	}
+
+	if tpl.Volumes != "" {
+		fmt.Printf("  Volumes:\n")
+		for _, v := range strings.Split(tpl.Volumes, ",") {
+			v = strings.TrimSpace(v)
+			if v != "" {
+				parts := strings.SplitN(v, ":", 2)
+				if len(parts) == 2 {
+					fmt.Printf("    -v %s → %s\n", parts[0], parts[1])
+				} else {
+					fmt.Printf("    -v %s\n", v)
+				}
+			}
+		}
+		fmt.Println()
+	}
+
+	if tpl.Env != "" {
+		fmt.Printf("  Environment variables (edit with -e KEY=VAL):\n")
+		var envPairs []struct {
+			Key   string `json:"key"`
+			Value string `json:"value"`
+		}
+		if err := json.Unmarshal([]byte(tpl.Env), &envPairs); err == nil {
+			for _, p := range envPairs {
+				fmt.Printf("    -e %s=%s\n", p.Key, p.Value)
+			}
+		}
+		fmt.Println()
+	}
+
+	if tpl.Memory != "" || tpl.CPUs != "" || tpl.Restart != "" {
+		fmt.Printf("  Resources:\n")
+		if tpl.Memory != "" {
+			fmt.Printf("    --memory %s\n", tpl.Memory)
+		}
+		if tpl.CPUs != "" {
+			fmt.Printf("    --cpus %s\n", tpl.CPUs)
+		}
+		if tpl.Restart != "" {
+			fmt.Printf("    --restart %s\n", tpl.Restart)
+		}
+		if tpl.CapAdd != "" {
+			for _, c := range strings.Split(tpl.CapAdd, ",") {
+				c = strings.TrimSpace(c)
+				if c != "" {
+					fmt.Printf("    --cap-add %s\n", c)
+				}
+			}
+		}
+		if tpl.Network != "" {
+			fmt.Printf("    --network %s\n", tpl.Network)
+		}
+		fmt.Println()
+	}
+
+	fmt.Printf("  Quick install:\n")
+	fmt.Printf("    dck blueprint install %s\n\n", bpName)
+
+	fmt.Printf("  Manual run:\n")
+	manualArgs := []string{"dck run -d --restart " + tpl.Restart}
+	if tpl.Restart == "" {
+		manualArgs[0] = "dck run -d"
+	}
+	for _, p := range strings.Split(tpl.Ports, ",") {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			manualArgs = append(manualArgs, "-p "+p)
+		}
+	}
+	for _, v := range strings.Split(tpl.Volumes, ",") {
+		v = strings.TrimSpace(v)
+		if v != "" {
+			manualArgs = append(manualArgs, "-v "+v)
+		}
+	}
+	if tpl.Memory != "" {
+		manualArgs = append(manualArgs, "--memory "+tpl.Memory)
+	}
+	if tpl.CPUs != "" {
+		manualArgs = append(manualArgs, "--cpus "+tpl.CPUs)
+	}
+	if tpl.CapAdd != "" {
+		for _, c := range strings.Split(tpl.CapAdd, ",") {
+			c = strings.TrimSpace(c)
+			if c != "" {
+				manualArgs = append(manualArgs, "--cap-add "+c)
+			}
+		}
+	}
+	if tpl.Network != "" {
+		manualArgs = append(manualArgs, "--network "+tpl.Network)
+	}
+	if tpl.Env != "" {
+		var envPairs []struct {
+			Key   string `json:"key"`
+			Value string `json:"value"`
+		}
+		if err := json.Unmarshal([]byte(tpl.Env), &envPairs); err == nil {
+			for _, p := range envPairs {
+				manualArgs = append(manualArgs, "-e "+p.Key+"="+p.Value)
+			}
+		}
+	}
+	manualArgs = append(manualArgs, tpl.Image+":"+tpl.Tag)
+	if tpl.Command != "" {
+		manualArgs = append(manualArgs, tpl.Command)
+	}
+
+	fmt.Printf("    %s\n", strings.Join(manualArgs, " \\\n      "))
+	fmt.Println()
+}
+
 func printBlueprintUsage() {
 	fmt.Println(`Blueprint commands:
-  dck blueprint list              List available blueprints from all repositories
+  dck blueprint list              List available blueprints
   dck blueprint ls                Alias for list
-  dck blueprint install <name>    Install a blueprint (pull image + create container)
+  dck blueprint info <name>       Show blueprint details with examples
+  dck blueprint show <name>       Alias for info
+  dck blueprint install <name>    Install a blueprint
   dck blueprint i <name>          Alias for install
-  dck blueprint repo list         List configured blueprint repositories
-  dck blueprint repo add <url>    Add a custom blueprint repository
-  dck blueprint repo remove <n>   Remove a blueprint repository
+  dck blueprint repo list         List configured repositories
+  dck blueprint repo add <url>    Add a custom repository
+  dck blueprint repo remove <n>   Remove a repository
 
 Options for install:
   -n, --name <name>               Container name (default: blueprint name)
