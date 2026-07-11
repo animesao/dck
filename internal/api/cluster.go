@@ -12,12 +12,6 @@ import (
 	"dck/internal/image"
 )
 
-var clusterHandlers map[string]http.HandlerFunc
-
-func init() {
-	clusterHandlers = make(map[string]http.HandlerFunc)
-}
-
 func handleClusterRouter(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/cluster/")
 	parts := strings.SplitN(path, "/", 2)
