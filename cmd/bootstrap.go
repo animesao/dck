@@ -57,6 +57,16 @@ func Bootstrap(args []string) {
 	fmt.Printf("Bootstrap complete: %d containers started\n", count)
 }
 
+func ensureBootstrap() {
+	if os.Geteuid() != 0 {
+		return
+	}
+	if _, err := os.Stat("/etc/systemd/system/dck-bootstrap.service"); err == nil {
+		return
+	}
+	installSystemdService()
+}
+
 func installSystemdService() {
 	path, err := os.Executable()
 	if err != nil {

@@ -119,74 +119,93 @@ func printUsage() {
 	fmt.Println(`dck - simple container runtime
 
 Usage:
-  dck pull [--platform] <image>[:tag]          Pull image from registry
-  dck set <container> [--memory 1g] [--cpus 2]  Modify container parameters
-  dck run [opts] <image> [cmd]                  Run container
-  dck ps                       List running containers
-  dck ps -a                    List all containers
-   dck port <container>         Show port mappings
-   dck port add <c> H:C[/p]     Add port mapping to running container
-   dck port rm <c> H[/p]        Remove port mapping from running container
-  dck start <container>        Start a stopped container
-  dck restart <container>      Restart container
-  dck stop <container>         Stop container
-  dck rm [-f] <container>      Remove container
-    dck logs [-f] [--tail <n>] <container>  Show/follow/tail container logs
-    dck fs ls <c> [path]         List files in container
-    dck fs cat <c> <path>        Show file content
-    dck fs tree <c> [path]       Directory tree
-    dck fs find [c] [path] [opts] Find files (--name, --grep, --type, --max-depth)
-  dck stats [container]        Show live resource usage stats (CPU, RAM, IO, PIDs)
-   dck exec <container> <cmd>   Execute command in container
-   dck console <container>      Interactive shell in container
-   dck attach <container>       Attach to container's main process
-   dck top <container>          Show running processes in container
-   dck cp <src> <dst>           Copy files between host and container
-   dck images                   List images
-   dck rmi <image>[:tag]        Remove image
-   dck commit <c> <img>[:tag]   Create image from container
-  dck rename <c> <new-name>    Rename container
-  dck set <c> [opts]           Modify container parameters (memory, cpu, etc.)
-  dck info                     Show system-wide information
-   dck serve [-p 2375]          Start Docker-compatible REST API server
-   dck system prune             Remove unused containers and images
-   dck volume create <name>     Create a named volume
-   dck volume ls                List volumes
-   dck volume rm <name>         Remove a volume
-   dck volume inspect <name>    Inspect a volume
-   dck volume prune             Remove unused volumes
-   dck build -t name:tag [opts] .  Build image from Dockerfile
-   dck cluster init               Initialize a new cluster
-   dck cluster join <peer>       Join an existing cluster
-   dck cluster leave              Leave the cluster
-   dck cluster ls                List cluster nodes
-   dck service create ...        Create a service with replicas
-   dck service ls                List services
-   dck service rm <name>         Remove a service
-   dck service scale <name> N    Scale service
-   dck service update <name>     Update service (rolling update)
-   dck fn deploy                 Deploy a serverless function
-   dck fn ls                     List functions
-   dck fn rm <name>              Remove a function
-   dck fn call <name>            Invoke a function
-   dck push <image>[:tag]        Push image to registry
-   dck login <registry>          Log in to a registry
-   dck logout <registry>         Log out from a registry
-   dck events                    Stream container events
-   dck export <image> -o f.tar.gz Export image to file
-   dck import <file.tar.gz>      Import image from file
-     dck blueprint list           List available blueprints from all repositories
-     dck blueprint install <name> Install a blueprint (pull + run container)
-     dck blueprint repo add <url> Add a custom blueprint repository
-     dck blueprint repo list      List blueprint repositories
-    dck fs ls <c> [path]          List files in container
-    dck fs cat <c> <path>         Show file content
-    dck fs tree <c> [path]        Show directory tree
-     dck fs find [c] [path] [opts] Find files (--name, --grep, --type, --max-depth)
-     dck bootstrap [--install|--remove]  Install/remove systemd auto-start for containers
-     dck update [--check]         Check for updates and self-update
-    dck --help                   Show this help
-    dck version, --version       Show version
+  Image:
+    dck pull [--platform] <image>[:tag]    Pull image from registry
+    dck push <image>[:tag]                 Push image to registry
+    dck images                             List local images
+    dck rmi <image>[:tag]                  Remove image
+    dck commit <c> <img>[:tag]             Create image from container
+    dck build -t name:tag [opts] .         Build image from Dockerfile
+    dck export <image> -o f.tar.gz         Save image to file
+    dck import <file.tar.gz>               Load image from file
+
+  Container:
+    dck run [opts] <image> [cmd]           Create and run container
+    dck start <container>                  Start stopped container
+    dck stop <container>                   Stop running container
+    dck restart <container>                Restart container
+    dck rm [-f] <container>                Remove container
+    dck rename <c> <new-name>              Rename container
+    dck set <c> [opts]                     Change container params
+    dck ps [-a]                            List containers
+    dck logs [-f] [--tail <n>] <c>         Show/follow/tail logs
+    dck stats [container]                  CPU, RAM, IO stats
+    dck top <container>                    Show running processes
+    dck info                               System-wide info
+
+  Network:
+    dck port <container>                   Show port mappings
+    dck port add <c> H:C[/p]               Add port mapping
+    dck port rm <c> H[/p]                  Remove port mapping
+    dck login <registry>                   Log in to registry
+    dck logout <registry>                  Log out from registry
+    dck events                             Stream container events
+
+  Filesystem:
+    dck fs ls <c> [path]                   List files
+    dck fs cat <c> <path>                  Show file content
+    dck fs tree <c> [path]                 Directory tree
+    dck fs find [c] [path] [opts]          Find files
+    dck cp <src> <dst>                     Copy files host<->container
+
+  Execution:
+    dck exec <container> <cmd>             Run command in container
+    dck console <container>                Web terminal in container
+    dck attach <container>                 Attach to main process
+
+  Compose:
+    dck up [-f config.yml] [service]       Start containers from config
+    dck down [-f config.yml] [-a] [srv]    Stop/remove from config
+
+  Volumes:
+    dck volume create <name>               Create named volume
+    dck volume ls                          List volumes
+    dck volume rm <name>                   Remove volume
+    dck volume inspect <name>              Inspect volume
+    dck volume prune                       Remove unused volumes
+
+  Cluster:
+    dck cluster init                       Initialize new cluster
+    dck cluster join <peer>                Join existing cluster
+    dck cluster leave                      Leave the cluster
+    dck cluster ls                         List cluster nodes
+
+  Services:
+    dck service create ...                 Create replicated service
+    dck service ls                         List services
+    dck service rm <name>                  Remove service
+    dck service scale <name> N             Scale service
+    dck service update <name>              Rolling update
+
+  Functions:
+    dck fn deploy                          Deploy serverless function
+    dck fn ls                              List functions
+    dck fn rm <name>                       Remove function
+    dck fn call <name>                     Invoke function
+
+  Blueprints:
+    dck blueprint list                     List available blueprints
+    dck blueprint install <name>           Install a blueprint
+    dck blueprint repo add <url>           Add blueprint repository
+    dck blueprint repo list                List repositories
+
+  System:
+    dck serve [-p 2375]                    Start REST API server
+    dck system prune                       Clean up unused resources
+    dck update [--check]                   Check for updates and self-update
+    dck bootstrap [--install|--remove]     Auto-start containers on boot
+    dck version, --version, -v             Show version
+    dck --help, -h, help                   Show this help
 
 Run options:
   -d              Detach (background)                                    e.g. -d

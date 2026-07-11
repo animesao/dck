@@ -93,6 +93,9 @@ func Set(args []string) {
 	if *restart != "" {
 		c.Restart = *restart
 		changed = true
+		if *restart == "always" || *restart == "unless-stopped" {
+			ensureBootstrap()
+		}
 	}
 
 	if *workdir != "" {
