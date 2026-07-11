@@ -72,9 +72,10 @@ Search for images on Docker Hub.
 dck search nginx
 dck search python
 dck search alpine
+dck search python:3.11          # filter by tag
 ```
 
-Shows image name, description, stars, and pull count.
+Shows image name, description, stars, pull count, and available tags. Use `image:tag` syntax to filter by specific tag.
 
 ### `dck images`
 
