@@ -168,6 +168,7 @@ Usage:
 
   Compose:
     dck up [-f config.yml] [service]       Start containers from config
+    dck up --generate                      Generate dck.toml from existing containers
     dck down [-f config.yml] [-a] [srv]    Stop/remove from config
 
   Volumes:

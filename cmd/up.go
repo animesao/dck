@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/BurntSushi/toml"
+
 	"dck/internal/config"
 	"dck/internal/container"
 	"dck/internal/image"
@@ -16,7 +18,106 @@ import (
 func Up(args []string) {
 	fs := flag.NewFlagSet("up", flag.ExitOnError)
 	configPath := fs.String("f", "", "Path to config file")
+	generate := fs.Bool("generate", false, "Generate dck.toml from existing containers")
 	fs.Parse(args)
+
+	if *generate {
+		outPath := *configPath
+		if outPath == "" {
+			outPath = "dck.toml"
+		}
+		all, err := container.List(true)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error listing containers: %v\n", err)
+			os.Exit(1)
+		}
+		f, err := os.Create(outPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error creating %s: %v\n", outPath, err)
+			os.Exit(1)
+		}
+		genCfg := config.Config{Container: make(map[string]config.ContainerConfig)}
+		written := 0
+		for _, c := range all {
+			if c.Name == "" {
+				continue
+			}
+			cc := config.ContainerConfig{
+				Image:       c.ImageName + ":" + c.ImageTag,
+				Restart:     c.Restart,
+				Hostname:    c.Hostname,
+				WorkDir:     c.WorkingDir,
+				User:        c.User,
+				Readonly:    c.ReadonlyRootfs,
+				NoNewPrivs:  c.NoNewPrivileges,
+				NetworkMode: c.NetworkMode,
+				Entrypoint:  c.Entrypoint,
+				Labels:      c.Labels,
+				CapAdd:      c.CapAdd,
+				CapDrop:     c.CapDrop,
+				DNS:         c.DNS,
+			}
+			if c.CPUCount > 0 {
+				cc.CPUs = c.CPUCount
+			}
+			if c.MemoryLimit > 0 {
+				cc.Memory = bytesToHuman(c.MemoryLimit)
+			}
+			if len(c.Cmd) > 0 {
+				cc.Command = strings.Join(c.Cmd, " ")
+			}
+			if c.StartupScript != "" {
+				cc.Command = c.StartupScript
+			}
+			for _, p := range c.Ports {
+				proto := ""
+				if p.Protocol != "" && p.Protocol != "tcp" {
+					proto = "/" + p.Protocol
+				}
+				cc.Ports = append(cc.Ports, fmt.Sprintf("%d:%d%s", p.HostPort, p.ContainerPort, proto))
+			}
+			for _, v := range c.Volumes {
+				cc.Volumes = append(cc.Volumes, v.Source+":"+v.Target)
+			}
+			if len(c.Env) > 0 {
+				cc.Env = make(map[string]string)
+				for _, e := range c.Env {
+					if parts := strings.SplitN(e, "=", 2); len(parts) == 2 {
+						cc.Env[parts[0]] = parts[1]
+					}
+				}
+			}
+			if len(c.Sysctls) > 0 {
+				cc.Sysctls = make(map[string]string)
+				for k, v := range c.Sysctls {
+					cc.Sysctls[k] = v
+				}
+			}
+			if len(c.Ulimits) > 0 {
+				cc.Ulimits = make(map[string]string)
+				for _, u := range c.Ulimits {
+					cc.Ulimits[u.Name] = fmt.Sprintf("%d:%d", u.Soft, u.Hard)
+				}
+			}
+			if c.Healthcheck != nil {
+				cc.Healthcheck = &config.HealthcheckConfig{
+					Cmd:      c.Healthcheck.Cmd,
+					Interval: c.Healthcheck.Interval,
+					Retries:  c.Healthcheck.Retries,
+					Timeout:  c.Healthcheck.Timeout,
+				}
+			}
+			genCfg.Container[c.Name] = cc
+			written++
+		}
+		if err := toml.NewEncoder(f).Encode(genCfg); err != nil {
+			fmt.Fprintf(os.Stderr, "Error writing %s: %v\n", outPath, err)
+			os.Exit(1)
+		}
+		f.Close()
+		fmt.Printf("Generated %s with %d containers\n", outPath, written)
+		return
+	}
 
 	freeArgs := fs.Args()
 	var filter string
@@ -237,6 +338,17 @@ func Up(args []string) {
 	fmt.Printf("Up complete: %d containers started\n", started)
 
 	ensureBootstrap()
+}
+
+func bytesToHuman(b int64) string {
+	switch {
+	case b >= 1024*1024*1024:
+		return fmt.Sprintf("%dg", b/(1024*1024*1024))
+	case b >= 1024*1024:
+		return fmt.Sprintf("%dm", b/(1024*1024))
+	default:
+		return fmt.Sprintf("%dk", b/1024)
+	}
 }
 
 type composeState map[string]string // service_name -> container_id

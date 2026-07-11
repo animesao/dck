@@ -793,6 +793,7 @@ dck up --build            # пересобрать образы
 dck up --pull             # скачать образы
 dck up -d                 # в фоне
 dck up                    # сам установит bootstrap если есть --restart always
+dck up --generate         # создать dck.toml из существующих контейнеров
 ```
 
 ### `dck down [имя] [-f <файл>]`

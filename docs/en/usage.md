@@ -765,6 +765,7 @@ dck up --build            # rebuild images before starting
 dck up --pull             # pull images before starting
 dck up -d                 # detach (output only container IDs)
 dck up                    # auto-installs systemd bootstrap if containers use --restart always
+dck up --generate         # generate dck.toml from existing containers
 ```
 
 ### `dck down [name] [-f <file>]`
