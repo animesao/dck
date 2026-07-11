@@ -9,6 +9,16 @@ dck is a lightweight container runtime — no daemon, no Docker. Just containers
 
 - [Deploying Websites](websites.md)
 - [Image Management](#image-management)
+  - [dck pull](#dck-pull---platform-osarch-imagetag)
+  - [dck search](#dck-search-term)
+  - [dck images](#dck-images)
+  - [dck rmi](#dck-rmi-imagetag)
+  - [dck export](#dck-export-image--o-filetargz)
+  - [dck import](#dck-import-filetargz)
+  - [dck build](#dck-build--t-nametag-options-)
+  - [dck commit](#dck-commit-container-imagetag)
+  - [dck push](#dck-push-imagetag)
+  - [dck login / dck logout](#dck-login-registry--dck-logout-registry)
 - [Container Lifecycle](#container-lifecycle)
 - [Running Containers (`dck run`)](#dck-run)
 - [Working with Containers](#working-with-containers)
@@ -53,6 +63,18 @@ dck pull registry.example.com/myapp:v1.0
 
 Private registries: set `DOCKER_USERNAME` / `DOCKER_PASSWORD` env vars,
 or use `-u user -p pass` on push.
+
+### `dck search <term>`
+
+Search for images on Docker Hub.
+
+```bash
+dck search nginx
+dck search python
+dck search alpine
+```
+
+Shows image name, description, stars, and pull count.
 
 ### `dck images`
 

@@ -9,6 +9,16 @@ dck — лёгкий container runtime. Нет демона, нет Docker. Пр
 
 - [Развёртывание сайтов](websites.md)
 - [Управление образами](#управление-образами)
+  - [dck pull](#dck-pull---platform-osarch-образтег)
+  - [dck search](#dck-search-термин)
+  - [dck images](#dck-images)
+  - [dck rmi](#dck-rmi-образтег)
+  - [dck export](#dck-export-образ--o-файлtargz)
+  - [dck import](#dck-import-файлtargz)
+  - [dck build](#dck-build--t-имятег-опции-)
+  - [dck commit](#dck-commit-контейнер-образтег)
+  - [dck push](#dck-push-образтег)
+  - [dck login / dck logout](#dck-login-registry--dck-logout-registry)
 - [Жизненный цикл контейнера](#жизненный-цикл-контейнера)
 - [Запуск контейнеров (`dck run`)](#dck-run)
 - [Работа с контейнерами](#работа-с-контейнерами)
@@ -61,6 +71,18 @@ dck pull registry.example.com/myapp:v1.0
 ```bash
 dck images
 ```
+
+### `dck search <термин>`
+
+Поиск образов на Docker Hub.
+
+```bash
+dck search nginx
+dck search python
+dck search alpine
+```
+
+Показывает имя, описание, звёзды и количество загрузок.
 
 ### `dck rmi <образ>[:тег]`
 

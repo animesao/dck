@@ -86,6 +86,7 @@ A → B's port:  curl 10.0.2.1:8080 (DNAT: host_port → B:container_port)
 ```bash
 dck pull alpine                    # Pull image
 dck pull nginx:alpine              # With tag
+dck search nginx                   # Search Docker Hub
 dck images                         # List local images
 dck rmi nginx:alpine               # Remove image
 ```

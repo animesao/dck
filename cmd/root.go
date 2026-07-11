@@ -75,6 +75,8 @@ func Execute() {
 		Commit(args)
 	case "rename":
 		Rename(args)
+	case "search":
+		Search(args)
 	case "set":
 		Set(args)
 	case "info":
@@ -123,6 +125,7 @@ Usage:
     dck pull [--platform] <image>[:tag]    Pull image from registry
     dck push <image>[:tag]                 Push image to registry
     dck images                             List local images
+    dck search <term>                     Search images on Docker Hub
     dck rmi <image>[:tag]                  Remove image
     dck commit <c> <img>[:tag]             Create image from container
     dck build -t name:tag [opts] .         Build image from Dockerfile
