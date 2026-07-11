@@ -137,7 +137,10 @@ func handleReplicaCreate(w http.ResponseWriter, r *http.Request) {
 
 	name := req.ServiceName
 	if name == "" {
-		name = img.ShortName()
+		name = img.Name
+		if idx := strings.LastIndex(name, "/"); idx >= 0 {
+			name = name[idx+1:]
+		}
 	}
 	if req.ReplicaID != "" {
 		name = name + "." + req.ReplicaID[:8]

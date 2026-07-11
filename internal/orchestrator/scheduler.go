@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -12,10 +14,6 @@ import (
 	"dck/internal/container"
 	"dck/internal/image"
 	"dck/internal/state"
-	"path/filepath"
-	"os"
-	"encoding/hex"
-	"crypto/rand"
 )
 
 // ScheduleReplica places a container on a node and starts it
@@ -112,7 +110,6 @@ func startLocalReplica(serviceName string, svc *Service) error {
 
 	opts := container.CreateOpts{
 		Name:    serviceName + "." + replicaID[:8],
-		Image:   svc.Image,
 		Ports:   ports,
 		Volumes: volumes,
 		Env:     env,
@@ -355,12 +352,6 @@ func saveReplica(serviceName, replicaID, containerID, nodeID string) {
 
 	data, _ := json.MarshalIndent(r, "", "  ")
 	os.WriteFile(filepath.Join(dir, replicaID+".json"), data, 0644)
-}
-
-func generateID() string {
-	b := make([]byte, 8)
-	rand.Read(b)
-	return hex.EncodeToString(b)
 }
 
 var httpClient = &http.Client{
