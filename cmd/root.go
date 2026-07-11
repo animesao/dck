@@ -183,7 +183,8 @@ Usage:
     dck fs cat <c> <path>         Show file content
     dck fs tree <c> [path]        Show directory tree
      dck fs find [c] [path] [opts] Find files (--name, --grep, --type, --max-depth)
-    dck update [--check]         Check for updates and self-update
+     dck bootstrap [--install|--remove]  Install/remove systemd auto-start for containers
+     dck update [--check]         Check for updates and self-update
     dck --help                   Show this help
     dck version, --version       Show version
 
