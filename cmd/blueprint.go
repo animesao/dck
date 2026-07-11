@@ -176,12 +176,7 @@ func blueprintInfo(args []string) {
 		for _, v := range strings.Split(tpl.Volumes, ",") {
 			v = strings.TrimSpace(v)
 			if v != "" {
-				parts := strings.SplitN(v, ":", 2)
-				if len(parts) == 2 {
-					fmt.Printf("    -v %s → %s\n", parts[0], parts[1])
-				} else {
-					fmt.Printf("    -v %s\n", v)
-				}
+				fmt.Printf("    -v %s\n", v)
 			}
 		}
 		fmt.Println()
