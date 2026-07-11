@@ -184,43 +184,43 @@ Usage:
     dck version, --version       Show version
 
 Run options:
-  -d              Detach (background)
-  -n <name>       Container name
-  -p H:C[/proto]  Port mapping (host:container/tcp|udp, default tcp)
-  --ports H:C     Port mapping (alias for -p)
-  -v S:D          Volume mount (src:dst)
-  --volume S:D    Volume mount (alias for -v)
-  --vol S:D       Volume mount (alias for -v)
-  -e K=V          Environment variable
-  --env-file <f>  Read environment variables from file
-  -i              Interactive
-  -t              Allocate TTY
-  --rm            Remove on exit
-  --restart       Restart policy (no, always, on-failure, unless-stopped)
-  --memory <lim>  Memory limit (512m, 1g, 2g, etc.)
-  --ram <lim>     Memory limit (alias for --memory)
-  --cpus <num>    CPU limit (e.g. 1.5)
-  --cpu <num>     CPU limit (alias for --cpus)
-  --disk <lim>    Disk limit (e.g. 1G, 512M)
-  --workdir <dir> Working directory inside container
-  -h <name>       Container hostname
-  --entrypoint    Override image entrypoint
-  --image <img>   Container image (instead of positional arg)
-  --cmd <cmd>     Container command (instead of positional args)
-  --command <cmd> Container command (alias for --cmd)
-  --cap-add       Add Linux capabilities (e.g. NET_ADMIN)
-  --cap-drop      Drop Linux capabilities (e.g. ALL)
-  --user <uid>    Username or UID:GID
-  --readonly      Make rootfs read-only
-  --no-new-privs  Disable acquiring new privileges
-  --sysctl <k=v>  Sysctl options (can repeat)
-  --ulimit <opt>  Ulimit options (name=soft:hard)
-  -l, --label     Container labels (key=val)
-  --dns <ip>      DNS server (can repeat)
-  --network <m>   Network mode (bridge/none/host)
-  --startup <s>   Startup script (inline or @file)
-  --healthcheck-cmd <cmd>      Health check command
-  --healthcheck-interval <s>   Health check interval
-  --healthcheck-retries <n>    Health check retries
-  --healthcheck-timeout <s>    Health check timeout`)
+  -d              Detach (background)                                    e.g. -d
+  -n <name>       Container name                                         e.g. -n myapp
+  -p H:C[/proto]  Port mapping (host:container/tcp|udp)                  e.g. -p 8080:80, -p 53:53/udp
+  --ports H:C     Port mapping (alias for -p)                            e.g. --ports 8080:80
+  -v S:D          Volume mount (src:dst)                                  e.g. -v /data:/data
+  --volume S:D    Volume mount (alias for -v)                             e.g. --volume /data:/data
+  --vol S:D       Volume mount (alias for -v)                             e.g. --vol myvol:/data
+  -e K=V          Environment variable                                   e.g. -e DB_HOST=localhost
+  --env-file <f>  Read environment variables from file                    e.g. --env-file .env
+  -i              Interactive                                            e.g. -i
+  -t              Allocate TTY                                           e.g. -t
+  --rm            Remove on exit                                         e.g. --rm
+  --restart       Restart policy (no|always|on-failure|unless-stopped)    e.g. --restart always
+  --memory <lim>  Memory limit                                           e.g. --memory 1g, --memory 512m
+  --ram <lim>     Memory limit (alias for --memory)                      e.g. --ram 2g
+  --cpus <num>    CPU limit                                              e.g. --cpus 2, --cpus 0.5
+  --cpu <num>     CPU limit (alias for --cpus)                           e.g. --cpu 1.5
+  --disk <lim>    Disk limit                                             e.g. --disk 10G
+  --workdir <dir> Working directory inside container                     e.g. --workdir /app
+  -h <name>       Container hostname                                     e.g. -h myserver
+  --entrypoint    Override image entrypoint                              e.g. --entrypoint /bin/bash
+  --image <img>   Container image (instead of positional arg)            e.g. --image nginx:alpine
+  --cmd <cmd>     Container command (instead of positional args)         e.g. --cmd "python app.py"
+  --command <cmd> Container command (alias for --cmd)                    e.g. --command "java -jar server.jar"
+  --cap-add       Add Linux capabilities (can repeat)                    e.g. --cap-add NET_ADMIN
+  --cap-drop      Drop Linux capabilities (can repeat)                   e.g. --cap-drop ALL
+  --user <uid>    Username or UID:GID                                    e.g. --user 1000:1000
+  --readonly      Make rootfs read-only                                  e.g. --readonly
+  --no-new-privs  Disable acquiring new privileges                       e.g. --no-new-privs
+  --sysctl <k=v>  Sysctl options (can repeat)                            e.g. --sysctl net.ipv4.ip_forward=1
+  --ulimit <opt>  Ulimit options (name=soft:hard)                        e.g. --ulimit nofile=1024:2048
+  -l, --label     Container labels (key=val)                             e.g. -l env=prod
+  --dns <ip>      DNS server (can repeat)                                e.g. --dns 8.8.8.8
+  --network <m>   Network mode (bridge|none|host)                        e.g. --network host
+  --startup <s>   Startup script (inline or @file)                       e.g. --startup @setup.sh
+  --healthcheck-cmd <cmd>      Health check command                      e.g. --healthcheck-cmd "curl -f http://localhost"
+  --healthcheck-interval <s>   Health check interval (seconds)           e.g. --healthcheck-interval 30
+  --healthcheck-retries <n>    Health check retries                      e.g. --healthcheck-retries 5
+  --healthcheck-timeout <s>    Health check timeout (seconds)            e.g. --healthcheck-timeout 10`)
 }
