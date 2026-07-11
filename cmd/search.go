@@ -37,8 +37,6 @@ type tagItem struct {
 	Name string `json:"name"`
 }
 
-// isPopularTag returns true for short, general-purpose tags.
-// Prefers slim, alpine, bookworm, bullseye variants and simple version tags.
 func isPopularTag(name string) bool {
 	if name == "latest" || name == "slim" || name == "alpine" || name == "bookworm" || name == "bullseye" {
 		return true
@@ -55,7 +53,7 @@ func isPopularTag(name string) bool {
 	return false
 }
 
-func fetchTags(repo string) []string {
+func fetchTags(repo string, filter string) []string {
 	u := fmt.Sprintf(dockerHubTagsURL, repo)
 	resp, err := http.Get(u)
 	if err != nil {
@@ -74,6 +72,9 @@ func fetchTags(repo string) []string {
 		if n == "latest" {
 			continue
 		}
+		if filter != "" && !strings.Contains(n, filter) {
+			continue
+		}
 		if isPopularTag(n) {
 			popular = append(popular, n)
 		} else {
@@ -86,8 +87,8 @@ func fetchTags(repo string) []string {
 	})
 
 	all := append(popular, others...)
-	if len(all) > 5 {
-		all = all[:5]
+	if len(all) > 10 {
+		all = all[:10]
 	}
 	return all
 }
@@ -95,11 +96,20 @@ func fetchTags(repo string) []string {
 func Search(args []string) {
 	if len(args) < 1 {
 		fmt.Fprintln(os.Stderr, "Usage: dck search <term>")
+		fmt.Fprintln(os.Stderr, "       dck search python:3.11  (filter by tag)")
 		os.Exit(1)
 	}
 
-	term := strings.Join(args, " ")
-	u := fmt.Sprintf("%s?query=%s&page_size=10", dockerHubSearchURL, url.QueryEscape(term))
+	query := strings.Join(args, " ")
+	imageName := query
+	tagFilter := ""
+
+	if idx := strings.Index(query, ":"); idx > 0 {
+		imageName = query[:idx]
+		tagFilter = query[idx+1:]
+	}
+
+	u := fmt.Sprintf("%s?query=%s&page_size=10", dockerHubSearchURL, url.QueryEscape(imageName))
 
 	resp, err := http.Get(u)
 	if err != nil {
@@ -124,7 +134,11 @@ func Search(args []string) {
 		return
 	}
 
-	fmt.Printf("Found %d results for \"%s\". Top tags:\n\n", sr.Count, term)
+	label := query
+	if tagFilter != "" {
+		label = fmt.Sprintf("%s (filtering tags by \"%s\")", imageName, tagFilter)
+	}
+	fmt.Printf("Found %d results for \"%s\". Top tags:\n\n", sr.Count, label)
 
 	type repoWithTags struct {
 		item searchRepoItem
@@ -148,12 +162,15 @@ func Search(args []string) {
 			if r.item.Official {
 				repo = "library/" + repo
 			}
-			r.tags = fetchTags(repo)
+			r.tags = fetchTags(repo, tagFilter)
 		}(&results[i])
 	}
 	wg.Wait()
 
 	for _, r := range results {
+		if tagFilter != "" && len(r.tags) == 0 {
+			continue
+		}
 		official := ""
 		if r.item.Official {
 			official = " [official]"
