@@ -9,26 +9,7 @@ import (
 )
 
 func Set(args []string) {
-	fs := flag.NewFlagSet("set", flag.ExitOnError)
-	memory := fs.String("memory", "", "Memory limit (e.g. 512m, 1g, 2g)")
-	ramAlias := fs.String("ram", "", "Memory limit (alias for --memory)")
-	cpus := fs.Float64("cpus", -1, "CPU limit (e.g. 1.5)")
-	cpuAlias := fs.Float64("cpu", -1, "CPU limit (alias for --cpus)")
-	disk := fs.String("disk", "", "Disk limit (e.g. 1G, 512M)")
-	restart := fs.String("restart", "", "Restart policy (no, always, on-failure, unless-stopped)")
-	workdir := fs.String("workdir", "", "Working directory inside container")
-	var envVars stringSlice
-	fs.Var(&envVars, "e", "Environment variables (key=val)")
-	entrypoint := fs.String("entrypoint", "", "Override image entrypoint")
-	user := fs.String("user", "", "Username or UID:GID")
-	readonly := fs.Bool("readonly", false, "Make rootfs read-only")
-	noNewPrivs := fs.Bool("no-new-privs", false, "Disable acquiring new privileges")
-	hostname := fs.String("h", "", "Container hostname")
-	networkMode := fs.String("network", "", "Network mode (bridge/none/host)")
-
-	fs.Parse(args)
-
-	if fs.NArg() < 1 {
+	if len(args) < 1 {
 		fmt.Println("Usage: dck set <container> [options]")
 		fmt.Println("  --memory <lim>  Memory limit")
 		fmt.Println("  --ram <lim>     Memory limit (alias for --memory)")
@@ -47,7 +28,29 @@ func Set(args []string) {
 		os.Exit(1)
 	}
 
-	c, err := container.Load(fs.Arg(0))
+	containerName := args[0]
+	flagArgs := args[1:]
+
+	fs := flag.NewFlagSet("set", flag.ExitOnError)
+	memory := fs.String("memory", "", "Memory limit (e.g. 512m, 1g, 2g)")
+	ramAlias := fs.String("ram", "", "Memory limit (alias for --memory)")
+	cpus := fs.Float64("cpus", -1, "CPU limit (e.g. 1.5)")
+	cpuAlias := fs.Float64("cpu", -1, "CPU limit (alias for --cpus)")
+	disk := fs.String("disk", "", "Disk limit (e.g. 1G, 512M)")
+	restart := fs.String("restart", "", "Restart policy (no, always, on-failure, unless-stopped)")
+	workdir := fs.String("workdir", "", "Working directory inside container")
+	var envVars stringSlice
+	fs.Var(&envVars, "e", "Environment variables (key=val)")
+	entrypoint := fs.String("entrypoint", "", "Override image entrypoint")
+	user := fs.String("user", "", "Username or UID:GID")
+	readonly := fs.Bool("readonly", false, "Make rootfs read-only")
+	noNewPrivs := fs.Bool("no-new-privs", false, "Disable acquiring new privileges")
+	hostname := fs.String("h", "", "Container hostname")
+	networkMode := fs.String("network", "", "Network mode (bridge/none/host)")
+
+	fs.Parse(flagArgs)
+
+	c, err := container.Load(containerName)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
