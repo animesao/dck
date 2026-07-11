@@ -122,6 +122,12 @@ dck build -t myapp:v1 --build-arg VERSION=1.0 -f Dockerfile.prod .
 FROM, RUN, COPY, ADD, WORKDIR, ENV, CMD, ENTRYPOINT, EXPOSE, LABEL, USER,
 VOLUME, SHELL, ARG, HEALTHCHECK, STOPSIGNAL, ONBUILD.
 
+**Возможности:**
+- ✅ Многоэтапная сборка (`FROM ... AS alias`, `COPY --from=`)
+- ✅ Подстановка ARG (`$VAR` / `${VAR}` во всех инструкциях)
+- ✅ HEALTHCHECK с `--start-period`
+- `--no-cache` (зарезервировано, пока не влияет)
+
 ### `dck commit <контейнер> <образ>[:тег]`
 
 Создать образ из текущего состояния контейнера (со всеми изменениями в overlay).
@@ -783,6 +789,20 @@ dck поддерживает стандартный формат Docker Compose 
 4. `docker-compose.yaml`
 5. `docker-compose.yml`
 
+`depends_on` учитывается — контейнеры запускаются в порядке зависимостей.
+Поддерживаются `service_started` (по умолчанию), `service_healthy` (ждёт healthcheck),
+`service_completed_successfully`.
+
+```toml
+[container.db]
+image = "postgres:16"
+healthcheck = { cmd = "pg_isready -U postgres", interval = 10, retries = 5 }
+
+[container.app]
+image = "myapp:latest"
+depends_on = { db = "service_healthy" }
+```
+
 ```bash
 dck up                    # автоопределение
 dck up myapp              # только сервис "myapp"
@@ -863,7 +883,19 @@ dck cluster init --name prod --bind 0.0.0.0 --port 2375
 # Присоединиться
 dck cluster join 10.0.0.1:2375
 
-# Список нод
+# Показать адрес для подключения других нод
+dck cluster join-token
+
+# Общая информация о кластере (имя, ноды, сервисы)
+dck cluster info
+
+# Список нод (с CPU, памятью, лейблами)
+dck cluster node ls
+
+# Детальная информация о ноде
+dck cluster node inspect <id>
+
+# Список нод (кратко)
 dck cluster ls
 
 # Покинуть кластер

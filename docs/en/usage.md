@@ -122,6 +122,12 @@ dck build -t myapp:v1 --build-arg VERSION=1.0 -f Dockerfile.prod .
 FROM, RUN, COPY, ADD, WORKDIR, ENV, CMD, ENTRYPOINT, EXPOSE, LABEL, USER,
 VOLUME, SHELL, ARG, HEALTHCHECK, STOPSIGNAL, ONBUILD.
 
+**Features:**
+- ✅ Multi-stage builds (`FROM ... AS alias`, `COPY --from=`)
+- ✅ ARG substitution (`$VAR` / `${VAR}` in all instructions)
+- ✅ HEALTHCHECK with `--start-period`
+- `--no-cache` flag (reserved, not yet enforced)
+
 ### `dck commit <container> <image>[:tag]`
 
 Create a new image from a container's current state (including all changes in the overlay).
@@ -755,6 +761,19 @@ Auto-detection order:
 4. `docker-compose.yaml`
 5. `docker-compose.yml`
 
+`depends_on` is respected — containers start in dependency order. Supports `service_started`
+(default), `service_healthy` (waits for healthcheck), and `service_completed_successfully`.
+
+```toml
+[container.db]
+image = "postgres:16"
+healthcheck = { cmd = "pg_isready -U postgres", interval = 10, retries = 5 }
+
+[container.app]
+image = "myapp:latest"
+depends_on = { db = "service_healthy" }
+```
+
 ```bash
 dck up                    # auto-detect
 dck up myapp              # start only the "myapp" service
@@ -837,7 +856,19 @@ dck cluster init --name prod --bind 0.0.0.0 --port 2375
 # Join a cluster
 dck cluster join 10.0.0.1:2375
 
-# List nodes
+# Show connection address for other nodes
+dck cluster join-token
+
+# Cluster overview (name, nodes, services)
+dck cluster info
+
+# List nodes (with CPU, memory, labels)
+dck cluster node ls
+
+# Detailed node info
+dck cluster node inspect <id>
+
+# List nodes (short view)
 dck cluster ls
 
 # Leave cluster

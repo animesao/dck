@@ -859,10 +859,16 @@ dck run -d
 | Port mapping | iptables DNAT | iptables DNAT |
 | Auto-start | systemd oneshot | systemd dockerd |
 | Image format | OCI/Docker V2 | OCI/Docker V2 |
+| Multi-stage build | ✅ | ✅ |
+| Compose depends_on | ✅ | ✅ |
+| Cluster orchestration | ✅ | ✅ (Swarm) |
+| Rolling updates | ✅ | ✅ |
 
 ---
 
 ## Changelog
+
+**v1.23.0** — `dck up`: `depends_on` with topological sort + `service_healthy` wait. `dck build`: multi-stage (`FROM AS`, `COPY --from=`), ARG substitution, `ADD` instruction. `dck cluster info`, `join-token`, `node ls/inspect`. HEALTHCHECK `--start-period`.
 
 **v1.22.0** — Filesystem browser (`dck fs ls/cat/tree/find`). Overlay stays mounted after `stop`. Graceful shutdown (SIGTERM → SIGKILL). Healthcheck goroutine leak fixed. System prune no longer destroys running containers.
 
