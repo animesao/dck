@@ -26,6 +26,12 @@ func Cluster(args []string) {
 		clusterJoin(subargs)
 	case "leave":
 		clusterLeave(subargs)
+	case "join-token":
+		clusterJoinToken(subargs)
+	case "info":
+		clusterInfo(subargs)
+	case "node":
+		clusterNode(subargs)
 	case "ls", "list":
 		clusterList(subargs)
 	default:
@@ -43,20 +49,30 @@ Manage clusters
 Commands:
   init           Initialize a new cluster
   join <peer>    Join an existing cluster
+  join-token     Show the connection address for other nodes
   leave          Leave the cluster
-  ls             List cluster nodes`)
+  info           Show cluster overview
+  ls             List cluster nodes
+  node           Manage cluster nodes (ls, inspect)`)
 }
 
 func clusterInit(args []string) {
 	fs := flag.NewFlagSet("cluster init", flag.ExitOnError)
 	name := fs.String("name", "default", "Cluster name")
 	bind := fs.String("bind", "0.0.0.0", "Bind address")
-	port := fs.Int("port", 2375, "API port")
+	port := fs.Int("port", 7946, "Cluster port")
 	fs.Parse(args)
 
 	if err := orchestrator.InitCluster(*name, *bind, *port); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
+	}
+	fmt.Printf("Cluster %q initialized\n", *name)
+
+	node, err := orchestrator.GetNode()
+	if err == nil {
+		fmt.Printf("  Node ID:   %s\n", node.ID[:12])
+		fmt.Printf("  Address:   %s:%d\n", node.Address, node.APIPort)
 	}
 }
 
@@ -70,7 +86,6 @@ func clusterJoin(args []string) {
 	bind := "0.0.0.0"
 	port := 2375
 
-	// Check for flags in remaining args
 	fs := flag.NewFlagSet("cluster join", flag.ExitOnError)
 	fs.StringVar(&bind, "bind", "0.0.0.0", "Bind address")
 	fs.IntVar(&port, "port", 2375, "API port")
@@ -80,12 +95,186 @@ func clusterJoin(args []string) {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
+	fmt.Printf("Joined cluster via %s\n", peerAddr)
 }
 
 func clusterLeave(args []string) {
 	if err := orchestrator.LeaveCluster(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
+	}
+	fmt.Println("Left the cluster")
+}
+
+func clusterJoinToken(args []string) {
+	node, err := orchestrator.GetNode()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: not part of a cluster: %v\n", err)
+		os.Exit(1)
+	}
+
+	info := orchestrator.GetClusterInfo()
+	if info == nil {
+		fmt.Fprintf(os.Stderr, "Error: cluster not initialized\n")
+		os.Exit(1)
+	}
+
+	fmt.Printf("Cluster: %s (%s)\n", info.ClusterName, info.ClusterID[:12])
+	fmt.Printf("Join token:\n")
+	fmt.Printf("  dck cluster join %s:%d\n", node.Address, node.APIPort)
+}
+
+func clusterInfo(args []string) {
+	info := orchestrator.GetClusterInfo()
+	if info == nil {
+		fmt.Fprintln(os.Stderr, "Not part of a cluster")
+		os.Exit(1)
+	}
+
+	nodes, err := orchestrator.ListNodes()
+	if err != nil {
+		nodes = nil
+	}
+
+	svcs, err2 := orchestrator.ListServices()
+	if err2 != nil {
+		svcs = nil
+	}
+
+	fmt.Printf("Cluster:\n")
+	fmt.Printf("  Name:       %s\n", info.ClusterName)
+	fmt.Printf("  ID:         %s\n", info.ClusterID)
+	fmt.Printf("  Created:    %s\n", info.CreatedAt.Format(time.RFC1123))
+	fmt.Printf("  Nodes:      %d\n", len(nodes))
+	fmt.Printf("  Services:   %d\n", len(svcs))
+
+	leaderCount := 0
+	workerCount := 0
+	activeCount := 0
+	for _, n := range nodes {
+		if n.Role == orchestrator.NodeRoleLeader {
+			leaderCount++
+		} else {
+			workerCount++
+		}
+		if n.State == orchestrator.NodeStateActive {
+			activeCount++
+		}
+	}
+	fmt.Printf("  Leaders:    %d\n", leaderCount)
+	fmt.Printf("  Workers:    %d\n", workerCount)
+	fmt.Printf("  Active:     %d\n", activeCount)
+
+	node, _ := orchestrator.GetNode()
+	if node != nil {
+		fmt.Printf("\n  Local node: %s (%s)\n", node.Name, node.ID[:12])
+	}
+}
+
+func clusterNode(args []string) {
+	if len(args) < 1 {
+		fmt.Println(`Usage: dck cluster node COMMAND
+
+Manage cluster nodes
+
+Commands:
+  ls               List all nodes
+  inspect <id>     Show detailed node info`)
+		os.Exit(1)
+	}
+
+	switch args[0] {
+	case "ls", "list":
+		clusterNodeList(args[1:])
+	case "inspect":
+		clusterNodeInspect(args[1:])
+	default:
+		fmt.Printf("unknown node command: %s\n", args[0])
+	}
+}
+
+func clusterNodeList(args []string) {
+	nodes, err := orchestrator.ListNodes()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	if len(nodes) == 0 {
+		fmt.Println("No nodes in cluster")
+		return
+	}
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
+	fmt.Fprintln(w, "ID\tNAME\tADDRESS\tROLE\tSTATE\tCPU\tMEM\tLABELS")
+	for _, n := range nodes {
+		labels := ""
+		if len(n.Labels) > 0 {
+			first := true
+			for k, v := range n.Labels {
+				if !first {
+					labels += ","
+				}
+				labels += k + "=" + v
+				first = false
+			}
+		}
+		mem := fmt.Sprintf("%.1fG", float64(n.MemTotal)/1e9)
+		fmt.Fprintf(w, "%s\t%s\t%s:%d\t%s\t%s\t%d\t%s\t%s\n",
+			shortID(n.ID),
+			n.Name,
+			n.Address, n.APIPort,
+			n.Role,
+			n.State,
+			n.CPUCores,
+			mem,
+			labels,
+		)
+	}
+	w.Flush()
+}
+
+func clusterNodeInspect(args []string) {
+	if len(args) < 1 {
+		fmt.Println("Usage: dck cluster node inspect <id>")
+		os.Exit(1)
+	}
+
+	query := args[0]
+	nodes, err := orchestrator.ListNodes()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	var found *orchestrator.Node
+	for _, n := range nodes {
+		if n.ID == query || len(n.ID) >= len(query) && n.ID[:len(query)] == query {
+			found = n
+			break
+		}
+	}
+
+	if found == nil {
+		fmt.Fprintf(os.Stderr, "Node %q not found\n", query)
+		os.Exit(1)
+	}
+
+	fmt.Printf("  ID:        %s\n", found.ID)
+	fmt.Printf("  Name:      %s\n", found.Name)
+	fmt.Printf("  Address:   %s:%d\n", found.Address, found.APIPort)
+	fmt.Printf("  Role:      %s\n", found.Role)
+	fmt.Printf("  State:     %s\n", found.State)
+	fmt.Printf("  CPU Cores: %d\n", found.CPUCores)
+	fmt.Printf("  Memory:    %.1fG total, %.1fG available\n",
+		float64(found.MemTotal)/1e9, float64(found.MemAvail)/1e9)
+	fmt.Printf("  Joined:    %s\n", found.JoinedAt.Format(time.RFC1123))
+	fmt.Printf("  Last Seen: %s\n", found.LastSeen.Format(time.RFC1123))
+	if len(found.Labels) > 0 {
+		fmt.Println("  Labels:")
+		for k, v := range found.Labels {
+			fmt.Printf("    %s=%s\n", k, v)
+		}
 	}
 }
 
@@ -123,5 +312,4 @@ func shortID(id string) string {
 	return id
 }
 
-// Ensure the import is used
 var _ = time.Now

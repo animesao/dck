@@ -181,8 +181,12 @@ Usage:
   Cluster:
     dck cluster init                       Initialize new cluster
     dck cluster join <peer>                Join existing cluster
+    dck cluster join-token                 Show connection address for peers
     dck cluster leave                      Leave the cluster
+    dck cluster info                       Show cluster overview
     dck cluster ls                         List cluster nodes
+    dck cluster node ls                    List nodes with resources
+    dck cluster node inspect <id>          Show detailed node info
 
   Services:
     dck service create ...                 Create replicated service
