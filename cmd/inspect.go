@@ -29,7 +29,11 @@ func Inspect(args []string) {
 	fmt.Printf("  IP:         %s\n", c.IP)
 	fmt.Printf("  Hostname:   %s\n", c.Hostname)
 	fmt.Printf("  Created:    %s\n", c.CreatedAt.Format(time.RFC1123))
-	fmt.Printf("  Restart:    %s\n", ifEmpty(c.Restart, "no"))
+	r := c.Restart
+	if r == "" {
+		r = "no"
+	}
+	fmt.Printf("  Restart:    %s\n", r)
 	if c.WorkingDir != "" {
 		fmt.Printf("  WorkDir:    %s\n", c.WorkingDir)
 	}
@@ -39,7 +43,11 @@ func Inspect(args []string) {
 	if c.User != "" {
 		fmt.Printf("  User:       %s\n", c.User)
 	}
-	fmt.Printf("  Network:    %s\n", ifEmpty(c.NetworkMode, "bridge"))
+	nm := c.NetworkMode
+	if nm == "" {
+		nm = "bridge"
+	}
+	fmt.Printf("  Network:    %s\n", nm)
 	if c.CgroupPath != "" {
 		fmt.Printf("  Cgroup:     %s\n", c.CgroupPath)
 	}
@@ -53,10 +61,16 @@ func Inspect(args []string) {
 
 	fmt.Println()
 	fmt.Println("  Resources:")
-	fmt.Printf("    Memory:     %s\n", formatBytes(c.MemoryLimit))
+	showMem := ""
+	if c.MemoryLimit > 0 {
+		showMem = formatBytes(uint64(c.MemoryLimit))
+	} else {
+		showMem = "unlimited"
+	}
+	fmt.Printf("    Memory:     %s\n", showMem)
 	fmt.Printf("    CPUs:      %.1f\n", c.CPUCount)
 	if c.DiskLimit > 0 {
-		fmt.Printf("    Disk:      %s\n", formatBytes(c.DiskLimit))
+		fmt.Printf("    Disk:      %s\n", formatBytes(uint64(c.DiskLimit)))
 	}
 
 	if len(c.Ports) > 0 {
@@ -146,26 +160,3 @@ func Inspect(args []string) {
 	fmt.Println()
 }
 
-func ifEmpty(s, def string) string {
-	if s == "" {
-		return def
-	}
-	return s
-}
-
-func formatBytes(n int64) string {
-	if n <= 0 {
-		return "unlimited"
-	}
-	b := uint64(n)
-	const unit = 1024
-	if b < unit {
-		return fmt.Sprintf("%d B", b)
-	}
-	div, exp := uint64(unit), 0
-	for n := b / unit; n >= unit; n /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
-}
