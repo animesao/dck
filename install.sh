@@ -5,7 +5,6 @@ set -euo pipefail
 # Usage: curl -sSL https://raw.githubusercontent.com/animesao/dck/main/install.sh | sudo bash
 
 REPO="animesao/dck"
-BRANCH=""
 DCK_BIN="/usr/local/bin/dck"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
@@ -14,7 +13,6 @@ warn() { echo -e "${YELLOW}[!]${NC} $1"; }
 err()  { echo -e "${RED}[x]${NC} $1"; exit 1; }
 
 if [[ $EUID -ne 0 ]]; then err "Must run as root: sudo bash install.sh"; fi
-
 if [[ ! -f /etc/os-release ]]; then err "Unsupported OS"; fi
 source /etc/os-release
 if [[ "$ID" != "ubuntu" && "$ID" != "debian" ]]; then err "Unsupported OS: $ID"; fi
@@ -23,63 +21,15 @@ log "OS: $PRETTY_NAME"
 ARCH="amd64"
 if [[ "$(uname -m)" == "aarch64" ]]; then ARCH="arm64"; fi
 
-# ---- Branch selection ----
-echo ""
-echo -e "${YELLOW}════════════════════════════════════════${NC}"
-echo -e "${YELLOW}     Choose Installation Channel${NC}"
-echo -e "${YELLOW}════════════════════════════════════════${NC}"
-echo -e "  ${GREEN}1)${NC} stable  — latest stable release (recommended)"
-echo -e "  ${GREEN}2)${NC} dev     — development build (unstable)"
-echo ""
-while [[ -z "$BRANCH" ]]; do
-  read -p "Select [1/2]: " -r CH </dev/tty || true
-  case "$CH" in
-    1) BRANCH="stalbal" ;;
-    2) BRANCH="dev" ;;
-    *) echo -e "${RED}Invalid choice. Enter 1 or 2.${NC}" ;;
-  esac
-done
-log "Selected channel: $BRANCH"
-
-# ---- Version selection ----
-echo ""
-echo -e "${YELLOW}════════════════════════════════════════${NC}"
-echo -e "${YELLOW}     Select Version${NC}"
-echo -e "${YELLOW}════════════════════════════════════════${NC}"
-
-LATEST_TAG=$(curl -sfL "https://api.github.com/repos/$REPO/releases?per_page=30" \
-  | grep '"tag_name"' \
-  | cut -d'"' -f4 \
-  | grep -E "v[0-9]+\.[0-9]+\.[0-9]+-${BRANCH}\.[a-f0-9]+$" \
-  | head -1 \
-  2>/dev/null || true)
+# ---- Detect latest version ----
+log "Fetching latest release..."
+LATEST_TAG=$(curl -sfL "https://api.github.com/repos/$REPO/releases/latest" \
+  | grep '"tag_name"' | cut -d'"' -f4)
 
 if [[ -z "$LATEST_TAG" ]]; then
   err "Could not detect latest release. Check https://github.com/$REPO/releases"
 fi
-
-log "Latest $BRANCH version: $LATEST_TAG"
-echo ""
-echo -e "  ${GREEN}1${NC}) $LATEST_TAG (latest)"
-echo -e "  ${GREEN}2${NC}) Enter custom tag"
-echo ""
-while true; do
-  read -p "Select [1/2] (default=1): " -r VC </dev/tty || true
-  if [[ -z "$VC" || "$VC" == "1" ]]; then
-    SELECTED_TAG="$LATEST_TAG"
-    log "Selected: $SELECTED_TAG"
-    break
-  elif [[ "$VC" == "2" ]]; then
-    read -p "Enter tag (e.g. v1.19.0-stalbal.abc1234): " -r SELECTED_TAG </dev/tty || true
-    if [[ -n "$SELECTED_TAG" ]]; then
-      log "Selected: $SELECTED_TAG"
-      break
-    fi
-    echo -e "${RED}Tag cannot be empty${NC}"
-  else
-    echo -e "${RED}Invalid choice${NC}"
-  fi
-done
+log "Latest version: $LATEST_TAG"
 
 # ---- Dependencies ----
 log "Installing dependencies..."
@@ -87,8 +37,8 @@ apt-get update -qq
 apt-get install -y -qq curl tar gzip sudo ufw
 
 # ---- Download binary ----
-log "Downloading dck ${SELECTED_TAG} (${ARCH})..."
-curl -fsSL "https://github.com/$REPO/releases/download/${SELECTED_TAG}/dck-linux-${ARCH}" \
+log "Downloading dck ${LATEST_TAG} (${ARCH})..."
+curl -fsSL "https://github.com/$REPO/releases/download/${LATEST_TAG}/dck-linux-${ARCH}" \
   -o "$DCK_BIN"
 chmod +x "$DCK_BIN"
 log "Binary installed: $DCK_BIN"
@@ -125,19 +75,6 @@ if ! "$DCK_BIN" --version &>/dev/null; then
     log "Built from source: $DCK_BIN"
   fi
 fi
-
-# ---- Download .deb ----
-# .deb uses base semver (no -dev.<sha> suffix) as filename
-DEB_BASE="${SELECTED_TAG#v}"
-DEB_BASE="${DEB_BASE%%-*}"
-DEB_NAME="dck_${DEB_BASE}_${ARCH}.deb"
-log "Downloading .deb package..."
-curl -fsSL "https://github.com/$REPO/releases/download/${SELECTED_TAG}/${DEB_NAME}" \
-  -o "/tmp/$DEB_NAME" 2>/dev/null && {
-  log "Installing .deb package..."
-  dpkg -i "/tmp/$DEB_NAME" 2>/dev/null || apt-get install -f -y -qq
-  rm -f "/tmp/$DEB_NAME"
-} || warn "No .deb package for this version, binary only"
 
 # ---- System deps for dck ----
 log "Installing dck system dependencies..."

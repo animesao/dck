@@ -68,8 +68,17 @@ if (-not (Get-Command go -ErrorAction SilentlyContinue)) {
     Write-Host "[dck] Go installed: $(go version)" -ForegroundColor Green
 }
 
-$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-Set-Location $ScriptDir
+# ---- Clone repo ----
+$TmpDir = "$env:TEMP\dck-build"
+if (Test-Path $TmpDir) { Remove-Item -Recurse -Force $TmpDir }
+Write-Host "[dck] Cloning dck repository..."
+git clone --depth 1 "https://github.com/animesao/dck.git" $TmpDir 2>&1 | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[dck] Git clone failed!" -ForegroundColor Red
+    exit 1
+}
+
+Set-Location $TmpDir
 
 Write-Host "[dck] Building dck..."
 $env:CGO_ENABLED = "0"
@@ -86,12 +95,14 @@ if (-not (Test-Path $InstallDir)) {
 Move-Item -Force dck.exe "$BinPath"
 Write-Host "[dck] Binary installed to $BinPath" -ForegroundColor Green
 
+Remove-Item -Recurse -Force $TmpDir -ErrorAction SilentlyContinue
+
 if (-not $NoPath) {
     $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
     if ($userPath -notlike "*$InstallDir*") {
         [Environment]::SetEnvironmentVariable("Path", "$userPath;$InstallDir", "User")
         Write-Host "[dck] Added to PATH (user)" -ForegroundColor Yellow
-        Write-Host "[dck] Restart terminal or run:`$env:Path += ';$InstallDir'" -ForegroundColor Yellow
+        Write-Host "[dck] Restart terminal or run: `$env:Path += ';$InstallDir'" -ForegroundColor Yellow
     }
 }
 
