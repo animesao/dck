@@ -43,6 +43,10 @@ func StartServer(port int, host string) error {
 	// System endpoints
 	mux.HandleFunc("/system/prune", handleSystemPrune)
 
+	// Cluster endpoints (for cross-node orchestration)
+	mux.HandleFunc("/cluster/", handleClusterRouter)
+	mux.HandleFunc("/cluster/containers", handleListContainersOnNode)
+
 	// Raw handler
 	mux.HandleFunc("/", handleRoot)
 

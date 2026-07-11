@@ -898,6 +898,13 @@ dck cluster node inspect <id>
 # Список нод (кратко)
 dck cluster ls
 
+# Запустить API-сервер (принимает запросы на реплики от других нод)
+dck cluster serve -p 2375
+
+# Или запустить API-сервер автоматически при init/join
+dck cluster init --name prod --serve
+dck cluster join 10.0.0.1:7946 --serve
+
 # Покинуть кластер
 dck cluster leave
 ```

@@ -271,35 +271,23 @@ func ReconcileServices() {
 }
 
 func reconcileScaleUp(name string, svc *Service, count int) {
-	// Place on the least loaded node
-	nodes, _ := ListNodes()
-	if len(nodes) == 0 {
-		return
-	}
-
-	// Sort by available memory descending
-	sort.Slice(nodes, func(i, j int) bool {
-		return nodes[i].MemAvail > nodes[j].MemAvail
-	})
-
-	for i := 0; i < count && i < len(nodes); i++ {
-		node := nodes[i%len(nodes)]
-		fmt.Printf("[reconcile] scheduling replica of %s on %s\n", name, node.Name)
-		_ = node
-		// In full implementation, send request to node to start container
+	for i := 0; i < count; i++ {
+		if err := ScheduleReplica(name, svc); err != nil {
+			fmt.Fprintf(os.Stderr, "[reconcile] error scheduling replica of %s: %v\n", name, err)
+		}
 	}
 }
 
 func reconcileScaleDown(name string, replicas []ServiceReplica, count int) {
-	// Remove the most recent replicas
 	sort.Slice(replicas, func(i, j int) bool {
 		return replicas[i].CreatedAt.After(replicas[j].CreatedAt)
 	})
 
 	for i := 0; i < count && i < len(replicas); i++ {
 		fmt.Printf("[reconcile] removing replica %s of %s\n", replicas[i].ID, name)
-		_ = replicas[i]
-		// In full implementation, send request to node to stop container
+		if err := RemoveRemoteReplica(replicas[i].NodeID, replicas[i].ContainerID); err != nil {
+			fmt.Fprintf(os.Stderr, "[reconcile] error removing replica %s: %v\n", replicas[i].ID, err)
+		}
 	}
 }
 

@@ -179,14 +179,15 @@ Usage:
     dck volume prune                       Remove unused volumes
 
   Cluster:
-    dck cluster init                       Initialize new cluster
-    dck cluster join <peer>                Join existing cluster
+    dck cluster init [--serve]             Initialize new cluster
+    dck cluster join <peer> [--serve]      Join existing cluster
     dck cluster join-token                 Show connection address for peers
     dck cluster leave                      Leave the cluster
     dck cluster info                       Show cluster overview
     dck cluster ls                         List cluster nodes
     dck cluster node ls                    List nodes with resources
     dck cluster node inspect <id>          Show detailed node info
+    dck cluster serve [-p 2375]            Start API server for remote replica requests
 
   Services:
     dck service create ...                 Create replicated service

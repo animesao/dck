@@ -7,6 +7,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"dck/internal/api"
 	"dck/internal/orchestrator"
 )
 
@@ -32,6 +33,8 @@ func Cluster(args []string) {
 		clusterInfo(subargs)
 	case "node":
 		clusterNode(subargs)
+	case "serve":
+		clusterServe(subargs)
 	case "ls", "list":
 		clusterList(subargs)
 	default:
@@ -53,7 +56,8 @@ Commands:
   leave          Leave the cluster
   info           Show cluster overview
   ls             List cluster nodes
-  node           Manage cluster nodes (ls, inspect)`)
+  node           Manage cluster nodes (ls, inspect)
+  serve          Start cluster API server (accepts remote replica requests)`)
 }
 
 func clusterInit(args []string) {
@@ -61,6 +65,8 @@ func clusterInit(args []string) {
 	name := fs.String("name", "default", "Cluster name")
 	bind := fs.String("bind", "0.0.0.0", "Bind address")
 	port := fs.Int("port", 7946, "Cluster port")
+	apiPort := fs.Int("api-port", 2375, "API server port (for remote replica requests)")
+	startAPI := fs.Bool("serve", false, "Start API server after init")
 	fs.Parse(args)
 
 	if err := orchestrator.InitCluster(*name, *bind, *port); err != nil {
@@ -73,6 +79,16 @@ func clusterInit(args []string) {
 	if err == nil {
 		fmt.Printf("  Node ID:   %s\n", node.ID[:12])
 		fmt.Printf("  Address:   %s:%d\n", node.Address, node.APIPort)
+		fmt.Printf("  API Port:  %d (for remote replica requests)\n", *apiPort)
+	}
+
+	if *startAPI {
+		fmt.Printf("Starting API server on %s:%d...\n", *bind, *apiPort)
+		go func() {
+			if err := api.StartServer(*apiPort, *bind); err != nil {
+				fmt.Fprintf(os.Stderr, "API server error: %v\n", err)
+			}
+		}()
 	}
 }
 
@@ -85,10 +101,12 @@ func clusterJoin(args []string) {
 	peerAddr := args[0]
 	bind := "0.0.0.0"
 	port := 2375
+	startAPI := false
 
 	fs := flag.NewFlagSet("cluster join", flag.ExitOnError)
 	fs.StringVar(&bind, "bind", "0.0.0.0", "Bind address")
 	fs.IntVar(&port, "port", 2375, "API port")
+	fs.BoolVar(&startAPI, "serve", false, "Start API server after join")
 	fs.Parse(args[1:])
 
 	if err := orchestrator.JoinCluster(peerAddr, bind, port); err != nil {
@@ -96,6 +114,15 @@ func clusterJoin(args []string) {
 		os.Exit(1)
 	}
 	fmt.Printf("Joined cluster via %s\n", peerAddr)
+
+	if startAPI {
+		fmt.Printf("Starting API server on %s:%d...\n", bind, port)
+		go func() {
+			if err := api.StartServer(port, bind); err != nil {
+				fmt.Fprintf(os.Stderr, "API server error: %v\n", err)
+			}
+		}()
+	}
 }
 
 func clusterLeave(args []string) {
@@ -310,6 +337,21 @@ func shortID(id string) string {
 		return id[:8]
 	}
 	return id
+}
+
+func clusterServe(args []string) {
+	fs := flag.NewFlagSet("cluster serve", flag.ExitOnError)
+	port := fs.Int("p", 2375, "API port")
+	host := fs.String("H", "0.0.0.0", "API host")
+	fs.Parse(args)
+
+	fmt.Printf("Starting cluster API server on %s:%d...\n", *host, *port)
+	fmt.Println("  Accepting replica requests from cluster peers")
+
+	if err := api.StartServer(*port, *host); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
 }
 
 var _ = time.Now

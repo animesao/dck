@@ -23,10 +23,6 @@ archives:
     files:
       - LICENSE*
 
-before:
-  hooks:
-    - sed -i 's|version-v[0-9.]*[^"]*"|version-v{{ .Version }}-blue?style=flat-square"|' README.md
-
 checksum:
   name_template: "{{ .ProjectName }}_{{ .Version }}_checksums.txt"
 

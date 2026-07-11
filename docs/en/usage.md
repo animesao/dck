@@ -871,6 +871,13 @@ dck cluster node inspect <id>
 # List nodes (short view)
 dck cluster ls
 
+# Start API server (accepts remote replica requests)
+dck cluster serve -p 2375
+
+# Or start API server automatically on init/join
+dck cluster init --name prod --serve
+dck cluster join 10.0.0.1:7946 --serve
+
 # Leave cluster
 dck cluster leave
 ```
