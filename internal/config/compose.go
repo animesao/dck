@@ -283,6 +283,9 @@ func LoadCompose(path string) (*Config, error) {
 			}
 		}
 
+		// --- Depends on ---
+		cc.DependsOn = parseComposeDependsOn(svc.DependsOn)
+
 		// --- Secrets ---
 		cc.Secrets = parseComposeSecrets(svc.SecretsRaw, cf.Secrets)
 
@@ -645,6 +648,59 @@ func normalizeRestart(r string) string {
 	default:
 		return r
 	}
+}
+
+func parseComposeDependsOn(d interface{}) DependsOnConfig {
+	if d == nil {
+		return nil
+	}
+	result := make(DependsOnConfig)
+
+	switch val := d.(type) {
+	case []interface{}:
+		for _, item := range val {
+			if s, ok := item.(string); ok {
+				result[s] = "service_started"
+			}
+		}
+	case []string:
+		for _, s := range val {
+			result[s] = "service_started"
+		}
+	case map[string]interface{}:
+		for svc, cond := range val {
+			switch c := cond.(type) {
+			case string:
+				result[svc] = c
+			case map[string]interface{}:
+				if condStr, ok := c["condition"].(string); ok {
+					result[svc] = condStr
+				} else {
+					result[svc] = "service_started"
+				}
+			default:
+				result[svc] = "service_started"
+			}
+		}
+	case map[interface{}]interface{}:
+		for svc, cond := range val {
+			svcStr := fmt.Sprintf("%v", svc)
+			switch c := cond.(type) {
+			case string:
+				result[svcStr] = c
+			case map[interface{}]interface{}:
+				if condStr, ok := c["condition"].(string); ok {
+					result[svcStr] = condStr
+				} else {
+					result[svcStr] = "service_started"
+				}
+			default:
+				result[svcStr] = "service_started"
+			}
+		}
+	}
+
+	return result
 }
 
 func toStringSlice(v interface{}) []string {

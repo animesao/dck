@@ -76,6 +76,8 @@ type ConfigSpec struct {
 	Name     string `toml:"name,omitempty"`
 }
 
+type DependsOnConfig map[string]string // service_name -> condition ("" | "service_started" | "service_healthy" | "service_completed_successfully")
+
 type ContainerConfig struct {
 	Image       string              `toml:"image"`
 	Command     string              `toml:"command,omitempty"`
@@ -104,6 +106,7 @@ type ContainerConfig struct {
 	Deploy      *DeployConfig       `toml:"deploy,omitempty"`
 	Secrets     []SecretRef         `toml:"secrets,omitempty"`
 	Configs     []ConfigRef         `toml:"configs,omitempty"`
+	DependsOn   DependsOnConfig     `toml:"depends_on,omitempty"`
 }
 
 type Config struct {

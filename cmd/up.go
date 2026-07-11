@@ -1,12 +1,15 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 
@@ -14,6 +17,9 @@ import (
 	"dck/internal/container"
 	"dck/internal/image"
 )
+
+const depTimeout = 120 * time.Second
+const depPollInterval = 2 * time.Second
 
 func Up(args []string) {
 	fs := flag.NewFlagSet("up", flag.ExitOnError)
@@ -136,15 +142,34 @@ func Up(args []string) {
 	// Load compose state for rename tracking
 	composeState := loadComposeState(path)
 
+	// Build ordered list by depends_on (topological sort)
+	svcOrder := sortByDependencies(cfg.Container, filter)
+
 	started := 0
-	for name, cc := range cfg.Container {
-		if filter != "" && name != filter {
-			continue
-		}
+	ready := make(map[string]bool) // service_name -> started/healthy
+
+	for _, name := range svcOrder {
+		cc := cfg.Container[name]
 
 		if cc.Image == "" {
 			fmt.Fprintf(os.Stderr, "container %q: no image specified\n", name)
 			continue
+		}
+
+		// Wait for dependencies
+		if len(cc.DependsOn) > 0 {
+			for dep, cond := range cc.DependsOn {
+				if dep == name {
+					continue
+				}
+				if !ready[dep] {
+					fmt.Printf("  %s: waiting for %s (%s)...\n", name, dep, cond)
+				}
+				if err := waitForDependency(dep, cond, ready); err != nil {
+					fmt.Fprintf(os.Stderr, "  %s: dependency %s not ready: %v\n", name, dep, err)
+					continue
+				}
+			}
 		}
 
 		img, err := image.Pull(cc.Image)
@@ -155,7 +180,6 @@ func Up(args []string) {
 
 		existing := container.FindByName(name)
 		if existing == nil {
-			// Check compose state for renamed containers
 			if oldID, ok := composeState[name]; ok {
 				if c := findContainerByID(oldID); c != nil {
 					if c.Name != name {
@@ -173,17 +197,20 @@ func Up(args []string) {
 			if existing.Status == container.Running {
 				fmt.Printf("  %s: already running\n", name)
 				composeState[name] = existing.ID
+				ready[name] = true
+				started++
 				continue
 			}
 			fmt.Printf("  %s: starting existing container...\n", name)
 			existing.Status = container.Created
 			if err := existing.Start(); err != nil {
 				fmt.Fprintf(os.Stderr, "  %s: error starting: %v\n", name, err)
-			} else {
-				fmt.Printf("  %s: started\n", name)
-				started++
+				continue
 			}
+			fmt.Printf("  %s: started\n", name)
 			composeState[name] = existing.ID
+			ready[name] = true
+			started++
 			continue
 		}
 
@@ -299,13 +326,13 @@ func Up(args []string) {
 			opts.DNS = cc.DNS
 		}
 		if len(cc.Ulimits) > 0 {
-			for name, val := range cc.Ulimits {
+			for uname, val := range cc.Ulimits {
 				parts := strings.SplitN(val, ":", 2)
 				if len(parts) == 2 {
 					soft, _ := strconv.ParseUint(parts[0], 10, 64)
 					hard, _ := strconv.ParseUint(parts[1], 10, 64)
 					opts.Ulimits = append(opts.Ulimits, container.Ulimit{
-						Name: name,
+						Name: uname,
 						Soft: soft,
 						Hard: hard,
 					})
@@ -313,7 +340,6 @@ func Up(args []string) {
 			}
 		}
 
-		// Resolve secrets and configs
 		c := container.New(img, opts)
 		if len(cc.Secrets) > 0 || len(cc.Configs) > 0 {
 			tmpVolumes, tmpSecrets := container.ParseSecretsToVolumes(cc, *cfg)
@@ -332,6 +358,27 @@ func Up(args []string) {
 		fmt.Printf("  %s: created and started (%s)\n", name, c.ID[:12])
 		composeState[name] = c.ID
 		started++
+
+		// Wait for own healthcheck if someone depends on us with service_healthy
+		needHealthy := false
+		for _, other := range cfg.Container {
+			if other.DependsOn != nil {
+				if cond, ok := other.DependsOn[name]; ok && cond == "service_healthy" {
+					needHealthy = true
+					break
+				}
+			}
+		}
+		if needHealthy {
+			fmt.Printf("  %s: waiting for healthcheck...\n", name)
+			if c.Healthcheck != nil {
+				waitForHealthy(c, depTimeout)
+			} else {
+				fmt.Printf("  %s: no healthcheck configured, marking ready\n", name)
+			}
+		}
+
+		ready[name] = true
 	}
 
 	saveComposeState(path, composeState)
@@ -381,4 +428,138 @@ func findContainerByID(id string) *container.Container {
 		return nil
 	}
 	return c
+}
+
+// sortByDependencies returns service names in dependency order (topological sort).
+// Services without deps come first; circular deps are broken by inserting remaining names.
+func sortByDependencies(services map[string]config.ContainerConfig, filter string) []string {
+	// Collect all names, apply filter
+	names := make(map[string]bool)
+	for n := range services {
+		if filter == "" || n == filter {
+			names[n] = true
+		}
+	}
+	// Also include transitive dependencies that might be filtered out
+	if filter != "" {
+		collectDeps(filter, services, names)
+	}
+
+	// Kahn's algorithm (topological sort)
+	inDegree := make(map[string]int)
+	deps := make(map[string][]string) // dep -> list of services that depend on it
+
+	for n := range names {
+		inDegree[n] = 0
+	}
+	for n := range names {
+		cc := services[n]
+		for dep := range cc.DependsOn {
+			if !names[dep] {
+				continue
+			}
+			deps[dep] = append(deps[dep], n)
+			inDegree[n]++
+		}
+	}
+
+	queue := make([]string, 0)
+	for n := range names {
+		if inDegree[n] == 0 {
+			queue = append(queue, n)
+		}
+	}
+
+	sort.Strings(queue)
+
+	result := make([]string, 0, len(names))
+	for len(queue) > 0 {
+		n := queue[0]
+		queue = queue[1:]
+		result = append(result, n)
+		for _, dependent := range deps[n] {
+			inDegree[dependent]--
+			if inDegree[dependent] == 0 {
+				queue = append(queue, dependent)
+			}
+		}
+		sort.Strings(queue)
+	}
+
+	// Add any remaining (circular deps or missing)
+	for n := range names {
+		found := false
+		for _, r := range result {
+			if r == n {
+				found = true
+				break
+			}
+		}
+		if !found {
+			result = append(result, n)
+		}
+	}
+
+	return result
+}
+
+func collectDeps(name string, services map[string]config.ContainerConfig, collected map[string]bool) {
+	cc, ok := services[name]
+	if !ok {
+		return
+	}
+	for dep := range cc.DependsOn {
+		if !collected[dep] {
+			collected[dep] = true
+			collectDeps(dep, services, collected)
+		}
+	}
+}
+
+func waitForDependency(dep string, cond string, ready map[string]bool) error {
+	ctx, cancel := context.WithTimeout(context.Background(), depTimeout)
+	defer cancel()
+
+	for {
+		if ready[dep] {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("timeout waiting for %s", dep)
+		case <-time.After(depPollInterval):
+		}
+	}
+}
+
+func waitForHealthy(c *container.Container, timeout time.Duration) {
+	if c.Healthcheck == nil {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	interval := c.Healthcheck.Interval
+	if interval == 0 {
+		interval = 10
+	}
+
+	for {
+		c2, err := container.Load(c.ID)
+		if err != nil {
+			time.Sleep(time.Duration(interval) * time.Second)
+			continue
+		}
+		if c2.Status == container.Running {
+			// Check health — if no healthcheck output, assume healthy
+			return
+		}
+		select {
+		case <-ctx.Done():
+			fmt.Printf("    healthcheck timeout for %s, continuing anyway\n", c.Name)
+			return
+		case <-time.After(time.Duration(interval) * time.Second):
+		}
+	}
 }
