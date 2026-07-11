@@ -741,7 +741,7 @@ dck up --no-start         # create but don't start
 dck up --build            # rebuild images before starting
 dck up --pull             # pull images before starting
 dck up -d                 # detach (output only container IDs)
-dck up --autostart        # also install systemd service for auto-start on boot
+dck up                    # auto-installs systemd bootstrap if containers use --restart always
 ```
 
 ### `dck down [name] [-f <file>]`
@@ -773,12 +773,22 @@ Compatible with Docker clients, Portainer, VS Code Dev Containers, and CI tools.
 
 ## Auto-Start on Boot
 
+Containers with `--restart always` or `--restart unless-stopped` start automatically after reboot.
+
+dck auto-installs a systemd oneshot service when you:
+- `dck run --restart always <image>`
+- `dck set <container> --restart always`
+- `dck up` (if any container has restart: "always")
+
+You can also manage it manually:
+
 ```bash
-dck bootstrap --install
+dck bootstrap --install      # install systemd service
+dck bootstrap --remove       # remove systemd service
+dck bootstrap                # start all restart=always containers now
 ```
 
-Installs a systemd oneshot service. After reboot, all containers with `--restart always` start automatically.
-
+Boot flow:
 ```
 System boot → systemd → dck-bootstrap.service → dck bootstrap
   └─ For each container with restart=always:

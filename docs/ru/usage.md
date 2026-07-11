@@ -769,7 +769,7 @@ dck up --no-start         # создать, но не запускать
 dck up --build            # пересобрать образы
 dck up --pull             # скачать образы
 dck up -d                 # в фоне
-dck up --autostart        # установить systemd сервис для автозапуска
+dck up                    # сам установит bootstrap если есть --restart always
 ```
 
 ### `dck down [имя] [-f <файл>]`
@@ -801,12 +801,22 @@ dck serve -p 2375
 
 ## Автозапуск при загрузке
 
+Контейнеры с `--restart always` или `--restart unless-stopped` запускаются автоматически после перезагрузки.
+
+dck сам устанавливает systemd-сервис когда:
+- `dck run --restart always <образ>`
+- `dck set <контейнер> --restart always`
+- `dck up` (если в конфиге есть restart: "always")
+
+Также можно управлять вручную:
+
 ```bash
-dck bootstrap --install
+dck bootstrap --install      # установить systemd-сервис
+dck bootstrap --remove       # удалить systemd-сервис
+dck bootstrap                # запустить все restart=always контейнеры сейчас
 ```
 
-Устанавливает systemd-сервис. После перезагрузки все контейнеры с `--restart always` запустятся автоматически.
-
+Схема:
 ```
 Загрузка → systemd → dck-bootstrap.service → dck bootstrap
   └─ Для каждого контейнера с restart=always:

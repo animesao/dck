@@ -102,6 +102,8 @@ dck start web                               # Start stopped
 dck restart web                             # Restart
 dck rm -f web                               # Force remove (deletes files)
 dck rename web web-new                      # Rename container
+dck set web --memory 2g --cpus 4            # Change container params (preserves data)
+dck set web --restart always                # Enable auto-restart
 dck system prune                            # Remove unused containers and images
 dck info                                    # System information
 dck commit web my-image:v1                  # Create image from container
@@ -185,6 +187,9 @@ Use `-v` (bind mount) for live file sharing — changes on host are instantly vi
 | `-t` | Allocate TTY |
 | `--rm` | Auto-remove on exit |
 | `--restart` | Restart policy: `no`, `always`, `on-failure`, `unless-stopped` |
+| `--memory` | RAM limit (e.g. `512m`, `2g`) |
+| `--cpus` | CPU limit (e.g. `1.5`, `4`) |
+| `--disk` | Disk limit (e.g. `10G`) |
 
 | `-h` | Hostname |
 | `--startup` | Startup script (inline or `@file`) — overrides CMD |
@@ -730,11 +735,12 @@ dck port rm <container> <host>[/proto]     # alias
 
 ## Auto-Start on Boot
 
-```bash
-dck bootstrap --install
-```
+Containers with `--restart always` start automatically after reboot — dck auto-installs the systemd service when you `dck run --restart always`, `dck set <c> --restart always`, or `dck up`.
 
-Installs a systemd oneshot service. After reboot, all containers with `--restart always` start automatically.
+```bash
+dck bootstrap --install      # manually install systemd service
+dck bootstrap --remove       # remove it
+```
 
 ```
 System boot → systemd → dck-bootstrap.service → dck bootstrap
