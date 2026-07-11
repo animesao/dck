@@ -6,13 +6,14 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 )
 
 const (
 	dockerHubSearchURL = "https://hub.docker.com/v2/search/repositories/"
-	dockerHubTagsURL   = "https://hub.docker.com/v2/repositories/%s/tags?page_size=5"
+	dockerHubTagsURL   = "https://hub.docker.com/v2/repositories/%s/tags?page_size=50"
 )
 
 type searchResult struct {
@@ -36,6 +37,24 @@ type tagItem struct {
 	Name string `json:"name"`
 }
 
+// isPopularTag returns true for short, general-purpose tags.
+// Prefers slim, alpine, bookworm, bullseye variants and simple version tags.
+func isPopularTag(name string) bool {
+	if name == "latest" || name == "slim" || name == "alpine" || name == "bookworm" || name == "bullseye" {
+		return true
+	}
+	if strings.HasSuffix(name, "-slim") || strings.HasSuffix(name, "-alpine") {
+		return true
+	}
+	if strings.HasSuffix(name, "-bookworm") || strings.HasSuffix(name, "-bullseye") {
+		return true
+	}
+	if strings.Count(name, ".") <= 1 && !strings.Contains(name, "-") {
+		return true
+	}
+	return false
+}
+
 func fetchTags(repo string) []string {
 	u := fmt.Sprintf(dockerHubTagsURL, repo)
 	resp, err := http.Get(u)
@@ -49,16 +68,28 @@ func fetchTags(repo string) []string {
 		return nil
 	}
 
-	var tags []string
+	var popular, others []string
 	for _, t := range tr.Results {
-		if t.Name != "latest" {
-			tags = append(tags, t.Name)
+		n := t.Name
+		if n == "latest" {
+			continue
+		}
+		if isPopularTag(n) {
+			popular = append(popular, n)
+		} else {
+			others = append(others, n)
 		}
 	}
-	if len(tags) > 5 {
-		tags = tags[:5]
+
+	sort.Slice(popular, func(i, j int) bool {
+		return len(popular[i]) < len(popular[j])
+	})
+
+	all := append(popular, others...)
+	if len(all) > 5 {
+		all = all[:5]
 	}
-	return tags
+	return all
 }
 
 func Search(args []string) {
@@ -139,7 +170,7 @@ func Search(args []string) {
 		fmt.Printf("    Stars: %d  Pulls: %d\n", r.item.Stars, r.item.Pulls)
 		if len(r.tags) > 0 {
 			fmt.Printf("    Tags: %s\n", strings.Join(r.tags, ", "))
-			fmt.Printf("    Copy: dck pull %s:<tag>\n", r.item.Name)
+			fmt.Printf("    Use:  dck pull %s\n", r.item.Name+":"+r.tags[0])
 		}
 		fmt.Println()
 	}
