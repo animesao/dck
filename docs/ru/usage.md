@@ -160,6 +160,9 @@ dck run -d --memory 512m --cpus 1.5 node:20 node app.js
 
 # С томом и переменными
 dck run -d -v /data:/data -e DB_URL=postgres://... myapp
+
+# С длинными флагами и авто-перезапуском
+dck run -d --name myapp --ports 8080:80 --volume /app:/app --restart always --image nginx:alpine
 ```
 
 **Важно:** dck использует пакет `flag` из Go, поэтому флаги нужно передавать раздельно:
@@ -168,39 +171,47 @@ dck run -d -v /data:/data -e DB_URL=postgres://... myapp
 
 #### Флаги запуска
 
-| Флаг | Описание |
-|---|---|
-| `-d` | Фоновый режим (detach) |
-| `-n <имя>` | Имя контейнера |
-| `-p H:C[/proto]` | Проброс порта `хост:контейнер/tcp\|udp` |
-| `-v S:D` | Монтирование тома `источник:назначение` |
-| `-e K=V` | Переменная окружения |
-| `--env-file <файл>` | Файл с переменными окружения |
-| `-i` | Интерактивный режим (держать stdin открытым) |
-| `-t` | Выделить TTY (псевдотерминал) |
-| `--rm` | Удалить контейнер при выходе |
-| `--restart <политика>` | `no`, `always`, `on-failure`, `unless-stopped` |
-| `--memory <лимит>` | Лимит памяти: `512m`, `1g`, `2g` |
-| `--disk <лимит>` | Лимит диска: `1G`, `512M`, `2T` (создаёт ext4 образ) |
-| `--cpus <число>` | Лимит CPU: `1.5` |
-| `--workdir <дир>` | Рабочая директория внутри контейнера |
-| `-h <имя>` | Hostname контейнера |
-| `--entrypoint <cmd>` | Переопределить entrypoint |
-| `--cap-add <cap>` | Добавить capability: `NET_ADMIN`, `SYS_PTRACE` |
-| `--cap-drop <cap>` | Убрать capability: `ALL` |
-| `--user <uid>` | Запуск от UID или `UID:GID` |
-| `--readonly` | Read-only корневая ФС |
-| `--no-new-privs` | Запретить повышение привилегий |
-| `--sysctl <k=v>` | Sysctl параметр (например `net.ipv4.ip_forward=1`) |
-| `--ulimit <опция>` | Ulimit: `nofile=1024:2048` |
-| `-l, --label <k=v>` | Метка контейнера |
-| `--dns <ip>` | DNS сервер (можно повторять) |
-| `--network <режим>` | Сеть: `bridge` (по умолч.), `none`, `host` |
-| `--startup <s>` | Стартовый скрипт (строка или `@файл`) — заменяет CMD |
-| `--healthcheck-cmd <cmd>` | Команда проверки здоровья |
-| `--healthcheck-interval <s>` | Интервал проверки (секунды) |
-| `--healthcheck-retries <n>` | Количество попыток |
-| `--healthcheck-timeout <s>` | Таймаут проверки (секунды) |
+| Флаг | Описание | Пример |
+|---|---|---|
+| `-d` | Фоновый режим (detach) | `-d` |
+| `-n <имя>` | Имя контейнера | `-n myapp` |
+| `-p H:C[/proto]` | Проброс порта `хост:контейнер/tcp\|udp` | `-p 8080:80` |
+| `--ports H:C` | Проброс порта (алиас `-p`) | `--ports 8080:80` |
+| `-v S:D` | Монтирование тома `источник:назначение` | `-v /data:/data` |
+| `--volume S:D` | Монтирование тома (алиас `-v`) | `--volume /data:/data` |
+| `--vol S:D` | Монтирование тома (алиас `-v`) | `--vol myvol:/data` |
+| `-e K=V` | Переменная окружения | `-e DB_HOST=localhost` |
+| `--env-file <файл>` | Файл с переменными окружения | `--env-file .env` |
+| `-i` | Интерактивный режим (держать stdin открытым) | `-i` |
+| `-t` | Выделить TTY (псевдотерминал) | `-t` |
+| `--rm` | Удалить контейнер при выходе | `--rm` |
+| `--restart <политика>` | `no`, `always`, `on-failure`, `unless-stopped` | `--restart always` |
+| `--memory <лимит>` | Лимит памяти | `--memory 2g` |
+| `--ram <лимит>` | Лимит памяти (алиас `--memory`) | `--ram 1g` |
+| `--cpus <число>` | Лимит CPU | `--cpus 1.5` |
+| `--cpu <число>` | Лимит CPU (алиас `--cpus`) | `--cpu 2` |
+| `--disk <лимит>` | Лимит диска (создаёт ext4 образ) | `--disk 10G` |
+| `--workdir <дир>` | Рабочая директория внутри контейнера | `--workdir /app` |
+| `-h <имя>` | Hostname контейнера | `-h myserver` |
+| `--entrypoint <cmd>` | Переопределить entrypoint | `--entrypoint /bin/bash` |
+| `--image <образ>` | Образ контейнера (вместо позиционного аргумента) | `--image nginx:alpine` |
+| `--cmd <cmd>` | Команда контейнера (вместо позиционных аргументов) | `--cmd "python app.py"` |
+| `--command <cmd>` | Команда контейнера (алиас `--cmd`) | `--command "java -jar server.jar"` |
+| `--cap-add <cap>` | Добавить capability | `--cap-add NET_ADMIN` |
+| `--cap-drop <cap>` | Убрать capability | `--cap-drop ALL` |
+| `--user <uid>` | Запуск от UID или `UID:GID` | `--user 1000:1000` |
+| `--readonly` | Read-only корневая ФС | `--readonly` |
+| `--no-new-privs` | Запретить повышение привилегий | `--no-new-privs` |
+| `--sysctl <k=v>` | Sysctl параметр | `--sysctl net.ipv4.ip_forward=1` |
+| `--ulimit <опция>` | Ulimit: `name=soft:hard` | `--ulimit nofile=1024:2048` |
+| `-l, --label <k=v>` | Метка контейнера | `-l env=prod` |
+| `--dns <ip>` | DNS сервер (можно повторять) | `--dns 8.8.8.8` |
+| `--network <режим>` | Сеть: `bridge` (по умолч.), `none`, `host` | `--network host` |
+| `--startup <s>` | Стартовый скрипт (строка или `@файл`) | `--startup @setup.sh` |
+| `--healthcheck-cmd <cmd>` | Команда проверки здоровья | `--healthcheck-cmd "curl -f http://localhost"` |
+| `--healthcheck-interval <s>` | Интервал проверки (секунды) | `--healthcheck-interval 30` |
+| `--healthcheck-retries <n>` | Количество попыток | `--healthcheck-retries 5` |
+| `--healthcheck-timeout <s>` | Таймаут проверки (секунды) | `--healthcheck-timeout 10` |
 
 ### `dck stop <контейнер>`
 
@@ -506,8 +517,8 @@ networks/      Пул IP-адресов
 dck fs ls <контейнер> [путь]              # Список файлов
 dck fs cat <контейнер> <путь>             # Содержимое файла
 dck fs tree <контейнер> [путь]            # Дерево директорий
-dck fs find <контейнер> [путь] [флаги]    # Поиск файлов
-  --name <шаблон>     Фильтр по имени (напр. "*.conf")
+dck fs find [контейнер] [путь] [флаги]    # Поиск файлов
+  --name <шаблон>     Фильтр по имени (подстрока, напр. "index")
   --grep <текст>      Поиск внутри файлов
   --type f|d          Только файлы или папки
   --max-depth <n>     Макс. глубина
@@ -519,6 +530,7 @@ dck fs ls web /etc/nginx
 dck fs cat web /etc/nginx/conf.d/default.conf
 dck fs tree mc-server /data --max-depth 2
 dck fs find web --name "*.conf" --grep "server_name"
+dck fs find --name "index"                              # искать во всех контейнерах
 ```
 
 ### Копирование файлов

@@ -132,7 +132,7 @@ Usage:
     dck fs ls <c> [path]         List files in container
     dck fs cat <c> <path>        Show file content
     dck fs tree <c> [path]       Directory tree
-    dck fs find <c> [path] [opts] Find files (--name, --grep, --type, --max-depth)
+    dck fs find [c] [path] [opts] Find files (--name, --grep, --type, --max-depth)
   dck stats [container]        Show live resource usage stats (CPU, RAM, IO, PIDs)
    dck exec <container> <cmd>   Execute command in container
    dck console <container>      Interactive shell in container
@@ -178,7 +178,7 @@ Usage:
     dck fs ls <c> [path]          List files in container
     dck fs cat <c> <path>         Show file content
     dck fs tree <c> [path]        Show directory tree
-    dck fs find <c> [path] [opts] Find files (--name, --grep, --type, --max-depth)
+     dck fs find [c] [path] [opts] Find files (--name, --grep, --type, --max-depth)
     dck update [--check]         Check for updates and self-update
     dck --help                   Show this help
     dck version, --version       Show version

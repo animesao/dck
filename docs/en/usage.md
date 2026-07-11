@@ -160,6 +160,9 @@ dck run -d --memory 512m --cpus 1.5 node:20 node app.js
 
 # With volume and env
 dck run -d -v /data:/data -e DB_URL=postgres://... myapp
+
+# With long flags and auto-restart
+dck run -d --name myapp --ports 8080:80 --volume /app:/app --restart always --image nginx:alpine
 ```
 
 **Important:** dck uses Go's `flag` package, so flags must be passed separately:
@@ -168,40 +171,47 @@ dck run -d -v /data:/data -e DB_URL=postgres://... myapp
 
 #### Run options
 
-| Flag | Description |
-|---|---|
-| `-d` | Detach (run in background) |
-| `-n <name>` | Container name |
-| `-p H:C[/proto]` | Port mapping `host:container/tcp\|udp` |
-| `-v S:D` | Volume mount `source:dest` |
-| `-e K=V` | Environment variable |
-| `--env-file <f>` | Read env vars from file |
-| `-i` | Interactive (keep stdin open) |
-| `-t` | Allocate TTY (pseudo-terminal) |
-| `--rm` | Remove container on exit |
-| `--restart <policy>` | Restart: `no`, `always`, `on-failure`, `unless-stopped` |
-
-| `--memory <lim>` | Memory limit: `512m`, `1g`, `2g` |
-| `--disk <lim>` | Disk limit: `1G`, `512M`, `2T` (creates ext4 image) |
-| `--cpus <num>` | CPU limit: `1.5` |
-| `--workdir <dir>` | Working directory inside container |
-| `-h <name>` | Container hostname |
-| `--entrypoint <cmd>` | Override image entrypoint |
-| `--cap-add <cap>` | Add capability: `NET_ADMIN`, `SYS_PTRACE` |
-| `--cap-drop <cap>` | Drop capability: `ALL` |
-| `--user <uid>` | Run as UID or `UID:GID` |
-| `--readonly` | Read-only rootfs |
-| `--no-new-privs` | Disable privilege escalation |
-| `--sysctl <k=v>` | Sysctl parameter (e.g. `net.ipv4.ip_forward=1`) |
-| `--ulimit <opt>` | Ulimit: `nofile=1024:2048` |
-| `-l, --label <k=v>` | Container label |
-| `--dns <ip>` | DNS server (can repeat) |
-| `--network <mode>` | Network: `bridge` (default), `none`, `host` |
-| `--startup <s>` | Startup script (inline or `@file`) — overrides CMD |
-| `--healthcheck-cmd <cmd>` | Health check command |
-| `--healthcheck-interval <s>` | Health check interval (seconds) |
-| `--healthcheck-retries <n>` | Health check retries |
-| `--healthcheck-timeout <s>` | Health check timeout (seconds) |
+| Flag | Description | Example |
+|---|---|---|
+| `-d` | Detach (run in background) | `-d` |
+| `-n <name>` | Container name | `-n myapp` |
+| `-p H:C[/proto]` | Port mapping `host:container/tcp\|udp` | `-p 8080:80` |
+| `--ports H:C` | Port mapping (alias for `-p`) | `--ports 8080:80` |
+| `-v S:D` | Volume mount `source:dest` | `-v /data:/data` |
+| `--volume S:D` | Volume mount (alias for `-v`) | `--volume /data:/data` |
+| `--vol S:D` | Volume mount (alias for `-v`) | `--vol myvol:/data` |
+| `-e K=V` | Environment variable | `-e DB_HOST=localhost` |
+| `--env-file <f>` | Read env vars from file | `--env-file .env` |
+| `-i` | Interactive (keep stdin open) | `-i` |
+| `-t` | Allocate TTY (pseudo-terminal) | `-t` |
+| `--rm` | Remove container on exit | `--rm` |
+| `--restart <policy>` | Restart: `no`, `always`, `on-failure`, `unless-stopped` | `--restart always` |
+| `--memory <lim>` | Memory limit | `--memory 2g` |
+| `--ram <lim>` | Memory limit (alias for `--memory`) | `--ram 1g` |
+| `--cpus <num>` | CPU limit | `--cpus 1.5` |
+| `--cpu <num>` | CPU limit (alias for `--cpus`) | `--cpu 2` |
+| `--disk <lim>` | Disk limit (creates ext4 image) | `--disk 10G` |
+| `--workdir <dir>` | Working directory inside container | `--workdir /app` |
+| `-h <name>` | Container hostname | `-h myserver` |
+| `--entrypoint <cmd>` | Override image entrypoint | `--entrypoint /bin/bash` |
+| `--image <img>` | Container image (instead of positional arg) | `--image nginx:alpine` |
+| `--cmd <cmd>` | Container command (instead of positional args) | `--cmd "python app.py"` |
+| `--command <cmd>` | Container command (alias for `--cmd`) | `--command "java -jar server.jar"` |
+| `--cap-add <cap>` | Add capability | `--cap-add NET_ADMIN` |
+| `--cap-drop <cap>` | Drop capability | `--cap-drop ALL` |
+| `--user <uid>` | Run as UID or `UID:GID` | `--user 1000:1000` |
+| `--readonly` | Read-only rootfs | `--readonly` |
+| `--no-new-privs` | Disable privilege escalation | `--no-new-privs` |
+| `--sysctl <k=v>` | Sysctl parameter | `--sysctl net.ipv4.ip_forward=1` |
+| `--ulimit <opt>` | Ulimit: `name=soft:hard` | `--ulimit nofile=1024:2048` |
+| `-l, --label <k=v>` | Container label | `-l env=prod` |
+| `--dns <ip>` | DNS server (can repeat) | `--dns 8.8.8.8` |
+| `--network <mode>` | Network: `bridge` (default), `none`, `host` | `--network host` |
+| `--startup <s>` | Startup script (inline or `@file`) | `--startup @setup.sh` |
+| `--healthcheck-cmd <cmd>` | Health check command | `--healthcheck-cmd "curl -f http://localhost"` |
+| `--healthcheck-interval <s>` | Health check interval (seconds) | `--healthcheck-interval 30` |
+| `--healthcheck-retries <n>` | Health check retries | `--healthcheck-retries 5` |
+| `--healthcheck-timeout <s>` | Health check timeout (seconds) | `--healthcheck-timeout 10` |
 
 ### `dck stop <container>`
 
@@ -479,8 +489,8 @@ Browse container files without starting a shell. Works on both **running** and *
 dck fs ls <container> [path]              # List files
 dck fs cat <container> <path>             # Show file content
 dck fs tree <container> [path]            # Directory tree
-dck fs find <container> [path] [flags]    # Find files
-  --name <pattern>    Filter by name (glob, e.g. "*.conf")
+dck fs find [container] [path] [flags]    # Find files
+  --name <pattern>    Filter by name (substring, e.g. "index")
   --grep <text>       Search inside files
   --type f|d          Files or directories only
   --max-depth <n>     Max recursion depth
@@ -492,6 +502,7 @@ dck fs ls web /etc/nginx
 dck fs cat web /etc/nginx/conf.d/default.conf
 dck fs tree mc-server /data --max-depth 2
 dck fs find web --name "*.conf" --grep "server_name"
+dck fs find --name "index"                              # search all containers
 ```
 
 ### Copying files
