@@ -21,12 +21,20 @@ import (
 )
 
 type buildState struct {
-	cfg     *BuildConfig
-	rootfs  string // current rootfs directory
-	lower   string // current lower layer(s) for overlay
-	layers  []buildLayer
-	config  imageConfig
+	cfg      *BuildConfig
+	rootfs   string // current rootfs directory
+	lower    string // current lower layer(s) for overlay
+	layers   []buildLayer
+	config   imageConfig
 	stackIdx int
+	stages   map[string]*savedStage // multi-stage: alias -> saved state
+}
+
+type savedStage struct {
+	rootfs string
+	lower  string
+	layers []buildLayer
+	config imageConfig
 }
 
 type buildLayer struct {
@@ -61,10 +69,11 @@ type imageConfigInner struct {
 }
 
 type healthConfig struct {
-	Test     []string `json:"Test"`
-	Interval string   `json:"Interval,omitempty"`
-	Timeout  string   `json:"Timeout,omitempty"`
-	Retries  int      `json:"Retries,omitempty"`
+	Test        []string `json:"Test"`
+	Interval    string   `json:"Interval,omitempty"`
+	Timeout     string   `json:"Timeout,omitempty"`
+	Retries     int      `json:"Retries,omitempty"`
+	StartPeriod string   `json:"StartPeriod,omitempty"`
 }
 
 type imageHistory struct {
@@ -130,6 +139,7 @@ func Build(cfg *BuildConfig) (*image.Image, error) {
 			},
 		},
 		layers: []buildLayer{},
+		stages: make(map[string]*savedStage),
 	}
 
 	buildArgs := make(map[string]string)
@@ -138,6 +148,9 @@ func Build(cfg *BuildConfig) (*image.Image, error) {
 	}
 
 	for i, inst := range insts {
+		// Substitute ARGs in instruction args
+		inst.Args = substituteArgs(inst.Args, buildArgs)
+
 		switch inst.Type {
 		case From:
 			if err := bs.handleFrom(inst, buildTmp); err != nil {
@@ -150,6 +163,10 @@ func Build(cfg *BuildConfig) (*image.Image, error) {
 		case Copy:
 			if err := bs.handleCopy(inst, buildTmp); err != nil {
 				return nil, fmt.Errorf("step %d (COPY): %w", i+1, err)
+			}
+		case Add:
+			if err := bs.handleCopy(inst, buildTmp); err != nil {
+				return nil, fmt.Errorf("step %d (ADD): %w", i+1, err)
 			}
 		case Workdir:
 			bs.handleWorkdir(inst)
@@ -193,12 +210,69 @@ func Build(cfg *BuildConfig) (*image.Image, error) {
 }
 
 func (bs *buildState) handleFrom(inst Instruction, buildTmp string) error {
-	ref := inst.Args[0]
+	args := inst.Args
+	ref := args[0]
 
-	// Parse optional AS alias (skip for now)
-	_ = len(inst.Args) > 1 && strings.ToUpper(inst.Args[1]) == "AS"
+	// Check for FROM ... AS <alias>
+	alias := ""
+	if len(args) >= 3 && strings.EqualFold(args[1], "AS") {
+		alias = args[2]
+	}
 
-	img, err := image.Pull(ref)
+	// If this is NOT the first FROM, save current stage and reset
+	if len(bs.config.History) > 0 {
+		if alias != "" {
+			bs.stages[alias] = &savedStage{
+				rootfs: bs.rootfs,
+				lower:  bs.lower,
+				layers: bs.layers,
+				config: bs.config,
+			}
+		} else {
+			// Unnamed stage — save with index-based name
+			bs.stages[fmt.Sprintf("stage_%d", len(bs.stages))] = &savedStage{
+				rootfs: bs.rootfs,
+				lower:  bs.lower,
+				layers: bs.layers,
+				config: bs.config,
+			}
+		}
+
+		// Reset for new stage
+		bs.rootfs = ""
+		bs.lower = ""
+		bs.layers = []buildLayer{}
+		bs.config = imageConfig{
+			Created:      time.Now().UTC().Format(time.RFC3339),
+			Architecture: "amd64",
+			OS:           "linux",
+			Config: imageConfigInner{
+				Shell: []string{"/bin/sh", "-c"},
+			},
+			History: []imageHistory{},
+			Rootfs: imageRootfs{
+				Type: "layers",
+			},
+		}
+		bs.stackIdx = 0
+	}
+
+	var img *image.Image
+	var err error
+
+	// Check if ref references a previous stage
+	if stage, ok := bs.stages[ref]; ok {
+		// Use the saved stage's rootfs as base
+		bs.rootfs = stage.rootfs
+		bs.lower = stage.lower
+		bs.layers = append(bs.layers, stage.layers...)
+		bs.config.Rootfs.DiffIDs = append(bs.config.Rootfs.DiffIDs, stage.config.Rootfs.DiffIDs...)
+		bs.config.Config = stage.config.Config
+		fmt.Printf("FROM %s (stage)\n", ref)
+		return nil
+	}
+
+	img, err = image.Pull(ref)
 	if err != nil {
 		return fmt.Errorf("pull base image %s: %w", ref, err)
 	}
@@ -209,29 +283,28 @@ func (bs *buildState) handleFrom(inst Instruction, buildTmp string) error {
 	bs.stackIdx = 0
 
 	// Inherit config from base image
-	cfg, err := image.ReadConfig(img.Name, img.Tag)
-	if err == nil && cfg != nil {
-		if cfg.Config.Cmd != nil {
-			bs.config.Config.Cmd = cfg.Config.Cmd
+	imgCfg, err := image.ReadConfig(img.Name, img.Tag)
+	if err == nil && imgCfg != nil {
+		if imgCfg.Config.Cmd != nil {
+			bs.config.Config.Cmd = imgCfg.Config.Cmd
 		}
-		if cfg.Config.Entrypoint != nil {
-			bs.config.Config.Entrypoint = cfg.Config.Entrypoint
+		if imgCfg.Config.Entrypoint != nil {
+			bs.config.Config.Entrypoint = imgCfg.Config.Entrypoint
 		}
-		if cfg.Config.Env != nil {
-			bs.config.Config.Env = cfg.Config.Env
+		if imgCfg.Config.Env != nil {
+			bs.config.Config.Env = imgCfg.Config.Env
 		}
-		if cfg.Config.WorkingDir != "" {
-			bs.config.Config.WorkingDir = cfg.Config.WorkingDir
+		if imgCfg.Config.WorkingDir != "" {
+			bs.config.Config.WorkingDir = imgCfg.Config.WorkingDir
 		}
-		if cfg.Config.User != "" {
-			bs.config.Config.User = cfg.Config.User
+		if imgCfg.Config.User != "" {
+			bs.config.Config.User = imgCfg.Config.User
 		}
 	}
 
-	// Include base image layers in the new image
+	// Include base image layers
 	manifest := image.ReadManifest(img.Name, img.Tag)
 	if manifest != nil {
-		// Ensure all base image layers are in shared cache
 		if err := image.EnsureAllLayers(img.Name, img.Tag); err != nil {
 			return fmt.Errorf("cache base layers: %w", err)
 		}
@@ -251,7 +324,11 @@ func (bs *buildState) handleFrom(inst Instruction, buildTmp string) error {
 		}
 	}
 
-	fmt.Printf("Step 1 : FROM %s\n", ref)
+	if alias != "" {
+		fmt.Printf("FROM %s AS %s\n", ref, alias)
+	} else {
+		fmt.Printf("FROM %s\n", ref)
+	}
 	return nil
 }
 
@@ -380,15 +457,18 @@ func (bs *buildState) handleRun(inst Instruction, buildEnv []string, buildTmp st
 func (bs *buildState) handleCopy(inst Instruction, buildTmp string) error {
 	step := len(bs.config.History) + 2
 
-	// Parse COPY: COPY <src>... <dst>
-	// Handle --chown flag
 	args := inst.Args
 	chown := ""
-	if strings.HasPrefix(args[0], "--chown=") {
-		chown = strings.TrimPrefix(args[0], "--chown=")
+	fromStage := ""
+
+	for len(args) > 0 && strings.HasPrefix(args[0], "--") {
+		flag := args[0]
 		args = args[1:]
-	} else if strings.HasPrefix(args[0], "--") {
-		args = args[1:]
+		if strings.HasPrefix(flag, "--chown=") {
+			chown = strings.TrimPrefix(flag, "--chown=")
+		} else if strings.HasPrefix(flag, "--from=") {
+			fromStage = strings.TrimPrefix(flag, "--from=")
+		}
 	}
 
 	if len(args) < 2 {
@@ -398,7 +478,11 @@ func (bs *buildState) handleCopy(inst Instruction, buildTmp string) error {
 	srcs := args[:len(args)-1]
 	dst := args[len(args)-1]
 
-	fmt.Printf("Step %d : COPY %v %s\n", step, srcs, dst)
+	if fromStage != "" {
+		fmt.Printf("Step %d : COPY --from=%s %v %s\n", step, fromStage, srcs, dst)
+	} else {
+		fmt.Printf("Step %d : COPY %v %s\n", step, srcs, dst)
+	}
 
 	// Resolve destination
 	dstPath := filepath.Join(bs.rootfs, dst)
@@ -410,7 +494,19 @@ func (bs *buildState) handleCopy(inst Instruction, buildTmp string) error {
 	os.MkdirAll(copyDir, 0755)
 
 	for _, src := range srcs {
-		srcPath := filepath.Join(bs.cfg.ContextDir, src)
+		var srcPath string
+
+		if fromStage != "" {
+			// Copy from a previous stage's rootfs
+			stage, ok := bs.stages[fromStage]
+			if !ok {
+				return fmt.Errorf("COPY --from=%s: stage not found", fromStage)
+			}
+			srcPath = filepath.Join(stage.rootfs, src)
+		} else {
+			// Copy from build context
+			srcPath = filepath.Join(bs.cfg.ContextDir, src)
+		}
 
 		// Copy to both the rootfs and the tracking dir
 		if err := copyRecursive(srcPath, filepath.Join(dstPath, filepath.Base(src))); err != nil {
@@ -421,7 +517,7 @@ func (bs *buildState) handleCopy(inst Instruction, buildTmp string) error {
 		}
 	}
 
-	// Handle --chown if specified (chown recursively)
+	// Handle --chown if specified
 	if chown != "" {
 		for _, src := range srcs {
 			dstTarget := filepath.Join(dstPath, filepath.Base(src))
@@ -600,6 +696,11 @@ func (bs *buildState) handleHealthcheck(inst Instruction) {
 				i++
 				fmt.Sscanf(args[i], "%d", &hc.Retries)
 			}
+		case "--START-PERIOD":
+			if i+1 < len(args) {
+				i++
+				hc.StartPeriod = args[i]
+			}
 		default:
 			// CMD or CMD-SHELL or NONE
 			if strings.ToUpper(args[i]) == "NONE" {
@@ -619,6 +720,22 @@ func (bs *buildState) handleHealthcheck(inst Instruction) {
 
 func (bs *buildState) handleMaintainer(inst Instruction) {
 	bs.config.Author = strings.Join(inst.Args, " ")
+}
+
+func substituteArgs(args []string, buildArgs map[string]string) []string {
+	if len(buildArgs) == 0 {
+		return args
+	}
+	result := make([]string, len(args))
+	for i, arg := range args {
+		result[i] = os.Expand(arg, func(key string) string {
+			if val, ok := buildArgs[key]; ok {
+				return val
+			}
+			return os.Getenv(key)
+		})
+	}
+	return result
 }
 
 func handleArg(inst Instruction, buildArgs map[string]string) {

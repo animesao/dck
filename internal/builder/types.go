@@ -52,5 +52,7 @@ type BuildConfig struct {
 	BuildArgs   map[string]string
 	Quiet       bool
 	CPUCount    float64
-	MemoryLimit int64 // bytes
+	MemoryLimit int64
 }
+
+
