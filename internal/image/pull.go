@@ -28,6 +28,10 @@ type authResponse struct {
 }
 
 func Pull(ref string) (*Image, error) {
+	return PullWithPlatform(ref, "", "")
+}
+
+func PullWithPlatform(ref, platformOS, platformArch string) (*Image, error) {
 	if err := os.MkdirAll(state.ImagesDir(), 0755); err != nil {
 		return nil, err
 	}
@@ -45,7 +49,7 @@ func Pull(ref string) (*Image, error) {
 		return nil, fmt.Errorf("auth: %w", err)
 	}
 
-	manifest, err := getResolvedManifest(name, tag, token)
+	manifest, err := getResolvedManifest(name, tag, token, platformOS, platformArch)
 	if err != nil {
 		return nil, fmt.Errorf("manifest: %w", err)
 	}
@@ -124,7 +128,7 @@ func Pull(ref string) (*Image, error) {
 	return img, nil
 }
 
-func getResolvedManifest(repo, ref, token string) (*ManifestV2, error) {
+func getResolvedManifest(repo, ref, token, platformOS, platformArch string) (*ManifestV2, error) {
 	m, raw, err := fetchRawManifest(repo, ref, token)
 	if err != nil {
 		return nil, err
@@ -136,9 +140,19 @@ func getResolvedManifest(repo, ref, token string) (*ManifestV2, error) {
 		if err := json.Unmarshal(raw, &list); err != nil {
 			return nil, fmt.Errorf("parse manifest list: %w", err)
 		}
+
+		targetArch := platformArch
+		targetOS := platformOS
+		if targetArch == "" {
+			targetArch = "amd64"
+		}
+		if targetOS == "" {
+			targetOS = "linux"
+		}
+
 		var targetDigest string
 		for _, entry := range list.Manifests {
-			if entry.Platform.Architecture == "amd64" && entry.Platform.OS == "linux" {
+			if entry.Platform.Architecture == targetArch && entry.Platform.OS == targetOS {
 				targetDigest = entry.Digest
 				break
 			}
@@ -150,7 +164,7 @@ func getResolvedManifest(repo, ref, token string) (*ManifestV2, error) {
 			return nil, fmt.Errorf("no suitable manifest found in list")
 		}
 		fmt.Printf("  Resolved multi-arch to %s\n", shortDigest(targetDigest))
-		return getResolvedManifest(repo, targetDigest, token)
+		return getResolvedManifest(repo, targetDigest, token, platformOS, platformArch)
 	}
 
 	if m.SchemaVersion == 0 || len(m.Layers) == 0 {
@@ -237,7 +251,7 @@ func getToken(repo string) (string, error) {
 }
 
 func getManifest(repo, ref, token string) (*ManifestV2, error) {
-	return getResolvedManifest(repo, ref, token)
+	return getResolvedManifest(repo, ref, token, "", "")
 }
 
 func downloadBlob(repo, digest, token string) ([]byte, error) {

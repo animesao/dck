@@ -75,6 +75,8 @@ func Execute() {
 		Commit(args)
 	case "rename":
 		Rename(args)
+	case "set":
+		Set(args)
 	case "info":
 		Info(args)
 	case "serve":
@@ -117,8 +119,9 @@ func printUsage() {
 	fmt.Println(`dck - simple container runtime
 
 Usage:
-  dck pull <image>[:tag]       Pull image from registry
-  dck run [opts] <image> [cmd] Run container
+  dck pull [--platform] <image>[:tag]          Pull image from registry
+  dck set <container> [--memory 1g] [--cpus 2]  Modify container parameters
+  dck run [opts] <image> [cmd]                  Run container
   dck ps                       List running containers
   dck ps -a                    List all containers
    dck port <container>         Show port mappings
@@ -128,7 +131,7 @@ Usage:
   dck restart <container>      Restart container
   dck stop <container>         Stop container
   dck rm [-f] <container>      Remove container
-    dck logs [-f] <container>    Show/follow container logs
+    dck logs [-f] [--tail <n>] <container>  Show/follow/tail container logs
     dck fs ls <c> [path]         List files in container
     dck fs cat <c> <path>        Show file content
     dck fs tree <c> [path]       Directory tree
@@ -142,8 +145,9 @@ Usage:
    dck images                   List images
    dck rmi <image>[:tag]        Remove image
    dck commit <c> <img>[:tag]   Create image from container
-   dck rename <c> <new-name>    Rename container
-   dck info                     Show system-wide information
+  dck rename <c> <new-name>    Rename container
+  dck set <c> [opts]           Modify container parameters (memory, cpu, etc.)
+  dck info                     Show system-wide information
    dck serve [-p 2375]          Start Docker-compatible REST API server
    dck system prune             Remove unused containers and images
    dck volume create <name>     Create a named volume
