@@ -37,6 +37,7 @@ func (c *Container) Remove(force bool) error {
 	TeardownDiskLimit(state.OverlayDir(), c.ID)
 	os.RemoveAll(filepath.Dir(upper))
 	os.Remove(c.LogFile())
+	os.Remove(state.ConsolePath(c.ID))
 	c.DeleteState()
 	EmitEvent(EventDestroy, c)
 
