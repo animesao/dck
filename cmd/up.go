@@ -13,6 +13,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 
+	"dck/internal/builder"
 	"dck/internal/config"
 	"dck/internal/container"
 	"dck/internal/image"
@@ -224,7 +225,7 @@ func Up(args []string) {
 		}
 
 		if cc.Command != "" {
-			opts.Cmd = strings.Fields(cc.Command)
+			opts.Cmd = builder.SplitSpaceRespectingQuotes(cc.Command)
 		}
 		if cc.Hostname != "" {
 			opts.Hostname = cc.Hostname

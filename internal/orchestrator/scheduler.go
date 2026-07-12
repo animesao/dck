@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"dck/internal/builder"
 	"dck/internal/container"
 	"dck/internal/image"
 	"dck/internal/state"
@@ -118,7 +119,7 @@ func startLocalReplica(serviceName string, svc *Service) error {
 		Labels:  labels,
 	}
 	if svc.Command != "" {
-		opts.Cmd = strings.Fields(svc.Command)
+		opts.Cmd = builder.SplitSpaceRespectingQuotes(svc.Command)
 	}
 
 	c := container.New(img, opts)

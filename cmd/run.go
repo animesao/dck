@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"dck/internal/builder"
 	"dck/internal/container"
 	"dck/internal/image"
 )
@@ -149,9 +150,9 @@ func Run(args []string) {
 
 	var cmd []string
 	if *cmdFlag != "" {
-		cmd = strings.Fields(*cmdFlag)
+		cmd = builder.SplitSpaceRespectingQuotes(*cmdFlag)
 	} else if *commandFlag != "" {
-		cmd = strings.Fields(*commandFlag)
+		cmd = builder.SplitSpaceRespectingQuotes(*commandFlag)
 	} else if hasImageFlag && len(freeArgs) > 0 {
 		cmd = freeArgs
 	} else if !hasImageFlag && len(freeArgs) > 1 {

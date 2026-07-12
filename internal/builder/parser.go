@@ -123,16 +123,16 @@ func splitInstruction(line string) []string {
 	// For COPY/ADD --chown flag handling
 	if (inst == "COPY" || inst == "ADD") && strings.HasPrefix(rest, "--") {
 		// Simple: treat flags as part of args, user will parse
-		parts := splitSpaceRespectingQuotes(rest)
+		parts := SplitSpaceRespectingQuotes(rest)
 		return append([]string{inst}, parts...)
 	}
 
 	// For most instructions, just split on spaces respecting quotes
-	parts := splitSpaceRespectingQuotes(rest)
+	parts := SplitSpaceRespectingQuotes(rest)
 	return append([]string{inst}, parts...)
 }
 
-func splitSpaceRespectingQuotes(s string) []string {
+func SplitSpaceRespectingQuotes(s string) []string {
 	var parts []string
 	var current strings.Builder
 	var inSingle, inDouble bool
@@ -176,7 +176,7 @@ func splitSpaceRespectingQuotes(s string) []string {
 func parseJSONArray(s string) []string {
 	s = strings.TrimSpace(s)
 	if !strings.HasPrefix(s, "[") || !strings.HasSuffix(s, "]") {
-		return splitSpaceRespectingQuotes(s)
+		return SplitSpaceRespectingQuotes(s)
 	}
 	s = s[1 : len(s)-1]
 
@@ -227,7 +227,7 @@ func parseJSONArray(s string) []string {
 func parseEnvArgs(s string) []string {
 	if strings.Contains(s, "=") {
 		// KEY=VAL format (may be multiple)
-		parts := splitSpaceRespectingQuotes(s)
+		parts := SplitSpaceRespectingQuotes(s)
 		return parts
 	}
 	// KEY VAL format (single pair)
@@ -240,7 +240,7 @@ func parseEnvArgs(s string) []string {
 
 // parseLabelArgs handles "LABEL key=val key2=val2"
 func parseLabelArgs(s string) []string {
-	return splitSpaceRespectingQuotes(s)
+	return SplitSpaceRespectingQuotes(s)
 }
 
 // GetExecForm attempts to parse instruction args as exec form

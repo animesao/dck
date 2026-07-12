@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 
+	"dck/internal/builder"
 	"dck/internal/container"
 	"dck/internal/image"
 )
@@ -150,7 +151,7 @@ func handleReplicaCreate(w http.ResponseWriter, r *http.Request) {
 		Labels:  labels,
 	}
 	if req.Command != "" {
-		opts.Cmd = strings.Fields(req.Command)
+		opts.Cmd = builder.SplitSpaceRespectingQuotes(req.Command)
 	}
 
 	c := container.New(img, opts)
