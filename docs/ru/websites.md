@@ -226,7 +226,10 @@ if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
 EOF
 
-echo "flask==3.0.0\ngunicorn==22.0.0" > requirements.txt
+cat > requirements.txt << 'EOF'
+flask==3.0.0
+gunicorn==22.0.0
+EOF
 
 dck run -d --restart always \
   -n flask-app -p 5000:5000 \
@@ -259,7 +262,10 @@ async def read_item(item_id: int):
     return {"item_id": item_id}
 EOF
 
-echo "fastapi==0.109.0\nuvicorn==0.27.0" > requirements.txt
+cat > requirements.txt << 'EOF'
+fastapi==0.109.0
+uvicorn==0.27.0
+EOF
 
 dck run -d --restart always \
   -n fastapi-app -p 8000:8000 \
@@ -280,7 +286,11 @@ curl http://localhost:8000/docs   # Swagger UI
 mkdir -p /opt/django-app
 cd /opt/django-app
 
-echo "django==5.0.0\ngunicorn==22.0.0\npsycopg2-binary==2.9.9" > requirements.txt
+cat > requirements.txt << 'EOF'
+django==5.0.0
+gunicorn==22.0.0
+psycopg2-binary==2.9.9
+EOF
 
 cat > start.sh << 'SCRIPT'
 #!/bin/sh
@@ -449,7 +459,11 @@ def db_test():
     return jsonify({'database': ver[0]})
 EOF
 
-echo -e "flask==3.0.0\ngunicorn==22.0.0\npsycopg2-binary==2.9.9" > requirements.txt
+cat > requirements.txt << 'EOF'
+flask==3.0.0
+gunicorn==22.0.0
+psycopg2-binary==2.9.9
+EOF
 
 dck run -d --restart always \
   -n flask-app -p 5000:5000 \
@@ -784,7 +798,10 @@ async def ping(ctx):
 bot.run(TOKEN)
 EOF
 
-echo -e "discord.py==2.4.0\nasyncpg==0.29.0" > requirements.txt
+cat > requirements.txt << 'EOF'
+discord.py==2.4.0
+asyncpg==0.29.0
+EOF
 
 dck run -d --restart always \
   -n db-bot \
