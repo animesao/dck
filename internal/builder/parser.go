@@ -243,6 +243,20 @@ func parseLabelArgs(s string) []string {
 	return SplitSpaceRespectingQuotes(s)
 }
 
+// SplitShellWords splits s into words like a shell: respects quotes and strips them.
+// Unlike SplitSpaceRespectingQuotes, it removes surrounding quote characters from tokens.
+func SplitShellWords(s string) []string {
+	parts := SplitSpaceRespectingQuotes(s)
+	for i, p := range parts {
+		if len(p) >= 2 {
+			if (p[0] == '\'' && p[len(p)-1] == '\'') || (p[0] == '"' && p[len(p)-1] == '"') {
+				parts[i] = p[1 : len(p)-1]
+			}
+		}
+	}
+	return parts
+}
+
 // GetExecForm attempts to parse instruction args as exec form
 func GetExecForm(args []string) ([]string, bool) {
 	if len(args) == 1 {

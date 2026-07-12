@@ -119,7 +119,7 @@ func startLocalReplica(serviceName string, svc *Service) error {
 		Labels:  labels,
 	}
 	if svc.Command != "" {
-		opts.Cmd = builder.SplitSpaceRespectingQuotes(svc.Command)
+		opts.Cmd = builder.SplitShellWords(svc.Command)
 	}
 
 	c := container.New(img, opts)

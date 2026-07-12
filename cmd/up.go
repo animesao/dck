@@ -225,7 +225,7 @@ func Up(args []string) {
 		}
 
 		if cc.Command != "" {
-			opts.Cmd = builder.SplitSpaceRespectingQuotes(cc.Command)
+			opts.Cmd = builder.SplitShellWords(cc.Command)
 		}
 		if cc.Hostname != "" {
 			opts.Hostname = cc.Hostname

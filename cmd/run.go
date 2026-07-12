@@ -150,9 +150,9 @@ func Run(args []string) {
 
 	var cmd []string
 	if *cmdFlag != "" {
-		cmd = builder.SplitSpaceRespectingQuotes(*cmdFlag)
+		cmd = builder.SplitShellWords(*cmdFlag)
 	} else if *commandFlag != "" {
-		cmd = builder.SplitSpaceRespectingQuotes(*commandFlag)
+		cmd = builder.SplitShellWords(*commandFlag)
 	} else if hasImageFlag && len(freeArgs) > 0 {
 		cmd = freeArgs
 	} else if !hasImageFlag && len(freeArgs) > 1 {
