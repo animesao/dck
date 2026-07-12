@@ -1,6 +1,6 @@
 <p align="center">
-  <img src="https://img.shields.io/github/v/tag/animesao/dck?style=flat-square&label=version&color=blue">
-  <img src="https://img.shields.io/badge/go-1.18+-00ADD8?style=flat-square&logo=go">
+  <img src="https://img.shields.io/badge/version-1.21.68-blue?style=flat-square">
+  <img src="https://img.shields.io/badge/go-1.21%2B-00ADD8?style=flat-square&logo=go">
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square">
   <img src="https://img.shields.io/badge/no%20daemon-%E2%9C%93-brightgreen?style=flat-square">
 </p>
@@ -9,7 +9,7 @@
 
 <p align="center">
   <b>No daemon. No Docker. Just containers.</b><br>
-  ~5 MB static binary, zero daemon, OCI images, bridge networking.
+  ~5 MB static binary · zero daemon · OCI images · bridge networking · cluster · FaaS
 </p>
 
 ```bash
@@ -45,7 +45,7 @@ dck logs web
 dck exec web cat /etc/hostname
 
 # Interactive
-dck run -it alpine sh
+dck run -i -t alpine sh
 
 # Stop & remove
 dck stop web && dck rm web
@@ -96,7 +96,7 @@ dck rmi nginx:alpine               # Remove image
 ```bash
 dck run --rm alpine echo hi                 # One-shot
 dck run -d -n web -p 80:80 nginx            # Detached
-dck run -it alpine sh                       # Interactive
+dck run -i -t alpine sh                       # Interactive
 dck ps -a                                   # List all containers
 dck stop web                                # Stop (files remain accessible via dck fs)
 dck start web                               # Start stopped
@@ -120,7 +120,7 @@ dck fs ls web /etc/nginx                    # List files in container
 dck fs cat web /etc/nginx/conf.d/default.conf  # Show file
 dck fs find web --name "*.conf"             # Search files
 dck exec web cat /etc/hostname              # Run command inside
-dck exec -it web /bin/sh                    # Interactive shell
+dck exec -i -t web /bin/sh                    # Interactive shell
 dck console web                             # Auto-detect shell
 dck top web                                 # Processes inside container
 ```
@@ -424,151 +424,15 @@ dck run -d --restart always \
   eclipse-temurin:21-jdk
 ```
 
-More examples (modded servers, custom JARs, backups) → [docs/en/websites.md](docs/en/websites.md#minecraft-server)
+More Minecraft examples (modded servers, custom JARs, backups) → [docs/en/websites.md](docs/en/websites.md#minecraft-server)
+
+---
 
 ### Bots (Telegram, Discord)
 
 Full bot deployment guide → [docs/en/bots.md](docs/en/bots.md)
 
-Для Paper 1.16.5 (Java 16):
-
-```bash
-#!/bin/bash
-
-# ==============================================================
-# Paper Minecraft Server download and startup script
-# Version: 1.21.11 (build 116)
-# ==============================================================
-
-set -e
-
-# --- Version and URL (your direct link) ---
-SERVER_JAR="paper-1.16.5-794.jar"
-API_URL="https://fill-data.papermc.io/v1/objects/e67da4851d08cde378ab2b89be58849238c303351ed2482181a99c2c2b489276/paper-1.16.5-794.jar"
-
-# --- Java ---
-JAVA_CMD="java"
-JDK_DIR="./jdk"
-
-check_java_version() {
-    local cmd="$1"
-    if ! command -v "$cmd" &>/dev/null; then
-        return 1
-    fi
-    local ver
-    ver=$("$cmd" -version 2>&1 | head -1 | cut -d '"' -f2 | sed 's/^1\.//' | cut -d '.' -f1)
-    [ "$ver" -ge 21 ]
-}
-
-# --- Local Java ---
-if [ -f "$JDK_DIR/bin/java" ]; then
-    echo "ℹ️  Found local Java in $JDK_DIR"
-    if check_java_version "$JDK_DIR/bin/java"; then
-        JAVA_CMD="$JDK_DIR/bin/java"
-        echo "✅ Using local Java 21+"
-    else
-        echo "⚠️  Local Java is outdated. Removing it."
-        rm -rf "$JDK_DIR"
-    fi
-fi
-
-# --- System Java or download ---
-if [ "$JAVA_CMD" = "java" ]; then
-    if check_java_version "java"; then
-        echo "✅ Found system Java 21+"
-    else
-        echo "⬇️  Downloading Java 21..."
-        JDK_URL="https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.2%2B13/OpenJDK21U-jdk_x64_linux_hotspot_21.0.2_13.tar.gz"
-        JDK_TAR="OpenJDK21U-jdk_x64_linux_hotspot_21.0.2_13.tar.gz"
-        curl -# -L -o "$JDK_TAR" "$JDK_URL" || { echo "❌ Failed to download Java"; exit 1; }
-        mkdir -p "$JDK_DIR"
-        tar -xzf "$JDK_TAR" -C "$JDK_DIR" --strip-components=1 || { echo "❌ Failed to extract Java"; exit 1; }
-        rm -f "$JDK_TAR"
-        [ -f "$JDK_DIR/bin/java" ] || { echo "❌ Java not found after extraction"; exit 1; }
-        JAVA_CMD="$JDK_DIR/bin/java"
-        echo "✅ Java 21 installed locally."
-    fi
-fi
-
-# --- Final Java check ---
-[ -x "$JAVA_CMD" ] || { echo "❌ Error: Java not found ($JAVA_CMD)"; exit 1; }
-echo "🔍 Using Java: $("$JAVA_CMD" -version 2>&1 | head -1)"
-
-# --- JAR validation (ZIP signature) ---
-is_jar_valid() {
-    local f="$1"
-    [ -f "$f" ] || return 1
-    local hex
-    hex=$(dd if="$f" bs=1 count=4 2>/dev/null | od -An -tx1 | tr -d ' ')
-    [ "$hex" = "504b0304" ]
-}
-
-# --- Download Paper with response check ---
-download_paper() {
-    echo "⬇️  Downloading Paper 1.21.11 (build 116)..."
-    
-    http_code=$(curl -s -L -w "%{http_code}" -o "$SERVER_JAR" "$API_URL")
-    
-    if [ "$http_code" -ne 200 ]; then
-        echo "❌ HTTP error $http_code."
-        if [ -f "$SERVER_JAR" ]; then
-            echo "   Response content (first 5 lines):"
-            head -n 5 "$SERVER_JAR"
-        fi
-        rm -f "$SERVER_JAR"
-        return 1
-    fi
-
-    if is_jar_valid "$SERVER_JAR"; then
-        echo "✅ Download successful, JAR is valid."
-        return 0
-    else
-        echo "❌ Downloaded file is corrupted or not a JAR."
-        rm -f "$SERVER_JAR"
-        return 1
-    fi
-}
-
-# --- Download logic ---
-if [ -f "$SERVER_JAR" ] && is_jar_valid "$SERVER_JAR"; then
-    echo "ℹ️  File $SERVER_JAR already exists and is valid."
-else
-    [ -f "$SERVER_JAR" ] && rm -f "$SERVER_JAR"
-    if ! download_paper; then
-        echo "⚠️  First attempt failed. Retrying in 5 seconds..."
-        sleep 5
-        if ! download_paper; then
-            echo "❌ Failed to download a valid JAR after two attempts."
-            exit 1
-        fi
-    fi
-fi
-
-# --- EULA ---
-if [ ! -f "eula.txt" ]; then
-    echo "📄 Creating eula.txt..."
-    echo "eula=true" > eula.txt
-else
-    echo "ℹ️  eula.txt already exists."
-fi
-
-# --- Memory settings ---
-MAX_PERCENT=${MAX_RAM_PERCENT:-80.0}
-INIT_PERCENT=${INIT_RAM_PERCENT:-40.0}
-echo "🧠 JVM: MaxRAMPercentage=$MAX_PERCENT%, InitialRAMPercentage=$INIT_PERCENT%"
-
-# --- Launch ---
-echo "🚀 Starting Paper 1.21.11 (build 116) server..."
-exec "$JAVA_CMD" -XX:MaxRAMPercentage="$MAX_PERCENT" -XX:InitialRAMPercentage="$INIT_PERCENT" -jar "$SERVER_JAR" nogui
-```
-
-```bash
-dck run -d --restart always \
-  -n mc-1165 -p 25565:25565 \
-  -v mc1165_data:/data --memory 4G --cpus 4 \
-  --startup @mc-startup.sh \
-  eclipse-temurin:16-jdk
-```
+---
 
 ### Copy files to container
 
@@ -838,7 +702,7 @@ networks/      IP allocation pool
 
 dck run -d
   ├─ unshare --fork --pid --mount --net --uts --ipc dck init <id>
-  │   └─ dck init → chroot overlay → setup /proc/lo/eth0 → exec CMD
+  │   └─ dck init → pivot_root to overlay → setup /proc/lo/eth0 → exec CMD
   └─ dck console-serve <id>
       ├─ reads stdout pipe
       ├─ writes to log file
@@ -868,23 +732,23 @@ dck run -d
 
 ## Changelog
 
-**v1.23.0** — `dck up`: `depends_on` with topological sort + `service_healthy` wait. `dck build`: multi-stage (`FROM AS`, `COPY --from=`), ARG substitution, `ADD` instruction. `dck cluster info`, `join-token`, `node ls/inspect`. HEALTHCHECK `--start-period`.
+**v1.21.68** — Current release. Compose secrets & configs support. dck-wings REST API agent. Cluster orchestration, FaaS, blueprints. Container FS browser, healthchecks, startup scripts.
 
-**v1.22.0** — Filesystem browser (`dck fs ls/cat/tree/find`). Overlay stays mounted after `stop`. Graceful shutdown (SIGTERM → SIGKILL). Healthcheck goroutine leak fixed. System prune no longer destroys running containers.
+**v1.20.0** — Dynamic port management (`dck port add/rm`). Russian (ru) docs.
 
-**v1.20.0** — Added dynamic port management (`dck port add/rm`). Russian (ru) docs.
+**v1.15.0** — `pivot_root` security fix. `dck stop --all`. `dck exec -i/-t` flags. Disk limit fix.
 
-**v1.13.0** — Added `--startup` flag for custom startup scripts (inline or `@file`), `--healthcheck-*` flags, DCK_* environment variables injected into containers, resource limit enforcement via cgroups v2.
+**v1.14.0** — Disk limit support (`--disk`). Multi-arch image resolution.
 
-**v1.11.0** — Debian packaging, APT repository, snap packaging, release workflow.
+**v1.13.0** — `--startup` flag, `--healthcheck-*` flags, DCK_* env vars, cgroups v2 resource limits.
 
-**v1.10.0** — `dck stats` command with live CPU/RAM/IO/PIDs from cgroup v2.
+**v1.11.0** — Debian packaging, APT repository, release workflow.
 
-**v1.4.7** — `dck attach` rewritten (Unix socket, history + live, Ctrl+C safe), console-serve daemon, network readiness, overlay stale mount detection, multi-container fixes.
+**v1.10.0** — `dck stats` command (live CPU/RAM/IO/PIDs from cgroup v2).
+
+**v1.4.7** — `dck attach` rewritten (Unix socket, history + live, Ctrl+C safe).
 
 **v1.3.0** — `dck.toml` config, `dck up`/`dck down`.
-
-**v1.2.1** — KillMode=process, DNAT dedup, PID liveness check, UFW auto-ports.
 
 **v1.1.0** — First stable release.
 
@@ -897,6 +761,21 @@ dck update
 ```
 
 Downloads the latest binary and replaces `/usr/local/bin/dck`.
+
+---
+
+## Documentation
+
+| English | Русский |
+|---|---|
+| [Usage & Commands](docs/en/usage.md) | [Команды и использование](docs/ru/usage.md) |
+| [Deploying Websites](docs/en/websites.md) | [Развёртывание сайтов](docs/ru/websites.md) |
+| [Bots (Telegram, Discord)](docs/en/bots.md) | [Боты (Telegram, Discord)](docs/ru/bots.md) |
+| [Compose / Deployment](docs/en/compose.md) | [Compose / Развёртывание](docs/ru/compose.md) |
+| [Compose Examples (15 configs)](docs/en/compose-examples.md) | [Примеры Compose](docs/ru/compose-examples.md) |
+| [Cluster Orchestration](docs/en/cluster.md) | [Кластерная оркестрация](docs/ru/cluster.md) |
+| [FaaS / Serverless](docs/en/faas.md) | [FaaS / Serverless](docs/ru/faas.md) |
+| [Build & Versioning](docs/build.md) | [Сборка и версионирование](docs/build.md) |
 
 ---
 

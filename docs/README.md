@@ -1,15 +1,15 @@
-# dck
+# dck Documentation
 
-**dck** — 5 MB static binary, no daemon. Drop-in Docker replacement for Linux containers.
+**dck** — ~5 MB static binary, no daemon. Drop-in Docker replacement for Linux containers.
 
 ```
-dck pull nginx                  dck pull alpine
-dck run -d -p 80:80 nginx       dck run -it --rm alpine sh
-dck up                          dck cluster init
-dck serve                       dck fn deploy --name hello myfunc
+dck pull nginx            dck pull alpine
+dck run -d -p 80:80 nginx dck run -i -t --rm alpine sh
+dck up                    dck cluster init
+dck serve                 dck fn deploy --name hello myfunc
 ```
 
-## Documentation
+## Docs Index
 
 | English | Русский |
 |---|---|---|
@@ -17,6 +17,7 @@ dck serve                       dck fn deploy --name hello myfunc
 | [Deploying Websites](en/websites.md) | [Развёртывание сайтов](ru/websites.md) |
 | [Bots (Telegram, Discord)](en/bots.md) | [Боты (Telegram, Discord)](ru/bots.md) |
 | [Compose / Deployment](en/compose.md) | [Compose / Развёртывание](ru/compose.md) |
+| [Compose Examples (15 configs)](en/compose-examples.md) | [Примеры Compose (15 конфигураций)](ru/compose-examples.md) |
 | [Cluster Orchestration](en/cluster.md) | [Кластерная оркестрация](ru/cluster.md) |
 | [FaaS / Serverless](en/faas.md) | [FaaS / Serverless](ru/faas.md) |
 | [Build & Versioning](build.md) | [Сборка и версионирование](build.md) |
