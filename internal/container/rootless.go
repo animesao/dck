@@ -9,6 +9,8 @@ import (
 	"os/user"
 	"strconv"
 	"strings"
+
+	"dck/internal/network"
 )
 
 // IsRootless returns true if dck is running without root privileges
@@ -129,19 +131,22 @@ func SetupRootlessNetwork(pid int, containerID string) (string, error) {
 		return "", fmt.Errorf("slirp4netns: %s: %w", strings.TrimSpace(string(out)), err)
 	}
 
-	// slirp4netns assigns 10.0.2.100/24 by default
-	return "10.0.2.100", nil
+	ip, err := network.AllocateIP()
+	if err != nil {
+		return "10.0.2.100", nil
+	}
+	return ip, nil
 }
 
 // RootlessPortForward sets up port forwarding using rootlesskit port driver
 // For now, we use socat as a simple forwarding mechanism
 // Returns the PIDs of spawned processes for later cleanup.
-func RootlessPortForward(hostPort, containerPort int, protocol string) ([]int, error) {
+func RootlessPortForward(hostPort, containerPort int, protocol, containerIP string) ([]int, error) {
 	// Try rootlesskit first, fall back to socat
 	if _, err := exec.LookPath("rootlesskit"); err == nil {
 		cmd := exec.Command("rootlessctl", "add-ports",
 			fmt.Sprintf("127.0.0.1:%d/%s", hostPort, strings.ToUpper(protocol)),
-			fmt.Sprintf("10.0.2.100:%d", containerPort))
+			fmt.Sprintf("%s:%d", containerIP, containerPort))
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return nil, fmt.Errorf("rootlesskit port: %s: %w", strings.TrimSpace(string(out)), err)
 		}
@@ -153,7 +158,7 @@ func RootlessPortForward(hostPort, containerPort int, protocol string) ([]int, e
 		proto := strings.ToUpper(protocol)
 		cmd := exec.Command("socat",
 			fmt.Sprintf("%s-LISTEN:%d,reuseaddr,fork", proto, hostPort),
-			fmt.Sprintf("%s:10.0.2.100:%d", proto, containerPort))
+			fmt.Sprintf("%s:%s:%d", proto, containerIP, containerPort))
 		if err := cmd.Start(); err != nil {
 			return nil, fmt.Errorf("socat start: %w", err)
 		}

@@ -117,7 +117,8 @@ type Function struct {
 	UpdatedAt   time.Time         `json:"updated_at"`
 	InvokeCount int64             `json:"invoke_count"`
 	// Runtime state
-	ActiveContainers int `json:"active_containers"`
+	ActiveContainers int       `json:"active_containers"`
+	LastUsed         time.Time `json:"last_used"`
 }
 
 const (

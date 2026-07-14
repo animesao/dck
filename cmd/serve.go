@@ -4,8 +4,10 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"dck/internal/api"
 )
@@ -37,9 +39,21 @@ func Serve(args []string) {
 	}
 
 	if *daemon {
-		// Fork and run in background
-		fmt.Printf("Daemon mode: starting on %s:%d...\n", *host, *port)
-		// TODO: implement proper daemonization with background process
+		cmd := exec.Command("/proc/self/exe", append([]string{"serve",
+			"-H", *host,
+			"-p", fmt.Sprintf("%d", *port),
+		}, flag.Args()...)...)
+		cmd.SysProcAttr = &syscall.SysProcAttr{
+			Setpgid: true,
+		}
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Start(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error starting daemon: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Daemon started with PID %d\n", cmd.Process.Pid)
+		os.Exit(0)
 	}
 
 	if err := api.StartServer(*port, *host); err != nil {

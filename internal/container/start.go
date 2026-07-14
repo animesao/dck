@@ -215,13 +215,13 @@ func (c *Container) setupContainerResources(childPID int) {
 	}
 
 	if c.NeedsNetwork() && runtime.GOOS == "linux" {
-		if IsRootless() {
+				if IsRootless() {
 			if ip, err := SetupRootlessNetwork(childPID, c.ID); err != nil {
 				log.Warn("Rootless network: %v (container will run without network)", err)
 			} else {
 				c.IP = ip
 				for _, p := range c.Ports {
-					pids, err := RootlessPortForward(p.HostPort, p.ContainerPort, p.Protocol)
+					pids, err := RootlessPortForward(p.HostPort, p.ContainerPort, p.Protocol, c.IP)
 					if err != nil {
 						log.Warn("  port %d -> %d: %v", p.HostPort, p.ContainerPort, err)
 					} else {

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -450,16 +451,43 @@ func saveClusterConfigTo(path string) error {
 }
 
 func cpuCores() int {
-	// Fallback to runtime.NumCPU
-	return 0 // filled at runtime
+	return runtime.NumCPU()
 }
 
 func memTotal() int64 {
-	return 0 // filled at runtime
+	data, err := os.ReadFile("/proc/meminfo")
+	if err != nil {
+		return 0
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, "MemTotal:") {
+			parts := strings.Fields(line)
+			if len(parts) >= 2 {
+				val := int64(0)
+				fmt.Sscanf(parts[1], "%d", &val)
+				return val * 1024 // kB to bytes
+			}
+		}
+	}
+	return 0
 }
 
 func memAvail() int64 {
-	return 0 // filled at runtime
+	data, err := os.ReadFile("/proc/meminfo")
+	if err != nil {
+		return 0
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, "MemAvailable:") {
+			parts := strings.Fields(line)
+			if len(parts) >= 2 {
+				val := int64(0)
+				fmt.Sscanf(parts[1], "%d", &val)
+				return val * 1024 // kB to bytes
+			}
+		}
+	}
+	return 0
 }
 
 // GetMyAddress returns the best address for peer communication
