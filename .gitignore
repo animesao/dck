@@ -5,3 +5,4 @@ dck-linux
 *.out
 
 dck-linux-*
+cmd/VERSION
