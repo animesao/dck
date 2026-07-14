@@ -37,7 +37,7 @@ jobs:
         id: version
         run: |
           # Read current version from VERSION file
-          CURRENT=$(cat cmd/VERSION | tr -d ' \n')
+          CURRENT=$(cat VERSION | tr -d ' \n')
           echo "Current version: $CURRENT"
 
           # Get latest git tag version
@@ -90,10 +90,10 @@ jobs:
 
       - name: Update VERSION file
         run: |
-          echo "${{ steps.version.outputs.version }}" > cmd/VERSION
+          echo "${{ steps.version.outputs.version }}" > VERSION
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
-          git add cmd/VERSION
+          git add VERSION
           git commit -m "Bump version to ${{ steps.version.outputs.version }}"
           git tag "v${{ steps.version.outputs.version }}"
           git push origin main --tags
