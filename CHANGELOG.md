@@ -1,5 +1,75 @@
 # Changelog
 
+## 1.22.0 (2026-07-14)
+
+### Features
+- **Cluster orchestration**: `dck cluster init/join/leave/info/ls/node` — multi-node container orchestration
+- **Services**: `dck service create/ls/rm/scale/update` — replicated services with rolling updates
+- **FaaS / Serverless**: `dck fn deploy/ls/rm/call` — auto-scaling serverless functions with scale-to-zero
+- **Blueprints**: `dck blueprint list/info/install` + `blueprint repo add/remove/list` — pre-configured templates
+- **Docker-compatible REST API**: `dck serve [-d] [--token]` — works with Portainer, VS Code Dev Containers
+- **Compose secrets & configs**: Docker-style secret/config injection via `dck.toml` / `compose.yaml`
+- **Container events**: `dck events [--since <time>]` — real-time lifecycle event streaming
+- **Dynamic port management**: `dck port add/rm` — hot-add/remove port mappings without restart
+- **Container FS browser**: `dck fs ls/cat/tree/find` — browse stopped/running container filesystems
+- **Healthchecks**: `--healthcheck-*` flags — auto-restart on failure
+- **Startup scripts**: `--startup` flag with `@file` support, `DCK_*` env vars injection
+- **Named volumes**: `dck volume create/ls/rm/inspect/prune`
+- **Container export/import**: `dck export/import` — save and load container images
+- **Registry auth**: `dck login/logout` — authenticated registry access + `dck push`
+
+### Improvements
+- Rootless mode support (`internal/container/rootless.go`)
+- DNS service discovery for cluster (UDP 5353)
+- Systemd bootstrap auto-install on `dck run --restart always`
+- `dck set` now supports `--memory`, `--cpus`, `--disk`, `--restart`, `--workdir`, `-e`, `--entrypoint`, `--user`, `--readonly`, `--no-new-privs`, `-h`, `--network`
+- `dck up --generate` — generate dck.toml from existing containers
+- Multi-arch image resolution (`--platform`)
+- cgroups v2 resource limits for CPU, memory, disk
+
+## 1.21.0 (2026-07-01)
+
+### Features
+- Container commit: `dck commit <container> <image>:<tag>`
+- `dck build` — Dockerfile builder with `--no-cache`, `--build-arg`, multi-stage support
+- `dck system prune` — cleanup unused containers and images
+- `dck stop --all` — stop all running containers
+- `dck exec -i/-t` flags properly handled
+- `dck console` — auto-detect shell inside container
+- Improved attach with Unix socket (Ctrl+C safe)
+
+## 1.20.0 (2026-06-20)
+
+### Features
+- Dynamic port management: `dck port add/rm` — hot-add/remove iptables DNAT rules
+- Russian (ru) documentation mirror
+- `--ulimit` support in run flags
+
+### Bug Fixes
+- Fixed overlay mount ordering for disk limits
+- Fixed `dck exec` TTY handling
+
+## 1.19.0 (2026-06-17)
+
+### Features
+- Container FS browser: `dck fs ls/cat/tree/find`
+- `--healthcheck-*` flags with auto-restart on failure
+- `--startup` flag with `@file` inline script support
+- `DCK_*` environment variables injected for startup scripts
+
+## 1.18.0 (2026-06-15)
+
+### Features
+- `dck events` — real-time container event streaming
+- `dck volume create/ls/rm/inspect/prune` — named volume management
+- `dck export/import` — save/load images as tar.gz
+- `dck login/logout` — authenticated registry access
+- Multi-arch image resolution with `--platform` flag
+
+### Security
+- Rootless mode support (experimental)
+- No-new-privs flag support
+
 ## 1.17.0 (2026-06-24)
 
 ### Code Quality

@@ -9,7 +9,7 @@ dck up                        dck cluster init
 dck serve                     dck fn deploy --name hello myfunc
 ```
 
-Version: `1.21.70` — [GitHub](https://github.com/animesao/dck)
+Version: `1.22.0` — [GitHub](https://github.com/animesao/dck)
 
 ## CLI Command Reference
 
@@ -45,7 +45,7 @@ Version: `1.21.70` — [GitHub](https://github.com/animesao/dck)
 | Command | Description |
 |---------|-------------|
 | `dck logs [-f] [--tail <n>] <c>` | Show/follow/tail logs |
-| `dck stats [container]` | CPU, RAM, IO stats |
+| `dck stats [container] [--no-stream]` | CPU, RAM, IO stats (live or one-shot) |
 | `dck top <container>` | Running processes |
 | `dck info` | System-wide info |
 | `dck events` | Stream container events |
@@ -133,7 +133,7 @@ Version: `1.21.70` — [GitHub](https://github.com/animesao/dck)
 ### System
 | Command | Description |
 |---------|-------------|
-| `dck serve [-p 2375]` | Start REST API server |
+| `dck serve [-p 2375] [-H host] [-d] [--token <key>]` | Start REST API server (daemon mode, auth token) |
 | `dck system prune` | Clean up unused resources |
 | `dck update [--check]` | Self-update |
 | `dck bootstrap [--install\|--remove]` | Auto-start on boot |
@@ -151,7 +151,7 @@ Version: `1.21.70` — [GitHub](https://github.com/animesao/dck)
 | `-v S:D` | Volume mount |
 | `--volume / --vol S:D` | Volume mount (alias) |
 | `-e K=V` | Environment variable |
-| `--env-file <f>` | Env from file |
+| `--env-file <f>` | Env from file (one per line, `KEY=VAL` or `export KEY=VAL`) |
 | `-i` | Interactive (keep stdin) |
 | `-t` | Allocate TTY |
 | `--rm` | Auto-remove on exit |

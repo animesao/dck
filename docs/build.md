@@ -34,21 +34,21 @@ dck version   # → dck version 1.2.3
 
 ```bash
 go build -ldflags \
-  "-X dck/internal/build.version=$(cat cmd/VERSION) \
-   -X dck/internal/build.date=$(date -u +%FT%TZ) \
-   -X dck/internal/build.commit=$(git rev-parse --short HEAD)" \
+  "-X dck/cmd.version=$(cat cmd/VERSION) \
+   -X dck/cmd.buildDate=$(date -u +%FT%TZ) \
+   -X dck/cmd.buildCommit=$(git rev-parse --short HEAD)" \
   -o dck .
 ```
 
-Where `internal/build` package contains:
+The `cmd` package (in `cmd/version.go`) reads the embedded `VERSION` file and can have variables overridden via `ldflags`:
 
 ```go
-package build
+package cmd
 
 var (
-    version string
-    date    string
-    commit  string
+    version     string  // set via -X dck/cmd.version=<ver>
+    buildDate   string  // set via -X dck/cmd.buildDate=<date>
+    buildCommit string  // set via -X dck/cmd.buildCommit=<hash>
 )
 ```
 
