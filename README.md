@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.22.0-blue?style=flat-square">
+  <img src="https://img.shields.io/badge/version-1.22.4-blue?style=flat-square">
   <img src="https://img.shields.io/badge/go-1.21%2B-00ADD8?style=flat-square&logo=go">
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square">
   <img src="https://img.shields.io/badge/no%20daemon-%E2%9C%93-brightgreen?style=flat-square">
@@ -732,7 +732,7 @@ dck run -d
 
 ## Changelog
 
-**v1.22.0** — Current release. Cluster orchestration, FaaS, blueprints, services, compose secrets & configs. Container FS browser, healthchecks, startup scripts, dynamic ports, events, stats, Docker-compatible REST API.
+**v1.22.4** — Current release. Cluster orchestration, FaaS, blueprints, services, compose secrets & configs. Container FS browser, healthchecks, startup scripts, dynamic ports, events, stats, Docker-compatible REST API.
 
 **v1.20.0** — Dynamic port management (`dck port add/rm`). Russian (ru) docs.
 

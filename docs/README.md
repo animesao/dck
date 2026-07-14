@@ -9,7 +9,7 @@ dck up                        dck cluster init
 dck serve                     dck fn deploy --name hello myfunc
 ```
 
-Version: `1.22.0` — [GitHub](https://github.com/animesao/dck)
+Version: `1.22.4` — [GitHub](https://github.com/animesao/dck)
 
 ## CLI Command Reference
 

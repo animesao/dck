@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.22.4 (2026-07-14)
+
+- CI auto-bump after install script fix
+- Single `VERSION` source of truth (removed `cmd/VERSION`)
+- Removed `//go:embed VERSION`, injected via `-X dck/cmd.version` only
+
+## 1.22.3 (2026-07-14)
+
+- CI auto-bump after release.yml fix
+
+## 1.22.2 (2026-07-14)
+
+- CI auto-bump
+
+## 1.22.1 (2026-07-14)
+
+- CI auto-bump after first 1.22.0 release
+
 ## 1.22.0 (2026-07-14)
 
 ### Features
