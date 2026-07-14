@@ -22,34 +22,30 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -tags netgo -ldflags="-s -w" -o d
 
 ## Version injection
 
-Version is embedded from `cmd/VERSION`:
+Version is injected via `ldflags` from the root `VERSION` file:
 
-```
-echo "1.2.3" > cmd/VERSION
-go build -o dck .
+```bash
+VERSION=$(cat VERSION)
+go build -ldflags="-X dck/cmd.version=$VERSION" -o dck .
 dck version   # → dck version 1.2.3
 ```
 
-### With build date and commit (recommended for releases)
+The single source of truth is `VERSION` — edit only this file.
+
+### Using Makefile
 
 ```bash
-go build -ldflags \
-  "-X dck/cmd.version=$(cat cmd/VERSION) \
-   -X dck/cmd.buildDate=$(date -u +%FT%TZ) \
-   -X dck/cmd.buildCommit=$(git rev-parse --short HEAD)" \
-  -o dck .
+make build   # reads VERSION, injects via -X, produces dck-linux-amd64
 ```
 
-The `cmd` package (in `cmd/version.go`) reads the embedded `VERSION` file and can have variables overridden via `ldflags`:
+### CI / goreleaser
+
+Both CI workflows (`build.yml`, `release.yml`) read `VERSION`, bump it, and pass via `-X dck/cmd.version=<ver>`. Goreleaser uses git tag via `{{ .Version }}`.
+
+### Dev build (without ldflags)
 
 ```go
-package cmd
-
-var (
-    version     string  // set via -X dck/cmd.version=<ver>
-    buildDate   string  // set via -X dck/cmd.buildDate=<date>
-    buildCommit string  // set via -X dck/cmd.buildCommit=<hash>
-)
+var version = "dev"   // shown when built without -X
 ```
 
 ## Binary size
